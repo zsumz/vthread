@@ -2,6 +2,81 @@ use crate::{Runtime, local_scope, yield_now};
 use std::{cell::Cell, rc::Rc, thread};
 
 #[test]
+fn local_failure_cancellation_preserves_the_error_and_drains_siblings() {
+    use crate::{Error, park_pair};
+    let runtime = Runtime::new().unwrap();
+    runtime
+        .scope(|scope| {
+            scope.spawn("parent", || {
+                let dropped = Cell::new(false);
+                struct Guard<'a>(&'a Cell<bool>);
+                impl Drop for Guard<'_> {
+                    fn drop(&mut self) {
+                        self.0.set(true);
+                    }
+                }
+                let result = local_scope::<()>(|local| {
+                    local.spawn("sibling", || {
+                        let _guard = Guard(&dropped);
+                        let (park, _wake) = park_pair();
+                        park.park()
+                    })?;
+                    yield_now()?;
+                    Err(Error::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, "bad frame")))
+                });
+                assert!(matches!(result, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::InvalidData));
+                assert!(dropped.get());
+                assert!(!crate::cancellation_token().unwrap().is_cancelled());
+                local_scope(|local| {
+                    assert_eq!(local.spawn("recovered", || 42)?.join()?, 42);
+                    Ok(())
+                }).unwrap();
+            })?.join()
+        })
+        .unwrap();
+}
+
+#[test]
+fn local_deadline_remains_a_deadline_after_cleanup_cancellation() {
+    use crate::{Error, local_scope_with_deadline};
+    use std::time::{Duration, Instant};
+    let runtime = Runtime::new().unwrap();
+    runtime
+        .scope(|scope| {
+            scope
+                .spawn("parent", || {
+                    let expired = local_scope_with_deadline(Instant::now(), |_| Ok(()));
+                    assert!(matches!(expired, Err(Error::DeadlineExceeded)));
+                    let result = local_scope_with_deadline(
+                        Instant::now() + Duration::from_millis(20),
+                        |local| {
+                            local
+                                .spawn("deadline", || crate::sleep(Duration::from_secs(5)))?
+                                .join()?
+                        },
+                    );
+                    assert!(matches!(result, Err(Error::DeadlineExceeded)));
+                    let drained = local_scope_with_deadline(
+                        Instant::now() + Duration::from_millis(20),
+                        |local| {
+                            local.spawn("unjoined-deadline", || {
+                                crate::sleep(Duration::from_secs(5))
+                            })?;
+                            Ok(())
+                        },
+                    );
+                    assert!(matches!(drained, Err(Error::DeadlineExceeded)));
+                    assert!(!crate::cancellation_token().unwrap().is_cancelled());
+                    yield_now().unwrap();
+                })?
+                .join()
+        })
+        .unwrap();
+    let snapshot = runtime.snapshot();
+    assert_eq!((snapshot.active, snapshot.timers), (0, 0));
+}
+
+#[test]
 fn borrowed_non_send_children_and_results_stay_on_the_parent_carrier() {
     let runtime = Runtime::builder().carriers(2).build().unwrap();
     runtime

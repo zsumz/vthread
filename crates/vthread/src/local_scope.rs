@@ -155,6 +155,9 @@ impl Drop for LocalScope<'_, '_> {
 }
 
 /// Runs borrowed work on the current carrier, reclaiming all children before returning.
+/// Cleanup cancellation preserves a body error or already-expired deadline. An unobserved
+/// child failure found while draining takes precedence; otherwise policy is checked again
+/// after successful draining, so a deadline or cancellation during the drain still applies.
 ///
 /// ```compile_fail
 /// vthread::local_scope(|scope| Ok(scope.spawn("escape", || 1)?));
@@ -204,7 +207,8 @@ fn run_local<'env, R>(
             records: RefCell::new(Vec::new()),
         };
         let outcome = catch_unwind(AssertUnwindSafe(|| body(&scope)));
-        if !matches!(&outcome, Ok(Ok(_))) || scope.options.check().is_err() {
+        let policy = scope.options.check();
+        if !matches!(&outcome, Ok(Ok(_))) || policy.is_err() {
             scope.cancel();
         }
         let drained = scope.drain();
@@ -212,8 +216,11 @@ fn run_local<'env, R>(
             Err(payload) => resume_unwind(payload),
             Ok(result) => {
                 drained?;
+                // Preserve the reason for cleanup before its cancellation changes policy.
+                let value = result?;
+                policy?;
                 scope.options.check()?;
-                result
+                Ok(value)
             }
         }
     })

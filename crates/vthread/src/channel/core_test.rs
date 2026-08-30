@@ -119,7 +119,7 @@ fn inherited_deadlines_remove_channel_waits_without_transferring_values() {
                 .spawn("parent", || {
                     let (sender, receiver) = bounded(1, 1).unwrap();
                     sender.try_send(1).unwrap();
-                    local_scope_with_deadline(
+                    let error = local_scope_with_deadline(
                         Instant::now() + Duration::from_millis(20),
                         |local| {
                             let child = local.spawn("send-deadline", || sender.send(2))?;
@@ -129,10 +129,11 @@ fn inherited_deadlines_remove_channel_waits_without_transferring_values() {
                             Ok(())
                         },
                     )
-                    .unwrap_or_else(|error| assert!(matches!(error, Error::Cancelled)));
+                    .unwrap_err();
+                    assert!(matches!(error, Error::DeadlineExceeded));
                     assert_eq!(sender.waiting(), 0);
                     assert_eq!(receiver.try_recv().unwrap(), 1);
-                    local_scope_with_deadline(
+                    let error = local_scope_with_deadline(
                         Instant::now() + Duration::from_millis(20),
                         |local| {
                             let child = local.spawn("recv-deadline", || receiver.recv())?;
@@ -140,7 +141,8 @@ fn inherited_deadlines_remove_channel_waits_without_transferring_values() {
                             Ok(())
                         },
                     )
-                    .unwrap_or_else(|error| assert!(matches!(error, Error::Cancelled)));
+                    .unwrap_err();
+                    assert!(matches!(error, Error::DeadlineExceeded));
                     assert_eq!(receiver.waiting(), 0);
                     sender.try_send(42).unwrap();
                     assert_eq!(receiver.try_recv().unwrap(), 42);
