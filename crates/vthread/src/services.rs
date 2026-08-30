@@ -40,8 +40,8 @@ impl Services {
         })
     }
     pub(crate) fn stop(&self) {
-        self.reactor.stop();
         self.blocking.stop();
+        self.reactor.stop();
     }
     pub(crate) fn join(&self) {
         self.reactor.join();

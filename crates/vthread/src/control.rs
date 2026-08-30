@@ -85,6 +85,11 @@ impl Shared {
     }
 
     pub(crate) fn request_stop(&self) {
+        // Take ownership of queued native cleanup before any carrier can observe stop
+        // and reclaim a lease. Otherwise a carrier can steal a queued capture destructor.
+        if let Some(services) = self.services.get() {
+            services.blocking.stop();
+        }
         let tokens = {
             let mut state = lock(&self.state);
             state.accepting = false;
@@ -99,7 +104,7 @@ impl Shared {
             inbox.stop();
         }
         if let Some(services) = self.services.get() {
-            services.stop();
+            services.reactor.stop();
         }
         for token in tokens {
             token.cancel();
