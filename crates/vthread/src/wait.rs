@@ -41,6 +41,7 @@ pub(crate) enum WaitBegin {
     Park(ParkRequest),
 }
 
+#[derive(Clone)]
 pub(crate) struct WaitRegistration {
     pub(crate) state: Weak<Mutex<WaitState>>,
 }
@@ -48,6 +49,16 @@ pub(crate) struct WaitRegistration {
 #[derive(Clone)]
 pub(crate) struct WaitCell {
     state: Arc<Mutex<WaitState>>,
+}
+
+pub(crate) struct ParkGuard {
+    wait: WaitCell,
+    token: ParkToken,
+}
+impl Drop for ParkGuard {
+    fn drop(&mut self) {
+        self.wait.rollback(self.token);
+    }
 }
 
 impl Default for WaitCell {
@@ -72,6 +83,23 @@ pub(crate) struct WaitState {
 }
 
 impl WaitCell {
+    pub(crate) fn guard(&self, token: ParkToken) -> ParkGuard {
+        ParkGuard {
+            wait: self.clone(),
+            token,
+        }
+    }
+
+    pub(crate) fn identity(&self) -> u64 {
+        lock(&self.state).id
+    }
+
+    pub(crate) fn registration(&self) -> WaitRegistration {
+        WaitRegistration {
+            state: Arc::downgrade(&self.state),
+        }
+    }
+
     pub(crate) fn new() -> Self {
         let id = NEXT_WAIT_ID
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {

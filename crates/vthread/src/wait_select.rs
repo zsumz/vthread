@@ -9,6 +9,12 @@ use crate::{Error, Result, TaskId, signal::lock};
 use super::{WaitCell, WaitHub, WaitRegistration, WaitState, WakeCause, WakeNotice};
 
 impl WaitRegistration {
+    pub(crate) fn select_cancelled(&self, token: ParkToken) -> bool {
+        self.state
+            .upgrade()
+            .is_some_and(|state| select_generation(&state, token, WakeCause::Cancelled))
+    }
+
     pub(crate) fn select_timeout(&self, token: ParkToken) -> Result<bool> {
         let state = self
             .state

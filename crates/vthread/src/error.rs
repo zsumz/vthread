@@ -38,6 +38,12 @@ impl fmt::Display for PanicReport {
 /// A runtime, scheduling, parking, or task failure.
 #[derive(Debug)]
 pub enum Error {
+    /// The current task or an ancestor scope requested cancellation.
+    Cancelled,
+    /// The earliest inherited deadline expired at a runtime boundary.
+    DeadlineExceeded,
+    /// The per-task context reached its configured entry limit.
+    TaskLocalCapacity,
     /// A builder value violates the runtime contract.
     InvalidConfiguration {
         /// Name of the invalid field.
@@ -106,6 +112,9 @@ impl Error {
 impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Cancelled => formatter.write_str("scope cancellation requested"),
+            Self::DeadlineExceeded => formatter.write_str("inherited deadline exceeded"),
+            Self::TaskLocalCapacity => formatter.write_str("task-local entry capacity reached"),
             Self::InvalidConfiguration { field, message } => {
                 write!(formatter, "invalid {field}: {message}")
             }

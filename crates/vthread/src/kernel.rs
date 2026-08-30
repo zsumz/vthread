@@ -4,6 +4,8 @@
 mod kernel_cleanup;
 #[path = "kernel_drive.rs"]
 mod kernel_drive;
+#[path = "kernel_revoked.rs"]
+mod kernel_revoked;
 
 use crate::{
     CarrierId, CarrierSnapshot, CarrierStatus, RuntimeStats, StackSnapshot, TaskFailure,
@@ -14,11 +16,16 @@ use crate::{
     timer::TimerQueue,
     wait::WaitRegistration,
 };
+use crate::{
+    context::Execution, local_carrier::LocalCarrier, task_context::TaskContext,
+    task_fiber::TaskFiber,
+};
 use std::{
     collections::{BTreeMap, VecDeque},
+    rc::Rc,
     sync::Arc,
 };
-use vthread_stack::{Fiber, ParkToken, StackPool};
+use vthread_stack::{Fiber, ParkToken};
 
 pub(crate) struct Kernel {
     pub(super) shared: Arc<Shared>,
@@ -28,14 +35,15 @@ pub(crate) struct Kernel {
     pub(super) parked: BTreeMap<ParkToken, ParkedTask>,
     pub(super) in_flight: Option<Task>,
     pub(super) pending: Option<SpawnPacket>,
-    pub(super) stacks: StackPool,
+    pub(crate) local: Rc<LocalCarrier>,
     pub(super) timers: TimerQueue,
     pub(super) stats: RuntimeStats,
 }
 
-pub(super) struct Task {
-    pub(super) fiber: Option<Fiber>,
-    pub(super) record: SharedTaskRecord,
+pub(crate) struct Task {
+    pub(crate) fiber: Option<TaskFiber>,
+    pub(crate) data: Rc<TaskContext>,
+    pub(crate) record: SharedTaskRecord,
 }
 
 pub(super) struct ParkedTask {
@@ -54,19 +62,25 @@ impl Kernel {
             parked: BTreeMap::new(),
             in_flight: None,
             pending: None,
-            stacks: StackPool::new(config.stack_size(), config.stack_cache_capacity()),
+            local: Rc::new(LocalCarrier::new(config)),
             timers: TimerQueue::new(),
             stats: RuntimeStats::default(),
         }
     }
 
     pub(crate) fn receive(&mut self) {
+        while let Some(task) = self.local.starts.borrow_mut().pop_front() {
+            self.shared
+                .transition(&task.record, |record| record.status = TaskStatus::Ready);
+            self.ready.push_back(task);
+        }
         for _ in 0..self.shared.config.carrier_queue_capacity() {
             self.pending = self.inbox.pop();
             if self.pending.is_none() {
                 break;
             }
-            let stack = match self.stacks.acquire() {
+            let acquired = self.local.stacks.borrow_mut().acquire();
+            let stack = match acquired {
                 Ok(stack) => stack,
                 Err(_) => {
                     self.discard_pending(TaskFailure::StackAllocation);
@@ -79,7 +93,11 @@ impl Kernel {
             self.shared
                 .transition(&packet.record, |record| record.status = TaskStatus::Ready);
             self.in_flight = Some(Task {
-                fiber: Some(fiber),
+                fiber: Some(TaskFiber::Owned(Some(fiber))),
+                data: Rc::new(TaskContext::new(
+                    crate::signal::lock(&packet.record).options.clone(),
+                    self.shared.config.task_local_capacity(),
+                )),
                 record: Arc::clone(&packet.record),
             });
             self.pending = None;
@@ -87,6 +105,15 @@ impl Kernel {
                 .push_back(self.in_flight.take().expect("new task"));
         }
         self.publish(CarrierStatus::Running);
+    }
+
+    pub(crate) fn execution(&self, task: &Task) -> Execution {
+        Execution {
+            record: Arc::clone(&task.record),
+            shared: Arc::clone(&self.shared),
+            local: Rc::clone(&self.local),
+            data: Rc::clone(&task.data),
+        }
     }
 
     pub(crate) fn publish(&self, status: CarrierStatus) {
@@ -112,7 +139,7 @@ impl Kernel {
             pending_starts: self.inbox.pending(),
             pending_wakes: self.inbox.hub.pending(),
             stats,
-            stacks: StackSnapshot::from(self.stacks.snapshot()),
+            stacks: StackSnapshot::from(self.local.stacks.borrow().snapshot()),
         }
     }
 }

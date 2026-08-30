@@ -157,3 +157,29 @@ fn a_stalled_parked_scope_is_cleaned_before_reuse() {
         })
         .expect("runtime and parker remain reusable");
 }
+#[test]
+fn an_unjoined_result_destructor_panic_does_not_kill_the_carrier() {
+    struct BadDrop;
+    impl Drop for BadDrop {
+        fn drop(&mut self) {
+            panic!("result destructor");
+        }
+    }
+    let runtime = crate::Runtime::new().unwrap();
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let result = runtime.scope(|scope| {
+        drop(scope.spawn("unjoined", move || {
+            rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+            BadDrop
+        })?);
+        tx.send(()).unwrap();
+        Ok(())
+    });
+    assert!(matches!(result, Err(crate::Error::TaskPanicked { .. })));
+    runtime
+        .scope(|scope| {
+            assert_eq!(scope.spawn("still alive", || 42)?.join()?, 42);
+            Ok(())
+        })
+        .unwrap();
+}

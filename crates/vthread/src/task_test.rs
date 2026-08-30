@@ -8,6 +8,9 @@ fn snapshots_copy_operator_visible_state() {
     let record = TaskRecord {
         id: TaskId::new(3),
         scope: 1,
+        parent: None,
+        options: crate::options::TaskOptions::root(crate::ScopeOptions::default(), 4),
+        completion: Arc::new(crate::completion::Completion::new(4)),
         carrier: crate::CarrierId(0),
         deadline: None,
         failure: None,

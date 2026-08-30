@@ -17,12 +17,14 @@ pub fn sleep(duration: Duration) -> Result<()> {
 
 /// Parks the current virtual thread until a monotonic deadline.
 pub fn sleep_until(deadline: Instant) -> Result<()> {
+    crate::checkpoint()?;
     if deadline <= Instant::now() {
         return Ok(());
     }
     let (parker, _unparker) = park_pair();
     match parker.park_until(deadline)? {
         ParkOutcome::TimedOut => Ok(()),
+        ParkOutcome::Cancelled => Err(Error::Cancelled),
         _ => Err(Error::Invariant(
             "private sleep parker woke without timeout",
         )),

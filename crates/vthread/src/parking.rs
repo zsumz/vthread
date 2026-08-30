@@ -36,7 +36,7 @@ pub enum UnparkResult {
 
 /// The single-consumer side of a bounded one-permit wake primitive.
 pub struct Parker {
-    wait: WaitCell,
+    pub(crate) wait: WaitCell,
 }
 
 impl Parker {
@@ -60,17 +60,42 @@ impl Parker {
 
     fn park_deadline(&self, deadline: Option<Instant>) -> Result<ParkOutcome> {
         let mounted = context::current().ok_or(Error::OutsideVThread)?;
+        let execution = mounted.execution()?;
+        execution.data.check()?;
+        let policy = &execution.data.options;
+        let unmasked = execution.data.masked.get() == 0;
+        let deadline = deadline
+            .into_iter()
+            .chain(policy.deadline.filter(|_| unmasked))
+            .min();
         let hub = mounted.hub();
         match self.wait.begin(mounted.task_id(), &hub, deadline)? {
             WaitBegin::Immediate(cause) => Ok(ParkOutcome::from(cause)),
             WaitBegin::Park(request) => {
                 let token = request.token();
+                let _generation = self.wait.guard(token);
+                let _subscription = if unmasked {
+                    match policy
+                        .cancellation
+                        .register(token, self.wait.registration())
+                    {
+                        Ok(subscription) => Some(subscription),
+                        Err(error) => {
+                            self.wait.rollback(token);
+                            return Err(error);
+                        }
+                    }
+                } else {
+                    None
+                };
                 let suspension = vthread_stack::Suspension::Park(request);
                 if let Err(error) = vthread_stack::suspend(suspension) {
                     self.wait.rollback(token);
                     return Err(Error::from(error));
                 }
-                self.wait.finish(token).map(ParkOutcome::from)
+                let cause = self.wait.finish(token)?;
+                execution.data.check()?;
+                Ok(ParkOutcome::from(cause))
             }
         }
     }

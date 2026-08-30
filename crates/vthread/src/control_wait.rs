@@ -3,7 +3,7 @@
 use std::time::Instant;
 
 use super::Shared;
-use crate::{Error, Result, SuspensionReason, TaskFailure, TaskId, TaskStatus, signal::lock};
+use crate::{Error, Result, TaskFailure, TaskId, TaskStatus, signal::lock};
 
 impl Shared {
     pub(crate) fn wait(&self, scope: u64, target: Option<TaskId>) -> Result<()> {
@@ -30,16 +30,19 @@ impl Shared {
                 }
                 if !record.status.is_terminal() {
                     active += 1;
-                    quiescent &= record.status == TaskStatus::Suspended(SuspensionReason::Park)
+                    quiescent &= matches!(record.status, TaskStatus::Suspended(_))
                         && record.deadline.is_none();
                 }
             }
             if active == 0 || (target.is_some() && target_done && stalled.is_none()) {
                 return stalled.map_or(Ok(()), |active| Err(Error::RuntimeStalled { active }));
             }
-            let recovering = state.aborting.is_some() || !state.accepting;
+            let scope_state = state.scopes.get(&scope);
+            let recovering =
+                scope_state.is_some_and(|scope| scope.aborting.is_some()) || !state.accepting;
+            let supervised = scope_state.is_some_and(|scope| scope.supervised);
             quiescent &= self.inboxes.iter().all(|inbox| inbox.hub.pending() == 0);
-            let deadline = if quiescent && !recovering && stalled.is_none() {
+            let deadline = if quiescent && !supervised && !recovering && stalled.is_none() {
                 let since = *quiescent_since.get_or_insert_with(Instant::now);
                 self.config
                     .stall_timeout()
@@ -50,7 +53,9 @@ impl Shared {
             };
             if deadline.is_some_and(|deadline| deadline <= Instant::now()) {
                 stalled = Some(active);
-                state.aborting = Some(TaskFailure::ScopeStalled);
+                if let Some(scope) = state.scopes.get_mut(&scope) {
+                    scope.aborting = Some(TaskFailure::ScopeStalled);
+                }
                 drop(state);
                 for inbox in &self.inboxes {
                     inbox.abort(scope, TaskFailure::ScopeStalled);

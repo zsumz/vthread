@@ -2,6 +2,8 @@
 
 #[path = "control_admission.rs"]
 mod control_admission;
+#[path = "control_scope.rs"]
+mod control_scope;
 #[path = "control_wait.rs"]
 mod control_wait;
 
@@ -11,8 +13,8 @@ use std::{
 };
 
 use crate::{
-    CarrierId, CarrierSnapshot, CarrierStatus, Error, Result, RuntimeConfig, RuntimeSnapshot,
-    TaskFailure, TaskId, TaskStatus,
+    CarrierId, CarrierSnapshot, CarrierStatus, RuntimeConfig, RuntimeSnapshot, TaskFailure, TaskId,
+    TaskStatus,
     inbox::Inbox,
     signal::{Signal, lock},
     task::{SharedTaskRecord, TaskRecord},
@@ -30,7 +32,7 @@ pub(crate) struct Shared {
 struct State {
     accepting: bool,
     active_scope: Option<u64>,
-    aborting: Option<TaskFailure>,
+    scopes: BTreeMap<u64, control_scope::ScopeState>,
     next_scope: u64,
     next_task: u64,
     cursor: usize,
@@ -61,7 +63,7 @@ impl Shared {
             state: Mutex::new(State {
                 accepting: true,
                 active_scope: None,
-                aborting: None,
+                scopes: BTreeMap::new(),
                 next_scope: 1,
                 next_task: 1,
                 cursor: 0,
@@ -78,58 +80,21 @@ impl Shared {
         }
     }
 
-    pub(crate) fn begin_scope(&self) -> Result<u64> {
-        let mut state = lock(&self.state);
-        if !state.accepting {
-            return Err(Error::RuntimeStopped);
-        }
-        if state.active_scope.is_some() {
-            return Err(Error::NestedScope);
-        }
-        let id = state.next_scope;
-        state.next_scope = id
-            .checked_add(1)
-            .ok_or(Error::Invariant("scope id space exhausted"))?;
-        state.active_scope = Some(id);
-        Ok(id)
-    }
-
-    pub(crate) fn finish_scope(&self, scope: u64) {
-        let mut state = lock(&self.state);
-        state
-            .records
-            .retain(|_, record| lock(record).scope != scope);
-        state.active_scope = None;
-        state.aborting = None;
-    }
-
-    pub(crate) fn unobserved(&self, scope: u64) -> Result<()> {
-        for record in lock(&self.state).records.values() {
-            let record = lock(record);
-            if record.scope != scope || record.outcome_observed {
-                continue;
-            }
-            if let Some(reason) = record.failure {
-                return Err(Error::TaskAborted {
-                    task: record.id,
-                    reason,
-                });
-            }
-            if let Some(panic) = &record.panic {
-                return Err(Error::task_panicked(
-                    record.id,
-                    record.name.to_string(),
-                    panic.clone(),
-                ));
-            }
-        }
-        Ok(())
-    }
-
     pub(crate) fn request_stop(&self) {
-        lock(&self.state).accepting = false;
+        let tokens = {
+            let mut state = lock(&self.state);
+            state.accepting = false;
+            state
+                .scopes
+                .values()
+                .map(|scope| scope.options.cancellation.clone())
+                .collect::<Vec<_>>()
+        };
         for inbox in &self.inboxes {
             inbox.stop();
+        }
+        for token in tokens {
+            token.cancel();
         }
         self.changed.notify();
     }
@@ -177,11 +142,20 @@ impl Shared {
         } else {
             TaskStatus::Completed
         };
+        if let Some(scope) = state.scopes.get_mut(&record.scope) {
+            match record.status {
+                TaskStatus::Aborted => scope.aborted += 1,
+                TaskStatus::Panicked => scope.panicked += 1,
+                _ => scope.completed += 1,
+            }
+        }
+        let completion = Arc::clone(&record.completion);
         state.active -= 1;
         state.loads[record.carrier.0] -= 1;
         state.activity = state.activity.wrapping_add(1);
         drop(record);
         drop(state);
+        completion.complete();
         self.changed.notify();
     }
 

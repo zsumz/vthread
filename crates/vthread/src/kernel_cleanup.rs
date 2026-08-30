@@ -30,6 +30,8 @@ impl Kernel {
             self.discard_in_flight(reason);
         }
         let retained_flight = self.in_flight.take();
+        let local = self.local.starts.take();
+        self.ready.extend(local);
         for _ in 0..self.ready.len() {
             let task = self.ready.pop_front().expect("ready task");
             if scope.is_none_or(|scope| lock(&task.record).scope == scope) {
@@ -73,14 +75,17 @@ impl Kernel {
         self.shared.complete(&record, Some(reason));
     }
 
-    fn discard_in_flight(&mut self, reason: TaskFailure) {
+    pub(super) fn discard_in_flight(&mut self, reason: TaskFailure) {
+        let execution = self.execution(self.in_flight.as_ref().expect("owned task"));
+        execution.data.closing.set(true);
         let task = self.in_flight.as_mut().expect("owned task");
         let record = Arc::clone(&task.record);
         let fiber = task.fiber.take();
         {
             // Destructors still belong to this task and must not block its carrier
             // through scope entry, joins, or explicit runtime shutdown.
-            let _mounted = context::mount(lock(&record).id, Arc::clone(&self.inbox.hub));
+            let _cleanup =
+                crate::task_context::TaskCleanup::new(execution, Arc::clone(&self.inbox.hub));
             let _ = catch_unwind(AssertUnwindSafe(|| drop(fiber)));
         }
         self.in_flight = None;

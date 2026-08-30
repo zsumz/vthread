@@ -55,15 +55,27 @@ impl Runtime {
 
     /// Runs a scope body on an ordinary OS caller and drains all admitted children.
     ///
-    /// Only one scope may be active per runtime. Runtime operations that wait for
-    /// children are rejected inside a virtual thread.
+    /// One lexical root scope may be active per runtime; supervisors may coexist.
+    /// Virtual callers use local_scope for borrowed, nested ownership.
     pub fn scope<R>(&self, body: impl FnOnce(&Scope<'_>) -> Result<R>) -> Result<R> {
+        self.scope_with(crate::ScopeOptions::default(), body)
+    }
+
+    /// Runs a structured scope with an optional inherited monotonic deadline.
+    pub fn scope_with<R>(
+        &self,
+        options: crate::ScopeOptions,
+        body: impl FnOnce(&Scope<'_>) -> Result<R>,
+    ) -> Result<R> {
         if context::current().is_some() {
             return Err(Error::InsideVThread);
         }
-        let id = self.shared.begin_scope()?;
+        let id = self.shared.begin_owned(options, false)?;
         let scope = Scope::new(self, id);
         let result = catch_unwind(AssertUnwindSafe(|| body(&scope)));
+        if !matches!(&result, Ok(Ok(_))) {
+            scope.cancel();
+        }
         let drained = self.shared.wait(id, None);
         let unobserved = self.shared.unobserved(id);
         self.shared.finish_scope(id);
@@ -87,24 +99,34 @@ impl Runtime {
     ///
     /// This cannot preempt CPU loops, native blocking calls, or FFI. Such work may
     /// delay shutdown indefinitely. Calling shutdown inside a virtual thread is rejected.
-    pub fn shutdown(&self) -> Result<()> {
+    pub fn shutdown(&self) -> Result<crate::ShutdownReport> {
         if context::current().is_some() {
             return Err(Error::InsideVThread);
         }
         self.shared.request_stop();
         self.join_workers();
-        Ok(())
+        let snapshot = self.snapshot();
+        Ok(crate::ShutdownReport {
+            completed: snapshot.stats.completed,
+            panicked: snapshot.stats.panicked,
+            aborted: snapshot.stats.aborted,
+            failed_carriers: snapshot
+                .carriers
+                .iter()
+                .filter(|carrier| carrier.status == crate::CarrierStatus::Failed)
+                .count(),
+        })
     }
 
-    pub(crate) fn spawn<'scope, T: Send + 'static, F: FnOnce() -> T + Send + 'static>(
-        &'scope self,
+    pub(crate) fn spawn<T: Send + 'static, F: FnOnce() -> T + Send + 'static>(
+        &self,
         scope: u64,
         name: String,
         entry: F,
-    ) -> Result<JoinHandle<'scope, T>> {
+    ) -> Result<JoinHandle<T>> {
         let spawned = self.shared.submit(scope, name, entry)?;
         Ok(JoinHandle::new(
-            self,
+            Arc::clone(&self.shared),
             spawned.id,
             spawned.name,
             spawned.cell,

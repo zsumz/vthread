@@ -15,11 +15,17 @@ pub struct RuntimeConfig {
     stack_size: usize,
     stack_cache_capacity: usize,
     carriers: usize,
+    task_local_capacity: usize,
     carrier_queue_capacity: usize,
     stall_timeout: Option<Duration>,
 }
 
 impl RuntimeConfig {
+    /// Maximum initialized task-local keys per virtual thread.
+    pub fn task_local_capacity(self) -> usize {
+        self.task_local_capacity
+    }
+
     /// Number of persistent carrier threads.
     pub fn carriers(self) -> usize {
         self.carriers
@@ -57,6 +63,7 @@ impl Default for RuntimeConfig {
             stack_size: DEFAULT_STACK_SIZE,
             stack_cache_capacity: DEFAULT_STACK_CACHE,
             carriers: 1,
+            task_local_capacity: 64,
             carrier_queue_capacity: 256,
             stall_timeout: Some(Duration::from_secs(1)),
         }
@@ -70,6 +77,12 @@ pub struct RuntimeBuilder {
 }
 
 impl RuntimeBuilder {
+    /// Bounds initialized task-local keys per virtual thread.
+    pub fn task_local_capacity(mut self, capacity: usize) -> Self {
+        self.config.task_local_capacity = capacity;
+        self
+    }
+
     /// Sets the number of persistent carriers; started tasks never migrate.
     pub fn carriers(mut self, count: usize) -> Self {
         self.config.carriers = count;

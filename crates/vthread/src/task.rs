@@ -6,7 +6,7 @@ use std::{
     time::Instant,
 };
 
-use crate::PanicReport;
+use crate::{PanicReport, completion::Completion, options::TaskOptions};
 
 /// Stable identity assigned by one runtime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -38,6 +38,10 @@ impl CarrierId {
 /// Why a carrier reclaimed a task without normal completion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TaskFailure {
+    /// The borrowed scope exited and revoked its remaining child stacks.
+    ScopeClosed,
+    /// The explicit supervisor was shut down or dropped.
+    SupervisorStopped,
     /// No live child could progress within the configured stall grace period.
     ScopeStalled,
     /// Runtime shutdown was requested.
@@ -53,6 +57,10 @@ pub enum TaskFailure {
 pub enum SuspensionReason {
     /// Explicit cooperative yield.
     YieldNow,
+    /// Waiting for a child stack to be reclaimed.
+    Join(TaskId),
+    /// Draining a borrowed local scope.
+    ScopeDrain,
     /// A modeled parking generation.
     Park,
 }
@@ -106,6 +114,14 @@ pub struct TaskSnapshot {
     pub carrier: CarrierId,
     /// Current park deadline, if any.
     pub deadline: Option<Instant>,
+    /// Earliest inherited scope deadline.
+    pub inherited_deadline: Option<Instant>,
+    /// Owning root scope identity.
+    pub scope: u64,
+    /// Parent virtual thread for a borrowed local child.
+    pub parent: Option<TaskId>,
+    /// Whether cancellation was requested by this task or an ancestor.
+    pub cancellation_requested: bool,
     /// Reclamation failure, if the task was aborted.
     pub failure: Option<TaskFailure>,
     /// Current state.
@@ -129,6 +145,9 @@ pub(crate) type SharedTaskRecord = Arc<Mutex<TaskRecord>>;
 pub(crate) struct TaskRecord {
     pub(crate) id: TaskId,
     pub(crate) scope: u64,
+    pub(crate) parent: Option<TaskId>,
+    pub(crate) options: TaskOptions,
+    pub(crate) completion: Arc<Completion>,
     pub(crate) name: Arc<str>,
     pub(crate) carrier: CarrierId,
     pub(crate) deadline: Option<Instant>,
@@ -150,6 +169,10 @@ impl TaskRecord {
             name: self.name.to_string(),
             carrier: self.carrier,
             deadline: self.deadline,
+            inherited_deadline: self.options.deadline,
+            scope: self.scope,
+            parent: self.parent,
+            cancellation_requested: self.options.cancellation.is_cancelled(),
             failure: self.failure,
             status: self.status,
             mounts: self.mounts,

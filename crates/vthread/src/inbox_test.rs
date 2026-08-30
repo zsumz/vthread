@@ -20,3 +20,19 @@ fn a_full_or_stopped_ingress_rejects_without_losing_admission() {
     assert!(shared.inboxes[0].push(packet).is_err());
     assert_eq!(shared.inboxes[0].pending(), 0);
 }
+
+#[test]
+fn distinct_supervisor_aborts_are_not_overwritten_and_finished_scopes_release_slots() {
+    use crate::TaskFailure;
+    let inbox = crate::inbox::Inbox::new(2, 2);
+    inbox.abort(1, TaskFailure::SupervisorStopped);
+    inbox.abort(2, TaskFailure::ScopeStalled);
+    assert_eq!(
+        inbox.take_abort(),
+        Some((1, TaskFailure::SupervisorStopped))
+    );
+    assert_eq!(inbox.take_abort(), Some((2, TaskFailure::ScopeStalled)));
+    inbox.abort(3, TaskFailure::ScopeStalled);
+    inbox.clear_abort(3);
+    assert_eq!(inbox.take_abort(), None);
+}

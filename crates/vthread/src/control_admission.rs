@@ -1,18 +1,16 @@
-//! Atomic bounded admission and rotating least-load placement of unstarted work.
-
-use std::{
-    panic::{AssertUnwindSafe, catch_unwind},
-    sync::{Arc, Mutex},
-};
+//! Atomic bounded admission of transferable and carrier-local work.
 
 use super::Shared;
 use crate::{
-    CarrierId, Error, PanicReport, Result, TaskId, TaskStatus,
+    CarrierId, Error, Result, TaskId, TaskStatus,
+    completion::Completion,
     inbox::SpawnPacket,
     join::JoinCell,
+    options::TaskOptions,
     signal::lock,
     task::{SharedTaskRecord, TaskRecord},
 };
+use std::sync::{Arc, Mutex};
 
 pub(crate) struct Spawned<T> {
     pub(crate) id: TaskId,
@@ -22,12 +20,12 @@ pub(crate) struct Spawned<T> {
 }
 
 impl Shared {
-    pub(crate) fn submit<T: Send + 'static, F: FnOnce() -> T + Send + 'static>(
+    pub(crate) fn reserve(
         &self,
         scope: u64,
         name: String,
-        entry: F,
-    ) -> Result<Spawned<T>> {
+        local: Option<(CarrierId, TaskId, TaskOptions)>,
+    ) -> Result<SharedTaskRecord> {
         let name = name.trim();
         if name.is_empty() {
             return Err(Error::invalid_configuration(
@@ -35,12 +33,15 @@ impl Shared {
                 "must not be empty",
             ));
         }
-        let name: Arc<str> = Arc::from(name);
         let mut state = lock(&self.state);
-        if !state.accepting || state.active_scope != Some(scope) || state.aborting.is_some() {
+        let scope_state = state.scopes.get(&scope).ok_or(Error::RuntimeStopped)?;
+        if !state.accepting || scope_state.aborting.is_some() {
             return Err(Error::RuntimeStopped);
         }
-        // Retain useful diagnostics, but evict observed terminal records at the admission limit.
+        let options = local
+            .as_ref()
+            .map_or_else(|| scope_state.options.child(None), |local| local.2.clone());
+        options.check()?;
         if state.records.len() >= self.config.max_vthreads() {
             state.records.retain(|_, record| {
                 let record = lock(record);
@@ -53,10 +54,17 @@ impl Shared {
                 limit: self.config.max_vthreads(),
             });
         }
-        let owner = (0..self.inboxes.len())
-            .map(|offset| (state.cursor + offset) % self.inboxes.len())
-            .filter(|index| self.inboxes[*index].can_accept())
-            .min_by_key(|index| state.loads[*index]);
+        let owner = if let Some((carrier, _, _)) = &local {
+            if self.inboxes[carrier.0].stopped() {
+                return Err(Error::RuntimeStopped);
+            }
+            Some(carrier.0)
+        } else {
+            (0..self.inboxes.len())
+                .map(|offset| (state.cursor + offset) % self.inboxes.len())
+                .filter(|index| self.inboxes[*index].can_accept())
+                .min_by_key(|index| state.loads[*index])
+        };
         let Some(owner) = owner else {
             state.rejected += 1;
             return Err(Error::CarrierQueueFull);
@@ -69,7 +77,10 @@ impl Shared {
         let record = Arc::new(Mutex::new(TaskRecord {
             id,
             scope,
-            name: Arc::clone(&name),
+            parent: local.map(|local| local.1),
+            options,
+            completion: Arc::new(Completion::new(self.config.max_vthreads())),
+            name: Arc::from(name),
             carrier: CarrierId(owner),
             deadline: None,
             failure: None,
@@ -82,36 +93,62 @@ impl Shared {
             outcome_observed: false,
             panic: None,
         }));
+        state.records.insert(id, Arc::clone(&record));
+        state.active += 1;
+        state.loads[owner] += 1;
+        state.spawned += 1;
+        state.activity = state.activity.wrapping_add(1);
+        state.cursor = (owner + 1) % self.inboxes.len();
+        drop(state);
+        self.changed.notify();
+        Ok(record)
+    }
+
+    pub(crate) fn release_reservation(&self, record: &SharedTaskRecord) {
+        let mut state = lock(&self.state);
+        let record = lock(record);
+        state.records.remove(&record.id);
+        state.active -= 1;
+        state.loads[record.carrier.0] -= 1;
+        state.spawned -= 1;
+        state.rejected += 1;
+        state.activity = state.activity.wrapping_add(1);
+        drop(record);
+        drop(state);
+        self.changed.notify();
+    }
+
+    pub(crate) fn submit<T: Send + 'static, F: FnOnce() -> T + Send + 'static>(
+        &self,
+        scope: u64,
+        name: String,
+        entry: F,
+    ) -> Result<Spawned<T>> {
+        let record = self.reserve(scope, name, None)?;
+        let (id, name, owner) = {
+            let record = lock(&record);
+            (record.id, Arc::clone(&record.name), record.carrier.0)
+        };
         let cell = Arc::new(Mutex::new(JoinCell { outcome: None }));
         let body_cell = Arc::clone(&cell);
         let body_record = Arc::clone(&record);
         let packet = SpawnPacket {
             record: Arc::clone(&record),
             entry: Some(Box::new(move || {
-                let outcome = catch_unwind(AssertUnwindSafe(entry)).map_err(PanicReport::capture);
-                if let Err(panic) = &outcome {
-                    lock(&body_record).panic = Some(panic.clone());
-                }
-                lock(&body_cell).outcome = Some(outcome);
+                crate::task_body::run(&body_record, entry, move |outcome| {
+                    lock(&body_cell).outcome = Some(outcome);
+                });
             })),
         };
-        state.records.insert(id, Arc::clone(&record));
-        state.active += 1;
-        state.loads[owner] += 1;
         if let Err(packet) = self.inboxes[owner].push(packet) {
-            state.records.remove(&id);
-            state.active -= 1;
-            state.loads[owner] -= 1;
-            state.rejected += 1;
-            drop(state);
+            self.release_reservation(&record);
             drop(packet);
-            return Err(Error::CarrierQueueFull);
+            return Err(if self.inboxes[owner].stopped() {
+                Error::RuntimeStopped
+            } else {
+                Error::CarrierQueueFull
+            });
         }
-        state.spawned += 1;
-        state.activity = state.activity.wrapping_add(1);
-        state.cursor = (owner + 1) % self.inboxes.len();
-        drop(state);
-        self.changed.notify();
         Ok(Spawned {
             id,
             name,

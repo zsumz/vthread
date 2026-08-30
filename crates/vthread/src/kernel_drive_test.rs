@@ -66,3 +66,34 @@ fn parked_tasks_do_not_consume_mounts_until_selected() {
         .expect("scope succeeds");
     assert_eq!(&*trace.lock().expect("trace"), &["before", "wake", "after"]);
 }
+#[test]
+fn reclaiming_a_selected_but_unresumed_park_releases_the_active_generation() {
+    use crate::{
+        CarrierId, RuntimeConfig, TaskFailure, TaskId, control::Shared, kernel::Kernel,
+        wait::WaitBegin,
+    };
+    use std::sync::Arc;
+    let shared = Arc::new(Shared::new(RuntimeConfig::default()));
+    let scope = shared.begin_scope().unwrap();
+    let (parker, waker) = crate::park_pair();
+    let parker = Arc::new(parker);
+    let child_parker = Arc::clone(&parker);
+    shared
+        .submit(scope, "selected".into(), move || child_parker.park())
+        .unwrap();
+    let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
+    kernel.receive();
+    kernel.tick().unwrap();
+    waker.unpark();
+    kernel.process_wakes().unwrap();
+    kernel.abort(None, TaskFailure::RuntimeStopped);
+    let next = parker
+        .wait
+        .begin(TaskId::new(99), &kernel.inbox.hub, None)
+        .expect("old generation reclaimed");
+    if let WaitBegin::Park(request) = next {
+        parker.wait.rollback(request.token());
+    } else {
+        panic!("expected a fresh generation");
+    }
+}

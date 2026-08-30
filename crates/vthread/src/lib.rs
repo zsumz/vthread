@@ -19,13 +19,15 @@
 //!         assert_eq!(waiter.join()??, (42, ParkOutcome::Ready));
 //!         Ok(())
 //!     })?;
-//!     runtime.shutdown()
+//!     runtime.shutdown().map(|_| ())
 //! }
 //! ```
 
 #![forbid(unsafe_code)]
 
+mod cancellation;
 mod carrier;
+mod completion;
 mod config;
 mod context;
 mod control;
@@ -33,34 +35,52 @@ mod diagnostics;
 mod error;
 mod inbox;
 mod join;
+mod join_wait;
 mod kernel;
+mod local_carrier;
+mod local_join;
+mod local_scope;
+mod options;
 mod parking;
 mod runtime;
 mod scope;
 mod signal;
+mod supervisor;
 mod task;
+mod task_body;
+mod task_context;
+mod task_fiber;
 mod time;
 mod timer;
 mod wait;
 mod wait_hub;
 
+pub use cancellation::CancellationToken;
 pub use config::{RuntimeBuilder, RuntimeConfig};
+pub use context::{cancellation_token, checkpoint, deadline};
 pub use diagnostics::{
     CarrierSnapshot, CarrierStatus, RuntimeSnapshot, RuntimeStats, StackSnapshot,
 };
 pub use error::{Error, PanicReport, Result};
 pub use join::JoinHandle;
+pub use local_join::LocalJoinHandle;
+pub use local_scope::{LocalScope, local_scope, local_scope_with_deadline};
+pub use options::ScopeOptions;
 pub use parking::{ParkOutcome, Parker, UnparkResult, Unparker, park_pair};
 pub use runtime::Runtime;
 pub use scope::Scope;
+pub use supervisor::{ShutdownReport, Supervisor};
 pub use task::{
     CarrierId, SuspensionReason, TaskFailure, TaskId, TaskSnapshot, TaskStatus, WakeReason,
 };
+pub use task_context::TaskLocal;
 pub use time::{sleep, sleep_until};
 
 /// Cooperatively yields the current virtual thread to the carrier scheduler.
 pub fn yield_now() -> Result<()> {
-    vthread_stack::suspend(vthread_stack::Suspension::YieldNow).map_err(Error::from)
+    checkpoint()?;
+    vthread_stack::suspend(vthread_stack::Suspension::YieldNow).map_err(Error::from)?;
+    checkpoint()
 }
 
 /// Runs one structured scope on a runtime with default configuration.

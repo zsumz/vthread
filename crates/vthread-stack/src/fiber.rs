@@ -105,14 +105,23 @@ impl Fiber {
     where
         F: FnOnce() + 'static,
     {
+        // SAFETY: a static entry has no borrowed environment to outlive.
+        unsafe { Self::borrowed(stack, entry) }
+    }
+
+    /// The caller must reclaim this fiber before the entry's borrows expire.
+    pub(crate) unsafe fn borrowed<F: FnOnce()>(stack: DefaultStack, entry: F) -> Self {
         let yielder = Rc::new(Cell::new(ptr::null()));
         let body_yielder = Rc::clone(&yielder);
-        let coroutine = Coroutine::with_stack(stack, move |current, ()| {
-            let pointer = current as *const RawYielder;
-            body_yielder.set(pointer);
-            let _mount = MountGuard::install(pointer);
-            entry();
-        });
+        // SAFETY: the caller owns the entry's lifetime and guarantees reclamation.
+        let coroutine = unsafe {
+            Coroutine::with_stack_unchecked(stack, move |current, ()| {
+                let pointer = current as *const RawYielder;
+                body_yielder.set(pointer);
+                let _mount = MountGuard::install(pointer);
+                entry();
+            })
+        };
         Self {
             coroutine: Some(coroutine),
             yielder,
@@ -145,6 +154,13 @@ impl Fiber {
             .take()
             .expect("fiber stack already extracted")
             .into_stack()
+    }
+}
+
+impl Drop for Fiber {
+    fn drop(&mut self) {
+        let _mount = MountGuard::install(self.yielder.get());
+        drop(self.coroutine.take());
     }
 }
 

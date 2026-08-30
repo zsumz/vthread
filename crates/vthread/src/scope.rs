@@ -24,6 +24,7 @@ impl<'runtime> Scope<'runtime> {
     ///
     /// The closure and result must be `Send + 'static`. Non-Send values may be
     /// created inside the task and survive suspension because its stack never migrates.
+    /// Use local_scope inside a virtual thread for borrowed, non-Send children.
     ///
     /// ```compile_fail
     /// let runtime = vthread::Runtime::new().unwrap();
@@ -33,16 +34,35 @@ impl<'runtime> Scope<'runtime> {
     ///     Ok(())
     /// }).unwrap();
     /// ```
-    pub fn spawn<'scope, T, F>(
-        &'scope self,
-        name: impl Into<String>,
-        entry: F,
-    ) -> Result<JoinHandle<'scope, T>>
+    pub fn spawn<T, F>(&self, name: impl Into<String>, entry: F) -> Result<JoinHandle<T>>
     where
         F: FnOnce() -> T + Send + 'static,
         T: Send + 'static,
     {
         self.runtime.spawn(self.id, name.into(), entry)
+    }
+
+    /// Returns the cooperative cancellation token inherited by this scope's children.
+    pub fn cancellation_token(&self) -> crate::CancellationToken {
+        self.runtime
+            .shared
+            .scope_options(self.id)
+            .expect("live scope")
+            .cancellation
+    }
+
+    /// Requests cooperative cancellation of every child in this scope.
+    pub fn cancel(&self) {
+        self.cancellation_token().cancel();
+    }
+
+    /// Returns the inherited monotonic deadline.
+    pub fn deadline(&self) -> Option<std::time::Instant> {
+        self.runtime
+            .shared
+            .scope_options(self.id)
+            .expect("live scope")
+            .deadline
     }
 
     /// Returns diagnostics for all tasks currently retained by the runtime.

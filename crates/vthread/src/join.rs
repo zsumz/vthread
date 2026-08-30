@@ -2,12 +2,12 @@
 
 use std::{
     fmt,
-    marker::PhantomData,
     sync::{Arc, Mutex},
 };
 
 use crate::{
-    Error, PanicReport, Result, Runtime, TaskId, context, signal::lock, task::SharedTaskRecord,
+    Error, PanicReport, Result, TaskId, context, control::Shared, signal::lock,
+    task::SharedTaskRecord,
 };
 
 pub(crate) struct JoinCell<T> {
@@ -15,30 +15,28 @@ pub(crate) struct JoinCell<T> {
 }
 
 /// A typed result handle whose completion follows carrier-side stack reclamation.
-pub struct JoinHandle<'scope, T> {
-    runtime: &'scope Runtime,
+pub struct JoinHandle<T> {
+    shared: Arc<Shared>,
     id: TaskId,
     name: Arc<str>,
     cell: Arc<Mutex<JoinCell<T>>>,
     record: SharedTaskRecord,
-    _invariant: PhantomData<&'scope mut &'scope ()>,
 }
 
-impl<'scope, T> JoinHandle<'scope, T> {
+impl<T> JoinHandle<T> {
     pub(crate) fn new(
-        runtime: &'scope Runtime,
+        shared: Arc<Shared>,
         id: TaskId,
         name: Arc<str>,
         cell: Arc<Mutex<JoinCell<T>>>,
         record: SharedTaskRecord,
     ) -> Self {
         Self {
-            runtime,
+            shared,
             id,
             name,
             cell,
             record,
-            _invariant: PhantomData,
         }
     }
 
@@ -52,24 +50,31 @@ impl<'scope, T> JoinHandle<'scope, T> {
         lock(&self.record).status.is_terminal()
     }
 
-    /// Waits on the calling OS thread until the owning carrier reclaims the child stack.
+    /// Parks a virtual caller or blocks an OS caller until stack and context reclamation.
     pub fn join(self) -> Result<T> {
         if context::current().is_some() {
-            return Err(Error::InsideVThread);
+            crate::join_wait::wait_for(
+                &self.record,
+                crate::SuspensionReason::Join(self.id),
+                false,
+            )?;
+        } else {
+            let scope = lock(&self.record).scope;
+            self.shared.wait(scope, Some(self.id))?;
         }
-        let scope = lock(&self.record).scope;
-        let waited = self.runtime.shared.wait(scope, Some(self.id));
-        let failure = {
+        let (failure, panic) = {
             let mut record = lock(&self.record);
             record.outcome_observed = true;
-            record.failure
+            (record.failure, record.panic.clone())
         };
-        waited?;
         if let Some(reason) = failure {
             return Err(Error::TaskAborted {
                 task: self.id,
                 reason,
             });
+        }
+        if let Some(panic) = panic {
+            return Err(Error::task_panicked(self.id, self.name.to_string(), panic));
         }
         let outcome = lock(&self.cell)
             .outcome
@@ -79,7 +84,7 @@ impl<'scope, T> JoinHandle<'scope, T> {
     }
 }
 
-impl<T> fmt::Debug for JoinHandle<'_, T> {
+impl<T> fmt::Debug for JoinHandle<T> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("JoinHandle")

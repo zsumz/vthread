@@ -1,7 +1,7 @@
 //! Bounded transferable start packets and coalesced carrier control requests.
 
 use std::{
-    collections::VecDeque,
+    collections::{BTreeMap, VecDeque},
     sync::{Arc, Mutex},
 };
 
@@ -21,7 +21,7 @@ pub(crate) struct SpawnPacket {
 struct InboxState {
     starts: VecDeque<SpawnPacket>,
     stopped: bool,
-    abort: Option<(u64, TaskFailure)>,
+    abort: BTreeMap<u64, TaskFailure>,
 }
 
 pub(crate) struct Inbox {
@@ -90,12 +90,16 @@ impl Inbox {
     }
 
     pub(crate) fn abort(&self, scope: u64, reason: TaskFailure) {
-        lock(&self.state).abort = Some((scope, reason));
+        lock(&self.state).abort.insert(scope, reason);
         self.signal.notify();
     }
 
+    pub(crate) fn clear_abort(&self, scope: u64) {
+        lock(&self.state).abort.remove(&scope);
+    }
+
     pub(crate) fn take_abort(&self) -> Option<(u64, TaskFailure)> {
-        lock(&self.state).abort.take()
+        lock(&self.state).abort.pop_first()
     }
 }
 
