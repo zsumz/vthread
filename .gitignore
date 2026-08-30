@@ -1,0 +1,7 @@
+/target
+/.zcheck
+.DS_Store
+*.profraw
+
+__pycache__/
+*.pyc
