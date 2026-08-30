@@ -25,9 +25,11 @@ fn selected_timeout_emits_the_registered_task_identity() {
     let registration = hub
         .take_registration(request.token())
         .expect("registration");
-    assert!(registration
-        .select_timeout(request.token())
-        .expect("timeout selection"));
+    assert!(
+        registration
+            .select_timeout(request.token())
+            .expect("timeout selection")
+    );
     let notice = hub.pop_wake().expect("wake notice");
     assert_eq!(notice.task, TaskId::new(9));
     assert_eq!(notice.cause, WakeCause::TimedOut);

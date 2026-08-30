@@ -5,9 +5,7 @@
 mod fiber;
 mod pool;
 
-pub use fiber::{
-    Fiber, FiberState, ParkRequest, ParkToken, SuspendError, Suspension, suspend,
-};
+pub use fiber::{Fiber, FiberState, ParkRequest, ParkToken, SuspendError, Suspension, suspend};
 pub use pool::{StackPool, StackPoolSnapshot};
 
 #[cfg(test)]

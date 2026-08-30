@@ -5,8 +5,7 @@ use std::{rc::Rc, thread, time::Instant};
 use vthread_stack::{FiberState, ParkRequest, Suspension};
 
 use crate::{
-    Error, Result, SuspensionReason, TaskStatus, WakeReason,
-    context,
+    Error, Result, SuspensionReason, TaskStatus, WakeReason, context,
     wait::{WakeCause, WakeNotice},
 };
 
@@ -117,10 +116,10 @@ impl Kernel {
             return Err(Error::Invariant("wait token parked twice"));
         }
         let registration = self.hub.take_registration(token)?;
-        if let Some(deadline) = request.deadline() {
-            if !self.timers.schedule(token, deadline) {
-                return Err(Error::Invariant("wait timer scheduled twice"));
-            }
+        if let Some(deadline) = request.deadline()
+            && !self.timers.schedule(token, deadline)
+        {
+            return Err(Error::Invariant("wait timer scheduled twice"));
         }
         {
             let mut record = task.record.borrow_mut();
@@ -129,10 +128,11 @@ impl Kernel {
             record.last_suspension = Some(SuspensionReason::Park);
         }
         self.stats.parks += 1;
-        let previous = self
-            .parked
-            .insert(token, ParkedTask { task, registration });
-        debug_assert!(previous.is_none(), "park token was checked before insertion");
+        let previous = self.parked.insert(token, ParkedTask { task, registration });
+        debug_assert!(
+            previous.is_none(),
+            "park token was checked before insertion"
+        );
         Ok(())
     }
 
@@ -144,7 +144,11 @@ impl Kernel {
         match task.record.borrow().status {
             TaskStatus::Completed => self.stats.completed += 1,
             TaskStatus::Panicked => self.stats.panicked += 1,
-            _ => return Err(Error::Invariant("completed fiber has nonterminal task state")),
+            _ => {
+                return Err(Error::Invariant(
+                    "completed fiber has nonterminal task state",
+                ));
+            }
         }
         self.active = self
             .active

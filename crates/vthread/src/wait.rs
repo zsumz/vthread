@@ -212,7 +212,11 @@ impl WaitCell {
 
     fn clear_active(&self, token: ParkToken) {
         let mut state = self.state.borrow_mut();
-        if state.active.as_ref().is_some_and(|active| active.token == token) {
+        if state
+            .active
+            .as_ref()
+            .is_some_and(|active| active.token == token)
+        {
             state.active = None;
             state.selected = None;
         }

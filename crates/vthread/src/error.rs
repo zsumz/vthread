@@ -1,11 +1,6 @@
 //! Public runtime errors and panic reports.
 
-use std::{
-    any::Any,
-    error::Error as StdError,
-    fmt,
-    io,
-};
+use std::{any::Any, error::Error as StdError, fmt, io};
 
 use crate::TaskId;
 

@@ -164,7 +164,8 @@ impl Kernel {
 
     pub(crate) fn abort_scope(&mut self, scope: u64) -> Result<()> {
         let ready_before = self.ready.len();
-        self.ready.retain(|task| task.record.borrow().scope != scope);
+        self.ready
+            .retain(|task| task.record.borrow().scope != scope);
         let mut removed = ready_before - self.ready.len();
 
         let parked = self
@@ -174,25 +175,24 @@ impl Kernel {
             .map(|(token, _)| *token)
             .collect::<Vec<_>>();
         for token in parked {
-            let parked = self
-                .parked
-                .remove(&token)
-                .ok_or(Error::Invariant("parked scope task disappeared during abort"))?;
+            let parked = self.parked.remove(&token).ok_or(Error::Invariant(
+                "parked scope task disappeared during abort",
+            ))?;
             self.timers.cancel(token);
             parked.registration.abandon(token);
             removed += 1;
         }
 
-        self.active = self
-            .active
-            .checked_sub(removed)
-            .ok_or(Error::Invariant("active task count underflow during scope abort"))?;
+        self.active = self.active.checked_sub(removed).ok_or(Error::Invariant(
+            "active task count underflow during scope abort",
+        ))?;
         self.stats.aborted += removed as u64;
         Ok(())
     }
 
     pub(crate) fn purge_scope(&mut self, scope: u64) {
-        self.records.retain(|_, record| record.borrow().scope != scope);
+        self.records
+            .retain(|_, record| record.borrow().scope != scope);
     }
 
     pub(crate) fn snapshot(&self) -> RuntimeSnapshot {

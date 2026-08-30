@@ -1,18 +1,8 @@
 //! Carrier-local stackful fiber wrapper.
 
-use std::{
-    cell::Cell,
-    error::Error,
-    fmt,
-    ptr,
-    rc::Rc,
-    time::Instant,
-};
+use std::{cell::Cell, error::Error, fmt, ptr, rc::Rc, time::Instant};
 
-use corosensei::{
-    Coroutine, CoroutineResult, Yielder,
-    stack::DefaultStack,
-};
+use corosensei::{Coroutine, CoroutineResult, Yielder, stack::DefaultStack};
 
 /// Identity for one generation of a parking operation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -24,10 +24,7 @@ fn a_nested_function_can_suspend_and_resume() {
         body_trace.borrow_mut().push("after");
     });
 
-    assert_eq!(
-        fiber.resume(),
-        FiberState::Suspended(Suspension::YieldNow)
-    );
+    assert_eq!(fiber.resume(), FiberState::Suspended(Suspension::YieldNow));
     assert_eq!(&*trace.borrow(), &["before"]);
     assert_eq!(fiber.resume(), FiberState::Complete);
     assert_eq!(&*trace.borrow(), &["before", "after"]);
@@ -59,7 +56,10 @@ fn parking_requests_preserve_token_and_deadline() {
 #[test]
 fn suspension_outside_a_fiber_is_rejected() {
     let error = suspend(Suspension::YieldNow).expect_err("no fiber is mounted");
-    assert_eq!(error.to_string(), "no virtual-thread stack is mounted on this carrier");
+    assert_eq!(
+        error.to_string(),
+        "no virtual-thread stack is mounted on this carrier"
+    );
 }
 
 #[test]

@@ -1,8 +1,4 @@
-use std::{
-    cell::RefCell,
-    rc::Rc,
-    time::Duration,
-};
+use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use crate::{ParkOutcome, Runtime, WakeReason, park_pair};
 
@@ -19,7 +15,11 @@ fn timeout_updates_task_and_runtime_ledgers() {
             })?;
             assert_eq!(task.join()?, ParkOutcome::TimedOut);
             let snapshot = scope.snapshot();
-            let task = snapshot.tasks.iter().find(|task| task.name == "timer").expect("task");
+            let task = snapshot
+                .tasks
+                .iter()
+                .find(|task| task.name == "timer")
+                .expect("task");
             assert_eq!(task.parks, 1);
             assert_eq!(task.last_wake, Some(WakeReason::TimedOut));
             assert_eq!(snapshot.stats.wakes, 1);

@@ -1,10 +1,6 @@
 //! Task identity, state, and scheduler-owned records.
 
-use std::{
-    cell::RefCell,
-    fmt,
-    rc::Rc,
-};
+use std::{cell::RefCell, fmt, rc::Rc};
 
 use crate::PanicReport;
 

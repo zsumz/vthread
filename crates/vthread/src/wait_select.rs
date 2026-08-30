@@ -25,7 +25,11 @@ impl WaitRegistration {
             return;
         };
         let mut state = state.borrow_mut();
-        if state.active.as_ref().is_some_and(|active| active.token == token) {
+        if state
+            .active
+            .as_ref()
+            .is_some_and(|active| active.token == token)
+        {
             state.active = None;
             state.selected = None;
         }
@@ -39,9 +43,10 @@ impl WaitCell {
             if state.closed {
                 return NotifyResult::Closed;
             }
-            let active = state.active.as_ref().map(|active| {
-                (active.token, active.task, active.hub.clone())
-            });
+            let active = state
+                .active
+                .as_ref()
+                .map(|active| (active.token, active.task, active.hub.clone()));
             if let Some(dispatch) = active.filter(|_| state.selected.is_none()) {
                 state.selected = Some(WakeCause::Ready);
                 Some(dispatch)
@@ -66,9 +71,10 @@ impl WaitCell {
             }
             state.closed = true;
             state.permit = false;
-            let active = state.active.as_ref().map(|active| {
-                (active.token, active.task, active.hub.clone())
-            });
+            let active = state
+                .active
+                .as_ref()
+                .map(|active| (active.token, active.task, active.hub.clone()));
             if let Some(dispatch) = active.filter(|_| state.selected.is_none()) {
                 state.selected = Some(WakeCause::Closed);
                 Some(dispatch)
@@ -95,9 +101,10 @@ pub(crate) enum NotifyResult {
 fn select_current(state: &Rc<RefCell<WaitState>>, cause: WakeCause) -> bool {
     let dispatch = {
         let mut state = state.borrow_mut();
-        let active = state.active.as_ref().map(|active| {
-            (active.token, active.task, active.hub.clone())
-        });
+        let active = state
+            .active
+            .as_ref()
+            .map(|active| (active.token, active.task, active.hub.clone()));
         let Some(dispatch) = active.filter(|_| state.selected.is_none()) else {
             return false;
         };
@@ -108,11 +115,7 @@ fn select_current(state: &Rc<RefCell<WaitState>>, cause: WakeCause) -> bool {
     true
 }
 
-fn select_generation(
-    state: &Rc<RefCell<WaitState>>,
-    token: ParkToken,
-    cause: WakeCause,
-) -> bool {
+fn select_generation(state: &Rc<RefCell<WaitState>>, token: ParkToken, cause: WakeCause) -> bool {
     let dispatch = {
         let mut state = state.borrow_mut();
         let active = state
@@ -130,10 +133,7 @@ fn select_generation(
     true
 }
 
-fn dispatch_notice(
-    dispatch: Option<(ParkToken, TaskId, Weak<WaitHub>)>,
-    cause: WakeCause,
-) {
+fn dispatch_notice(dispatch: Option<(ParkToken, TaskId, Weak<WaitHub>)>, cause: WakeCause) {
     let Some((token, task, hub)) = dispatch else {
         return;
     };

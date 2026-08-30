@@ -6,8 +6,7 @@ use std::{
 };
 
 use crate::{
-    Error, Result,
-    context,
+    Error, Result, context,
     wait::{NotifyResult, WaitBegin, WaitCell, WakeCause},
 };
 
@@ -127,10 +126,7 @@ impl fmt::Debug for Unparker {
 /// Creates a single-consumer parker and cloneable wake handle.
 pub fn park_pair() -> (Parker, Unparker) {
     let wait = WaitCell::new();
-    (
-        Parker { wait: wait.clone() },
-        Unparker { wait },
-    )
+    (Parker { wait: wait.clone() }, Unparker { wait })
 }
 
 impl From<WakeCause> for ParkOutcome {

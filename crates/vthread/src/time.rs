@@ -23,7 +23,9 @@ pub fn sleep_until(deadline: Instant) -> Result<()> {
     let (parker, _unparker) = park_pair();
     match parker.park_until(deadline)? {
         ParkOutcome::TimedOut => Ok(()),
-        _ => Err(Error::Invariant("private sleep parker woke without timeout")),
+        _ => Err(Error::Invariant(
+            "private sleep parker woke without timeout",
+        )),
     }
 }
 

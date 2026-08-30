@@ -1,8 +1,4 @@
-use std::{
-    cell::RefCell,
-    rc::Rc,
-    time::Duration,
-};
+use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use crate::{Error, ParkOutcome, Runtime, UnparkResult, park_pair, yield_now};
 
@@ -104,7 +100,9 @@ fn cancellation_wins_without_closing_future_generations() {
         .scope(|scope| {
             let waiter = scope.spawn("waiter", move || {
                 let first = parker.park().expect("first park");
-                let second = parker.park_timeout(Duration::from_millis(1)).expect("second park");
+                let second = parker
+                    .park_timeout(Duration::from_millis(1))
+                    .expect("second park");
                 (first, second)
             })?;
             scope.spawn("cancel", move || {

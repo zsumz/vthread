@@ -9,7 +9,11 @@ use super::{NotifyResult, WaitBegin, WaitCell, WaitHub, WakeCause};
 
 fn parked(cell: &WaitCell, hub: &Rc<WaitHub>) -> vthread_stack::ParkToken {
     match cell
-        .begin(TaskId::new(1), hub, Some(Instant::now() + Duration::from_secs(1)))
+        .begin(
+            TaskId::new(1),
+            hub,
+            Some(Instant::now() + Duration::from_secs(1)),
+        )
         .expect("begin wait")
     {
         WaitBegin::Park(request) => request.token(),
@@ -24,7 +28,8 @@ fn one_preexisting_permit_is_bounded() {
     assert_eq!(cell.notify(), NotifyResult::Stored);
     assert_eq!(cell.notify(), NotifyResult::Stored);
     assert!(matches!(
-        cell.begin(TaskId::new(1), &hub, None).expect("consume permit"),
+        cell.begin(TaskId::new(1), &hub, None)
+            .expect("consume permit"),
         WaitBegin::Immediate(WakeCause::Ready)
     ));
     assert!(matches!(
@@ -42,11 +47,21 @@ fn duplicate_registration_does_not_replace_the_original_wait() {
     let duplicate = hub
         .register(token, Weak::new())
         .expect_err("duplicate token must be rejected");
-    assert!(matches!(duplicate, Error::Invariant("wait token registered twice")));
+    assert!(matches!(
+        duplicate,
+        Error::Invariant("wait token registered twice")
+    ));
 
     let registration = hub.take_registration(token).expect("original registration");
-    assert!(registration.select_timeout(token).expect("original state remains"));
-    assert_eq!(hub.pop_wake().expect("timeout wake").cause, WakeCause::TimedOut);
+    assert!(
+        registration
+            .select_timeout(token)
+            .expect("original state remains")
+    );
+    assert_eq!(
+        hub.pop_wake().expect("timeout wake").cause,
+        WakeCause::TimedOut
+    );
 }
 
 #[test]
@@ -57,13 +72,21 @@ fn timeout_wins_one_generation_exactly_once() {
     let registration = hub.take_registration(token).expect("registration");
 
     assert!(registration.select_timeout(token).expect("select timeout"));
-    assert!(!registration.select_timeout(token).expect("duplicate timeout"));
+    assert!(
+        !registration
+            .select_timeout(token)
+            .expect("duplicate timeout")
+    );
     assert_eq!(cell.notify(), NotifyResult::Stored);
     assert_eq!(hub.pop_wake().expect("one wake").cause, WakeCause::TimedOut);
     assert!(hub.pop_wake().is_none());
-    assert_eq!(cell.finish(token).expect("finish wait"), WakeCause::TimedOut);
+    assert_eq!(
+        cell.finish(token).expect("finish wait"),
+        WakeCause::TimedOut
+    );
     assert!(matches!(
-        cell.begin(TaskId::new(1), &hub, None).expect("stored next permit"),
+        cell.begin(TaskId::new(1), &hub, None)
+            .expect("stored next permit"),
         WaitBegin::Immediate(WakeCause::Ready)
     ));
 }
@@ -80,9 +103,11 @@ fn stale_generation_cannot_select_a_later_wait() {
 
     let second = parked(&cell, &hub);
     assert_ne!(first.generation(), second.generation());
-    assert!(!first_registration
-        .select_timeout(first)
-        .expect("stale timeout is harmless"));
+    assert!(
+        !first_registration
+            .select_timeout(first)
+            .expect("stale timeout is harmless")
+    );
     assert!(hub.pop_wake().is_none());
     cell.rollback(second);
 }
@@ -94,14 +119,23 @@ fn cancellation_and_close_are_distinct_winners() {
     let first = parked(&cell, &hub);
     let _registration = hub.take_registration(first).expect("registration");
     assert!(cell.cancel());
-    assert_eq!(hub.pop_wake().expect("cancel wake").cause, WakeCause::Cancelled);
-    assert_eq!(cell.finish(first).expect("finish cancel"), WakeCause::Cancelled);
+    assert_eq!(
+        hub.pop_wake().expect("cancel wake").cause,
+        WakeCause::Cancelled
+    );
+    assert_eq!(
+        cell.finish(first).expect("finish cancel"),
+        WakeCause::Cancelled
+    );
 
     let second = parked(&cell, &hub);
     let _registration = hub.take_registration(second).expect("registration");
     assert!(cell.close());
     assert!(!cell.close());
     assert_eq!(hub.pop_wake().expect("close wake").cause, WakeCause::Closed);
-    assert_eq!(cell.finish(second).expect("finish close"), WakeCause::Closed);
+    assert_eq!(
+        cell.finish(second).expect("finish close"),
+        WakeCause::Closed
+    );
     assert!(cell.is_closed());
 }

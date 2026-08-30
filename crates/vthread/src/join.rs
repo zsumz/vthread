@@ -1,16 +1,8 @@
 //! Typed task completion handles.
 
-use std::{
-    cell::RefCell,
-    fmt,
-    marker::PhantomData,
-    rc::Rc,
-};
+use std::{cell::RefCell, fmt, marker::PhantomData, rc::Rc};
 
-use crate::{
-    Error, PanicReport, Result, Runtime, TaskId,
-    task::SharedTaskRecord,
-};
+use crate::{Error, PanicReport, Result, Runtime, TaskId, task::SharedTaskRecord};
 
 pub(crate) struct JoinCell<T> {
     pub(crate) outcome: Option<std::result::Result<T, PanicReport>>,
