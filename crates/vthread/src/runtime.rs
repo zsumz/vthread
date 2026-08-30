@@ -1,5 +1,9 @@
 //! Runtime lifecycle and structured ownership of persistent carrier threads.
 
+#[path = "runtime_lifecycle.rs"]
+mod runtime_lifecycle;
+pub use runtime_lifecycle::ShutdownOutcome;
+
 use crate::{
     CarrierId, Error, JoinHandle, Result, RuntimeBuilder, RuntimeConfig, RuntimeSnapshot, Scope,
     carrier, context, control::Shared, signal::lock,
@@ -15,7 +19,9 @@ use std::{
 pub struct Runtime {
     config: RuntimeConfig,
     pub(crate) shared: Arc<Shared>,
-    workers: Mutex<Vec<thread::JoinHandle<()>>>,
+    workers: Arc<Mutex<Vec<thread::JoinHandle<()>>>>,
+    worker_ids: Vec<thread::ThreadId>,
+    shutdown_driver: runtime_lifecycle::ShutdownDriver,
 }
 
 impl Runtime {
@@ -35,10 +41,12 @@ impl Runtime {
             .services
             .set(crate::services::Services::new(config)?)
             .map_err(|_| Error::Invariant("runtime services initialized twice"))?;
-        let runtime = Self {
+        let mut runtime = Self {
             config,
             shared,
-            workers: Mutex::new(Vec::new()),
+            workers: Arc::new(Mutex::new(Vec::new())),
+            worker_ids: Vec::new(),
+            shutdown_driver: runtime_lifecycle::ShutdownDriver::default(),
         };
         for index in 0..config.carriers() {
             let shared = Arc::clone(&runtime.shared);
@@ -47,6 +55,7 @@ impl Runtime {
                 .name(name)
                 .spawn(move || carrier::run(shared, CarrierId(index)))
                 .map_err(Error::CarrierStart)?;
+            runtime.worker_ids.push(worker.thread().id());
             lock(&runtime.workers).push(worker);
         }
         Ok(runtime)
@@ -99,41 +108,6 @@ impl Runtime {
         self.shared.snapshot()
     }
 
-    /// Stops admission, reclaims tasks, and joins carriers and native services.
-    ///
-    /// This cannot preempt CPU loops, native blocking calls, or FFI. Such work may
-    /// delay shutdown indefinitely. Virtual threads and this runtime's own native
-    /// workers cannot call shutdown; that would require joining their own work.
-    pub fn shutdown(&self) -> Result<crate::ShutdownReport> {
-        if context::current().is_some() {
-            return Err(Error::InsideVThread);
-        }
-        if self
-            .shared
-            .services
-            .get()
-            .is_some_and(|services| services.blocking.owns_current_thread())
-        {
-            return Err(Error::InsideBlockingWorker);
-        }
-        self.shared.request_stop();
-        self.join_workers();
-        if let Some(services) = self.shared.services.get() {
-            services.join();
-        }
-        let snapshot = self.snapshot();
-        Ok(crate::ShutdownReport {
-            completed: snapshot.stats.completed,
-            panicked: snapshot.stats.panicked,
-            aborted: snapshot.stats.aborted,
-            failed_carriers: snapshot
-                .carriers
-                .iter()
-                .filter(|carrier| carrier.status == crate::CarrierStatus::Failed)
-                .count(),
-        })
-    }
-
     pub(crate) fn spawn<T: Send + 'static, F: FnOnce() -> T + Send + 'static>(
         &self,
         scope: u64,
@@ -165,10 +139,16 @@ impl Runtime {
 impl Drop for Runtime {
     fn drop(&mut self) {
         self.shared.request_stop();
+        // The final Arc can be owned by one of our workers. A coordinator retains
+        // and drains that work after this destructor returns to the worker.
+        if self.owns_current_worker() && self.start_shutdown_driver().is_ok() {
+            return;
+        }
         self.join_workers();
         if let Some(services) = self.shared.services.get() {
             services.join();
         }
+        self.join_shutdown_driver();
     }
 }
 

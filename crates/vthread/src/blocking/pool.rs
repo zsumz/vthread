@@ -21,6 +21,7 @@ struct Job {
 struct State {
     queue: VecDeque<Job>,
     running: usize,
+    discarding: usize,
     panicked: u64,
     next: u64,
     stopped: bool,
@@ -48,6 +49,7 @@ impl Pool {
                 state: Mutex::new(State {
                     queue: VecDeque::new(),
                     running: 0,
+                    discarding: 0,
                     panicked: 0,
                     next: 1,
                     stopped: false,
@@ -80,7 +82,7 @@ impl Pool {
         if state.stopped {
             return Err(Error::RuntimeStopped);
         }
-        if state.queue.len() + state.running >= self.inner.capacity {
+        if state.queue.len() + state.running + state.discarding >= self.inner.capacity {
             return Err(Error::BlockingCapacity);
         }
         let id = state.next;
@@ -102,18 +104,9 @@ impl Pool {
     }
 
     pub(crate) fn stop(&self) {
-        let queue = {
-            let mut state = lock(&self.inner.state);
-            state.stopped = true;
-            self.inner.changed.notify_all();
-            std::mem::take(&mut state.queue)
-        };
-        for job in queue {
-            job.wake.select_closed(job.token);
-            if catch_unwind(AssertUnwindSafe(|| drop(job))).is_err() {
-                lock(&self.inner.state).panicked += 1;
-            }
-        }
+        let mut state = lock(&self.inner.state);
+        state.stopped = true;
+        self.inner.changed.notify_all();
     }
     pub(crate) fn join(&self) {
         for worker in lock(&self.workers).drain(..) {
@@ -132,6 +125,7 @@ impl Pool {
         let state = lock(&self.inner.state);
         snapshot.blocking_queued = state.queue.len();
         snapshot.blocking_running = state.running;
+        snapshot.blocking_discarding = state.discarding;
         snapshot.blocking_capacity = self.inner.capacity;
         snapshot.blocking_panics = state.panicked;
     }
@@ -148,6 +142,11 @@ impl Drop for Lease {
         self.abandoned.store(true, Ordering::Release);
         let removed = {
             let mut state = lock(&self.inner.state);
+            // Once stop selects queued cleanup, workers retain ownership. A carrier
+            // must not run an arbitrary queued destructor while reclaiming its lease.
+            if state.stopped {
+                return;
+            }
             state
                 .queue
                 .iter()
@@ -160,7 +159,7 @@ impl Drop for Lease {
 
 fn work(inner: Arc<Inner>) {
     loop {
-        let job = {
+        let (job, discard) = {
             let mut state = lock(&inner.state);
             while state.queue.is_empty() && !state.stopped {
                 state = inner
@@ -171,22 +170,43 @@ fn work(inner: Arc<Inner>) {
             let Some(job) = state.queue.pop_front() else {
                 return;
             };
-            state.running += 1;
-            job
+            let discard = state.stopped;
+            if discard {
+                state.discarding += 1;
+            } else {
+                state.running += 1;
+            }
+            (job, discard)
         };
-        let result = catch_unwind(AssertUnwindSafe(job.body));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            if discard {
+                job.wake.select_closed(job.token);
+                drop(job.body);
+                false
+            } else {
+                (job.body)()
+            }
+        }));
         if result.is_err() {
             job.wake.select_closed(job.token);
         }
+        let panicked = !matches!(result, Ok(false));
+        // Retain the capacity charge through panic-payload cleanup as well.
+        let cleanup_panicked = catch_unwind(AssertUnwindSafe(|| drop(result))).is_err();
         let mut state = lock(&inner.state);
-        state.running -= 1;
-        state.panicked += u64::from(!matches!(result, Ok(false)));
-        drop(state);
-        // Panic payload destructors also run outside the queue lock.
-        let _ = catch_unwind(AssertUnwindSafe(|| drop(result)));
+        if discard {
+            state.discarding -= 1;
+        } else {
+            state.running -= 1;
+        }
+        state.panicked += u64::from(panicked || cleanup_panicked);
     }
 }
 
 #[cfg(test)]
 #[path = "pool_test.rs"]
 mod pool_test;
+
+#[cfg(test)]
+#[path = "shutdown_test.rs"]
+mod shutdown_test;

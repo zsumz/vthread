@@ -133,6 +133,8 @@ impl CarrierSnapshot {
 /// Point-in-time runtime state.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RuntimeSnapshot {
+    /// Whether new root scopes and task admissions are accepted (subject to capacity).
+    pub accepting: bool,
     /// Most recent stalled scope; only one bounded report is retained per runtime.
     pub last_stall: Option<StallSnapshot>,
     /// Readiness registration and delegated native-work bounds and activity.

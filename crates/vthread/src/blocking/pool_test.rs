@@ -130,9 +130,9 @@ fn shutdown_discards_queued_captures_outside_runtime_metadata_locks() {
             })?;
             until(|| runtime.snapshot().services.blocking_queued == 1);
             runtime.shared.request_stop();
-            assert_eq!(drops.load(Ordering::SeqCst), 1);
             release.send(()).unwrap();
             runtime.shutdown()?;
+            assert_eq!(drops.load(Ordering::SeqCst), 1);
             assert!(matches!(first.join(), Err(Error::TaskAborted { .. })));
             assert!(matches!(queued.join(), Err(Error::TaskAborted { .. })));
             Ok(())

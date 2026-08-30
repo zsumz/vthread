@@ -171,6 +171,7 @@ impl Shared {
     pub(crate) fn snapshot(&self) -> RuntimeSnapshot {
         let state = lock(&self.state);
         let mut snapshot = RuntimeSnapshot {
+            accepting: state.accepting,
             last_stall: state.last_stall.clone(),
             active: state.active,
             services: self

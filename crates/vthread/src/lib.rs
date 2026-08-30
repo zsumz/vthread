@@ -75,7 +75,7 @@ pub use local_join::LocalJoinHandle;
 pub use local_scope::{LocalScope, local_scope, local_scope_with_deadline};
 pub use options::ScopeOptions;
 pub use parking::{ParkOutcome, Parker, UnparkResult, Unparker, park_pair};
-pub use runtime::Runtime;
+pub use runtime::{Runtime, ShutdownOutcome};
 pub use scope::Scope;
 pub use services::ServiceSnapshot;
 pub use supervisor::{ShutdownReport, Supervisor};

@@ -164,9 +164,8 @@ impl fmt::Display for Error {
             Self::InsideVThread => formatter.write_str(
                 "this operation blocks an OS caller and cannot run inside a virtual thread",
             ),
-            Self::InsideBlockingWorker => {
-                formatter.write_str("a native worker cannot shut down its owning runtime")
-            }
+            Self::InsideBlockingWorker => formatter
+                .write_str("a native worker cannot wait for shutdown of its owning runtime"),
             Self::CarrierQueueFull => {
                 formatter.write_str("all healthy carrier ingress queues are full")
             }

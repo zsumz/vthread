@@ -4,7 +4,8 @@
 //! the caller stops waiting, while the runtime retains the job and drops its late
 //! result. Runtime shutdown waits for those calls. Scope exit alone does not drain
 //! abandoned native calls. Closures/results must be Send + 'static; borrowed work
-//! cannot outlive a cancelling caller. Pool saturation rejects work immediately.
+//! cannot outlive a cancelling caller. Pool saturation rejects work immediately. Once the
+//! pool is stopping, queued captures are discarded by native workers, never the stop caller.
 
 pub(crate) mod pool;
 mod result;

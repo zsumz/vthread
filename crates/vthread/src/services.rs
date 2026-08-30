@@ -19,7 +19,9 @@ pub struct ServiceSnapshot {
     pub blocking_queued: usize,
     /// Native jobs already executing; these cannot be forcibly cancelled.
     pub blocking_running: usize,
-    /// Maximum queued plus running native jobs.
+    /// Stopped queued jobs whose capture destructors are executing on native workers.
+    pub blocking_discarding: usize,
+    /// Maximum queued, running, and discarding native jobs combined.
     pub blocking_capacity: usize,
     /// Native body or late-result/queued-capture destructor panics observed by workers.
     pub blocking_panics: u64,

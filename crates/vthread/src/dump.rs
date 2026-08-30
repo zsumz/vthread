@@ -12,8 +12,8 @@ impl RuntimeSnapshot {
     pub fn write_dump(&self, output: &mut impl Write) -> fmt::Result {
         writeln!(
             output,
-            "vthread dump v1 active={} runnable={} parked={} timers={}",
-            self.active, self.runnable, self.parked, self.timers
+            "vthread dump v1 active={} runnable={} parked={} timers={} accepting={}",
+            self.active, self.runnable, self.parked, self.timers, self.accepting
         )?;
         for carrier in &self.carriers {
             writeln!(
@@ -32,7 +32,7 @@ impl RuntimeSnapshot {
         let io = &self.services;
         writeln!(
             output,
-            "services readiness={}/{} installed={} failed={} error={:?} blocking_queued={} blocking_running={} blocking_capacity={} blocking_panics={}",
+            "services readiness={}/{} installed={} failed={} error={:?} blocking_queued={} blocking_running={} blocking_discarding={} blocking_capacity={} blocking_panics={}",
             io.readiness_waits,
             io.readiness_capacity,
             io.readiness_registered,
@@ -40,6 +40,7 @@ impl RuntimeSnapshot {
             io.readiness_error,
             io.blocking_queued,
             io.blocking_running,
+            io.blocking_discarding,
             io.blocking_capacity,
             io.blocking_panics
         )?;

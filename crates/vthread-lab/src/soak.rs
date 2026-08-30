@@ -35,6 +35,7 @@ pub(crate) fn run(duration: Duration, carriers: usize, tasks: usize) -> Result<R
                 assert_eq!(snapshot.active, 0);
                 assert_eq!(services.readiness_waits, 0);
                 assert_eq!(services.blocking_queued, 0);
+                assert_eq!(services.blocking_discarding, 0);
                 assert!(!services.readiness_failed);
                 assert_eq!(services.blocking_panics, 0);
                 assert!(snapshot.last_stall.is_none());
@@ -60,6 +61,8 @@ pub(crate) fn run(duration: Duration, carriers: usize, tasks: usize) -> Result<R
     assert_eq!(snapshot.active, 0);
     assert_eq!(snapshot.services.readiness_registered, 0);
     assert_eq!(snapshot.services.blocking_running, 0);
+    assert_eq!(snapshot.services.blocking_discarding, 0);
+    assert!(!snapshot.accepting);
     Ok(Report {
         iterations,
         elapsed: start.elapsed(),
