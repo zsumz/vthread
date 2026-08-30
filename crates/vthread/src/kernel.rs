@@ -1,4 +1,7 @@
-//! Single-carrier scheduler kernel.
+//! Single-carrier scheduler state and task admission.
+
+#[path = "kernel_drive.rs"]
+mod kernel_drive;
 
 use std::{
     cell::RefCell,
@@ -7,28 +10,38 @@ use std::{
     rc::Rc,
 };
 
-use vthread_stack::{Fiber, FiberState, StackPool, Suspension};
+use vthread_stack::{Fiber, ParkToken, StackPool};
 
 use crate::{
     Error, PanicReport, Result, RuntimeConfig, RuntimeSnapshot, RuntimeStats, StackSnapshot,
-    SuspensionReason, TaskId, TaskStatus,
+    TaskId, TaskStatus,
     join::JoinCell,
     task::{SharedTaskRecord, TaskRecord},
+    timer::TimerQueue,
+    wait::{WaitHub, WaitRegistration},
 };
 
 pub(crate) struct Kernel {
-    config: RuntimeConfig,
-    ready: VecDeque<Task>,
-    records: BTreeMap<TaskId, SharedTaskRecord>,
-    stacks: StackPool,
-    next_task: u64,
-    active: usize,
-    stats: RuntimeStats,
+    pub(super) config: RuntimeConfig,
+    pub(super) ready: VecDeque<Task>,
+    pub(super) parked: BTreeMap<ParkToken, ParkedTask>,
+    pub(super) records: BTreeMap<TaskId, SharedTaskRecord>,
+    pub(super) stacks: StackPool,
+    pub(super) timers: TimerQueue,
+    pub(super) hub: Rc<WaitHub>,
+    pub(super) next_task: u64,
+    pub(super) active: usize,
+    pub(super) stats: RuntimeStats,
 }
 
-struct Task {
-    fiber: Fiber,
-    record: SharedTaskRecord,
+pub(super) struct Task {
+    pub(super) fiber: Fiber,
+    pub(super) record: SharedTaskRecord,
+}
+
+pub(super) struct ParkedTask {
+    pub(super) task: Task,
+    pub(super) registration: WaitRegistration,
 }
 
 pub(crate) struct Spawned<T> {
@@ -43,8 +56,11 @@ impl Kernel {
         Self {
             config,
             ready: VecDeque::new(),
+            parked: BTreeMap::new(),
             records: BTreeMap::new(),
             stacks: StackPool::new(config.stack_size(), config.stack_cache_capacity()),
+            timers: TimerQueue::new(),
+            hub: Rc::new(WaitHub::new()),
             next_task: 1,
             active: 0,
             stats: RuntimeStats::default(),
@@ -78,7 +94,9 @@ impl Kernel {
             status: TaskStatus::Ready,
             mounts: 0,
             yields: 0,
+            parks: 0,
             last_suspension: None,
+            last_wake: None,
             outcome_observed: false,
             panic: None,
         }));
@@ -106,7 +124,8 @@ impl Kernel {
             fiber,
             record: Rc::clone(&record),
         });
-        self.records.insert(id, Rc::clone(&record));
+        let previous = self.records.insert(id, Rc::clone(&record));
+        debug_assert!(previous.is_none(), "task identity must be unique");
         self.active += 1;
         self.stats.spawned += 1;
         Ok(Spawned {
@@ -115,44 +134,6 @@ impl Kernel {
             cell,
             record,
         })
-    }
-
-    pub(crate) fn tick(&mut self) -> bool {
-        let Some(mut task) = self.ready.pop_front() else {
-            return false;
-        };
-        {
-            let mut record = task.record.borrow_mut();
-            record.status = TaskStatus::Running;
-            record.mounts += 1;
-        }
-        self.stats.mounts += 1;
-
-        match task.fiber.resume() {
-            FiberState::Suspended(Suspension::YieldNow) => {
-                let mut record = task.record.borrow_mut();
-                record.status = TaskStatus::Ready;
-                record.yields += 1;
-                record.last_suspension = Some(SuspensionReason::YieldNow);
-                drop(record);
-                self.stats.yields += 1;
-                self.ready.push_back(task);
-            }
-            FiberState::Complete => {
-                let status = task.record.borrow().status;
-                if status == TaskStatus::Running {
-                    task.record.borrow_mut().status = TaskStatus::Completed;
-                }
-                match task.record.borrow().status {
-                    TaskStatus::Completed => self.stats.completed += 1,
-                    TaskStatus::Panicked => self.stats.panicked += 1,
-                    _ => {}
-                }
-                self.active -= 1;
-                self.stacks.release(task.fiber.into_stack());
-            }
-        }
-        true
     }
 
     pub(crate) fn is_terminal(&self, id: TaskId) -> Result<bool> {
@@ -181,6 +162,35 @@ impl Kernel {
         })
     }
 
+    pub(crate) fn abort_scope(&mut self, scope: u64) -> Result<()> {
+        let ready_before = self.ready.len();
+        self.ready.retain(|task| task.record.borrow().scope != scope);
+        let mut removed = ready_before - self.ready.len();
+
+        let parked = self
+            .parked
+            .iter()
+            .filter(|(_, parked)| parked.task.record.borrow().scope == scope)
+            .map(|(token, _)| *token)
+            .collect::<Vec<_>>();
+        for token in parked {
+            let parked = self
+                .parked
+                .remove(&token)
+                .ok_or(Error::Invariant("parked scope task disappeared during abort"))?;
+            self.timers.cancel(token);
+            parked.registration.abandon(token);
+            removed += 1;
+        }
+
+        self.active = self
+            .active
+            .checked_sub(removed)
+            .ok_or(Error::Invariant("active task count underflow during scope abort"))?;
+        self.stats.aborted += removed as u64;
+        Ok(())
+    }
+
     pub(crate) fn purge_scope(&mut self, scope: u64) {
         self.records.retain(|_, record| record.borrow().scope != scope);
     }
@@ -189,6 +199,8 @@ impl Kernel {
         RuntimeSnapshot {
             active: self.active,
             runnable: self.ready.len(),
+            parked: self.parked.len(),
+            timers: self.timers.active_count(),
             stats: self.stats,
             stacks: StackSnapshot::from(self.stacks.snapshot()),
             tasks: self

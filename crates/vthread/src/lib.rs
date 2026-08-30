@@ -3,21 +3,28 @@
 #![forbid(unsafe_code)]
 
 mod config;
+mod context;
 mod diagnostics;
 mod error;
 mod join;
 mod kernel;
+mod parking;
 mod runtime;
 mod scope;
 mod task;
+mod time;
+mod timer;
+mod wait;
 
 pub use config::{RuntimeBuilder, RuntimeConfig};
 pub use diagnostics::{RuntimeSnapshot, RuntimeStats, StackSnapshot};
 pub use error::{Error, PanicReport, Result};
 pub use join::JoinHandle;
+pub use parking::{ParkOutcome, Parker, UnparkResult, Unparker, park_pair};
 pub use runtime::Runtime;
 pub use scope::Scope;
-pub use task::{SuspensionReason, TaskId, TaskSnapshot, TaskStatus};
+pub use task::{SuspensionReason, TaskId, TaskSnapshot, TaskStatus, WakeReason};
+pub use time::{sleep, sleep_until};
 
 /// Cooperatively yields the current virtual thread to the carrier scheduler.
 pub fn yield_now() -> Result<()> {

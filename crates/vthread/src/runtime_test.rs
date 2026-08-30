@@ -1,9 +1,10 @@
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
+    time::Duration,
 };
 
-use crate::{Error, Runtime, TaskStatus, yield_now};
+use crate::{Error, ParkOutcome, Runtime, TaskStatus, park_pair, yield_now};
 
 #[test]
 fn round_robin_mounts_are_visible() {
@@ -112,4 +113,37 @@ fn completed_stacks_are_reused_by_later_tasks() {
     let stacks = runtime.snapshot().stacks;
     assert_eq!(stacks.allocated, 1);
     assert_eq!(stacks.reused, 1);
+}
+
+#[test]
+fn a_stalled_parked_scope_is_cleaned_before_reuse() {
+    let runtime = Runtime::new().expect("build runtime");
+    let (parker, _unparker) = park_pair();
+    let parker = Rc::new(parker);
+    let parked_parker = Rc::clone(&parker);
+    let error = runtime
+        .scope(|scope| {
+            let _parked = scope.spawn("parked", move || parked_parker.park())?;
+            Ok(())
+        })
+        .expect_err("an unowned indefinite park must stall");
+    assert!(matches!(error, Error::RuntimeStalled { active: 1 }));
+
+    let snapshot = runtime.snapshot();
+    assert_eq!(snapshot.active, 0);
+    assert_eq!(snapshot.parked, 0);
+    assert_eq!(snapshot.timers, 0);
+    assert_eq!(snapshot.stats.aborted, 1);
+
+    runtime
+        .scope(|scope| {
+            assert_eq!(scope.spawn("reused", || 42)?.join()?, 42);
+            let reused_parker = Rc::clone(&parker);
+            let parked = scope.spawn("park-again", move || {
+                reused_parker.park_timeout(Duration::from_millis(1))
+            })?;
+            assert_eq!(parked.join()??, ParkOutcome::TimedOut);
+            Ok(())
+        })
+        .expect("runtime and parker remain reusable");
 }

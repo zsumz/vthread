@@ -15,6 +15,22 @@ pub struct RuntimeStats {
     pub mounts: u64,
     /// Total cooperative yields.
     pub yields: u64,
+    /// Total modeled park operations.
+    pub parks: u64,
+    /// Parked generations made runnable again.
+    pub wakes: u64,
+    /// Wake selections caused by monotonic deadlines.
+    pub timeouts: u64,
+    /// Wake selections caused by explicit cancellation.
+    pub cancelled: u64,
+    /// Wake selections caused by permanent close.
+    pub closed: u64,
+    /// Carrier sleeps while waiting for the next timer.
+    pub timer_sleeps: u64,
+    /// Wake notices ignored after their generation was no longer parked.
+    pub stale_wakes: u64,
+    /// Tasks discarded while recovering a stalled scope.
+    pub aborted: u64,
     /// Spawn attempts rejected at capacity.
     pub rejected: u64,
 }
@@ -53,6 +69,10 @@ pub struct RuntimeSnapshot {
     pub active: usize,
     /// Number of tasks waiting in the run queue.
     pub runnable: usize,
+    /// Number of tasks parked on wait generations.
+    pub parked: usize,
+    /// Number of active monotonic timers.
+    pub timers: usize,
     /// Cumulative scheduler counters.
     pub stats: RuntimeStats,
     /// Stack-cache counters.

@@ -40,7 +40,7 @@ impl fmt::Display for PanicReport {
     }
 }
 
-/// A runtime, scheduling, or task failure.
+/// A runtime, scheduling, parking, or task failure.
 #[derive(Debug)]
 pub enum Error {
     /// A builder value violates the runtime contract.
@@ -59,6 +59,10 @@ pub enum Error {
     NestedScope,
     /// Suspension was attempted without a mounted virtual thread.
     OutsideVThread,
+    /// One parker was asked to own two active generations simultaneously.
+    ParkerBusy,
+    /// A relative duration could not be represented as a monotonic deadline.
+    DeadlineOverflow,
     /// A guard-page-backed stack could not be allocated.
     StackAllocation(io::Error),
     /// A joined or unobserved child task panicked.
@@ -70,7 +74,7 @@ pub enum Error {
         /// Captured panic description.
         panic: PanicReport,
     },
-    /// Live tasks existed but no runnable task could make progress.
+    /// Live tasks existed but no runnable task or timer could make progress.
     RuntimeStalled {
         /// Number of live tasks at the point of failure.
         active: usize,
@@ -100,6 +104,10 @@ impl fmt::Display for Error {
             }
             Self::NestedScope => formatter.write_str("nested runtime scopes are not supported yet"),
             Self::OutsideVThread => formatter.write_str("no virtual thread is mounted"),
+            Self::ParkerBusy => {
+                formatter.write_str("parker already owns an active wait generation")
+            }
+            Self::DeadlineOverflow => formatter.write_str("monotonic deadline overflow"),
             Self::StackAllocation(error) => {
                 write!(formatter, "allocate virtual-thread stack: {error}")
             }

@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-    Error, PanicReport, Result, Runtime, TaskId, TaskStatus,
+    Error, PanicReport, Result, Runtime, TaskId,
     task::SharedTaskRecord,
 };
 

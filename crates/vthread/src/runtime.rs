@@ -63,18 +63,26 @@ impl Runtime {
         } else {
             None
         };
+        let abort_result = if drain_result.is_err() {
+            self.kernel.borrow_mut().abort_scope(scope_id)
+        } else {
+            Ok(())
+        };
         self.kernel.borrow_mut().purge_scope(scope_id);
 
         match body_result {
             Err(payload) => {
                 let _ = drain_result;
+                let _ = abort_result;
                 resume_unwind(payload)
             }
             Ok(Err(error)) => {
+                abort_result?;
                 drain_result?;
                 Err(error)
             }
             Ok(Ok(value)) => {
+                abort_result?;
                 drain_result?;
                 if let Some((task, name, panic)) = unobserved {
                     return Err(Error::task_panicked(task, name, panic));
@@ -114,7 +122,7 @@ impl Runtime {
             if self.kernel.borrow().is_terminal(task)? {
                 return Ok(());
             }
-            let progressed = self.kernel.borrow_mut().tick();
+            let progressed = self.kernel.borrow_mut().tick()?;
             if !progressed {
                 let active = self.kernel.borrow().snapshot().active;
                 return Err(Error::RuntimeStalled { active });
@@ -128,7 +136,7 @@ impl Runtime {
             if active == 0 {
                 return Ok(());
             }
-            let progressed = self.kernel.borrow_mut().tick();
+            let progressed = self.kernel.borrow_mut().tick()?;
             if !progressed {
                 return Err(Error::RuntimeStalled { active });
             }

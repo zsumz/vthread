@@ -2,11 +2,12 @@ use std::{
     cell::{Cell, RefCell},
     panic::{AssertUnwindSafe, catch_unwind},
     rc::Rc,
+    time::{Duration, Instant},
 };
 
 use corosensei::stack::DefaultStack;
 
-use super::{Fiber, FiberState, Suspension, suspend};
+use super::{Fiber, FiberState, ParkRequest, ParkToken, Suspension, suspend};
 
 fn nested_yield() {
     suspend(Suspension::YieldNow).expect("fiber must be mounted");
@@ -31,6 +32,27 @@ fn a_nested_function_can_suspend_and_resume() {
     assert_eq!(fiber.resume(), FiberState::Complete);
     assert_eq!(&*trace.borrow(), &["before", "after"]);
     assert!(fiber.is_complete());
+    drop(fiber.into_stack());
+}
+
+#[test]
+fn parking_requests_preserve_token_and_deadline() {
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let request = ParkRequest::new(ParkToken::new(7, 3), Some(deadline));
+    let stack = DefaultStack::new(128 * 1024).expect("allocate stack");
+    let mut fiber = Fiber::new(stack, move || {
+        suspend(Suspension::Park(request)).expect("fiber must be mounted");
+    });
+
+    match fiber.resume() {
+        FiberState::Suspended(Suspension::Park(request)) => {
+            assert_eq!(request.token().wait(), 7);
+            assert_eq!(request.token().generation(), 3);
+            assert_eq!(request.deadline(), Some(deadline));
+        }
+        state => panic!("unexpected fiber state: {state:?}"),
+    }
+    assert_eq!(fiber.resume(), FiberState::Complete);
     drop(fiber.into_stack());
 }
 
