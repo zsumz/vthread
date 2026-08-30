@@ -129,7 +129,11 @@ impl Fiber {
     }
 
     /// Mounts the fiber until it suspends or completes.
+    ///
+    /// Panics if the fiber has already completed, without mounting its old yielder.
     pub fn resume(&mut self) -> FiberState {
+        // Reject the transition before a panic hook can observe a stale mount.
+        assert!(!self.is_complete(), "a completed fiber cannot be resumed");
         let _mount = MountGuard::install(self.yielder.get());
         let coroutine = self
             .coroutine
@@ -149,7 +153,14 @@ impl Fiber {
     }
 
     /// Reclaims the stack after completion so it can be reused.
+    ///
+    /// Panics if incomplete; the fiber is still reclaimed with its yielder mounted.
     pub fn into_stack(mut self) -> DefaultStack {
+        // Keep ownership here on failure so Drop mounts the fiber for unwinding.
+        assert!(
+            self.is_complete(),
+            "an incomplete fiber cannot be extracted"
+        );
         self.coroutine
             .take()
             .expect("fiber stack already extracted")

@@ -86,3 +86,56 @@ fn panic_unwinds_values_on_the_fiber_stack() {
     assert!(fiber.is_complete());
     drop(fiber.into_stack());
 }
+
+#[test]
+fn completed_resume_panics_before_installing_a_stale_yielder() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    let mut fiber = Fiber::new(DefaultStack::new(128 * 1024).unwrap(), || {});
+    assert_eq!(fiber.resume(), FiberState::Complete);
+    let wrong_mount = Arc::new(AtomicBool::new(false));
+    let observed = Arc::clone(&wrong_mount);
+    let owner = std::thread::current().id();
+    let previous = Arc::new(std::panic::take_hook());
+    let forwarded = Arc::clone(&previous);
+    std::panic::set_hook(Box::new(move |info| {
+        if std::thread::current().id() == owner {
+            observed.store(has_mounted_yielder(), Ordering::Relaxed);
+        }
+        forwarded(info);
+    }));
+    let result = catch_unwind(AssertUnwindSafe(|| fiber.resume()));
+    std::panic::set_hook(Box::new(move |info| previous(info)));
+    assert!(result.is_err());
+    assert!(!wrong_mount.load(Ordering::Relaxed));
+}
+
+#[test]
+fn incomplete_stack_extraction_reclaims_with_its_yielder_mounted() {
+    struct ObserveMount(Rc<Cell<bool>>);
+    impl Drop for ObserveMount {
+        fn drop(&mut self) {
+            self.0.set(has_mounted_yielder());
+        }
+    }
+    let mounted = Rc::new(Cell::new(false));
+    let observed = Rc::clone(&mounted);
+    let mut fiber = Fiber::new(DefaultStack::new(128 * 1024).unwrap(), move || {
+        let _probe = ObserveMount(observed);
+        suspend(Suspension::YieldNow).unwrap();
+    });
+    assert_eq!(fiber.resume(), FiberState::Suspended(Suspension::YieldNow));
+    let result = catch_unwind(AssertUnwindSafe(|| fiber.into_stack()));
+    assert!(result.is_err());
+    assert!(mounted.get());
+    assert!(!has_mounted_yielder());
+}
+
+fn has_mounted_yielder() -> bool {
+    // The guard captures and then restores the current mount without dereferencing it.
+    !super::MountGuard::install(std::ptr::null())
+        .previous
+        .is_null()
+}
