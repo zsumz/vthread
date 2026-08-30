@@ -1,5 +1,9 @@
-use std::{cell::RefCell, rc::Rc, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
+use crate::support_test::until;
 use crate::{Error, ParkOutcome, Runtime, UnparkResult, park_pair, yield_now};
 
 #[test]
@@ -11,21 +15,22 @@ fn parking_outside_a_virtual_thread_is_rejected() {
 #[test]
 fn a_ready_task_wakes_one_parked_generation() {
     let runtime = Runtime::new().expect("build runtime");
-    let trace = Rc::new(RefCell::new(Vec::new()));
+    let trace = Arc::new(Mutex::new(Vec::new()));
     let (parker, unparker) = park_pair();
 
     runtime
         .scope(|scope| {
-            let waiter_trace = Rc::clone(&trace);
+            let waiter_trace = Arc::clone(&trace);
             let waiter = scope.spawn("waiter", move || {
-                waiter_trace.borrow_mut().push("park");
+                waiter_trace.lock().expect("trace").push("park");
                 let outcome = parker.park().expect("park task");
-                waiter_trace.borrow_mut().push("resume");
+                waiter_trace.lock().expect("trace").push("resume");
                 outcome
             })?;
-            let waker_trace = Rc::clone(&trace);
+            until(|| scope.snapshot().parked == 1);
+            let waker_trace = Arc::clone(&trace);
             let waker = scope.spawn("waker", move || {
-                waker_trace.borrow_mut().push("wake");
+                waker_trace.lock().expect("trace").push("wake");
                 unparker.unpark()
             })?;
 
@@ -35,7 +40,7 @@ fn a_ready_task_wakes_one_parked_generation() {
         })
         .expect("scope succeeds");
 
-    assert_eq!(&*trace.borrow(), &["park", "wake", "resume"]);
+    assert_eq!(&*trace.lock().expect("trace"), &["park", "wake", "resume"]);
 }
 
 #[test]
@@ -73,13 +78,14 @@ fn an_expired_timeout_does_not_enter_the_parked_set() {
 fn one_parker_rejects_two_active_consumers() {
     let runtime = Runtime::new().expect("build runtime");
     let (parker, unparker) = park_pair();
-    let parker = Rc::new(parker);
+    let parker = Arc::new(parker);
 
     runtime
         .scope(|scope| {
-            let first_parker = Rc::clone(&parker);
+            let first_parker = Arc::clone(&parker);
             let first = scope.spawn("first", move || first_parker.park())?;
-            let second_parker = Rc::clone(&parker);
+            until(|| scope.snapshot().parked == 1);
+            let second_parker = Arc::clone(&parker);
             let second = scope.spawn("second", move || second_parker.park())?;
 
             assert!(matches!(second.join()?, Err(Error::ParkerBusy)));
@@ -105,6 +111,7 @@ fn cancellation_wins_without_closing_future_generations() {
                     .expect("second park");
                 (first, second)
             })?;
+            until(|| scope.snapshot().parked == 1);
             scope.spawn("cancel", move || {
                 yield_now().expect("mounted task");
                 assert!(canceller.cancel());
@@ -130,6 +137,7 @@ fn close_wakes_and_is_terminal() {
                 let second = parker.park().expect("closed park");
                 (first, second)
             })?;
+            until(|| scope.snapshot().parked == 1);
             scope.spawn("close", move || {
                 assert!(closer.close());
             })?;

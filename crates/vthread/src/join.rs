@@ -1,19 +1,25 @@
 //! Typed task completion handles.
 
-use std::{cell::RefCell, fmt, marker::PhantomData, rc::Rc};
+use std::{
+    fmt,
+    marker::PhantomData,
+    sync::{Arc, Mutex},
+};
 
-use crate::{Error, PanicReport, Result, Runtime, TaskId, task::SharedTaskRecord};
+use crate::{
+    Error, PanicReport, Result, Runtime, TaskId, context, signal::lock, task::SharedTaskRecord,
+};
 
 pub(crate) struct JoinCell<T> {
     pub(crate) outcome: Option<std::result::Result<T, PanicReport>>,
 }
 
-/// A carrier-local handle to one task result.
+/// A typed result handle whose completion follows carrier-side stack reclamation.
 pub struct JoinHandle<'scope, T> {
     runtime: &'scope Runtime,
     id: TaskId,
-    name: Rc<str>,
-    cell: Rc<RefCell<JoinCell<T>>>,
+    name: Arc<str>,
+    cell: Arc<Mutex<JoinCell<T>>>,
     record: SharedTaskRecord,
     _invariant: PhantomData<&'scope mut &'scope ()>,
 }
@@ -22,8 +28,8 @@ impl<'scope, T> JoinHandle<'scope, T> {
     pub(crate) fn new(
         runtime: &'scope Runtime,
         id: TaskId,
-        name: Rc<str>,
-        cell: Rc<RefCell<JoinCell<T>>>,
+        name: Arc<str>,
+        cell: Arc<Mutex<JoinCell<T>>>,
         record: SharedTaskRecord,
     ) -> Self {
         Self {
@@ -43,16 +49,29 @@ impl<'scope, T> JoinHandle<'scope, T> {
 
     /// Returns whether the task has reached a terminal state.
     pub fn is_finished(&self) -> bool {
-        self.record.borrow().status.is_terminal()
+        lock(&self.record).status.is_terminal()
     }
 
-    /// Drives the carrier until this task completes and returns its result.
+    /// Waits on the calling OS thread until the owning carrier reclaims the child stack.
     pub fn join(self) -> Result<T> {
-        self.runtime.run_until(self.id)?;
-        self.record.borrow_mut().outcome_observed = true;
-        let outcome = self
-            .cell
-            .borrow_mut()
+        if context::current().is_some() {
+            return Err(Error::InsideVThread);
+        }
+        let scope = lock(&self.record).scope;
+        let waited = self.runtime.shared.wait(scope, Some(self.id));
+        let failure = {
+            let mut record = lock(&self.record);
+            record.outcome_observed = true;
+            record.failure
+        };
+        waited?;
+        if let Some(reason) = failure {
+            return Err(Error::TaskAborted {
+                task: self.id,
+                reason,
+            });
+        }
+        let outcome = lock(&self.cell)
             .outcome
             .take()
             .ok_or(Error::Invariant("completed task has no join outcome"))?;
@@ -66,7 +85,7 @@ impl<T> fmt::Debug for JoinHandle<'_, T> {
             .debug_struct("JoinHandle")
             .field("id", &self.id)
             .field("name", &self.name)
-            .field("status", &self.record.borrow().status)
+            .field("status", &lock(&self.record).status)
             .finish_non_exhaustive()
     }
 }

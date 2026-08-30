@@ -7,9 +7,11 @@ fn local_tasks_can_hold_non_send_values() {
     let runtime = Runtime::new().expect("build runtime");
     runtime
         .scope(|scope| {
-            let value = Rc::new(41);
-            let task_value = Rc::clone(&value);
-            let task = scope.spawn("local", move || *task_value + 1)?;
+            let task = scope.spawn("local", || {
+                let task_value = Rc::new(41);
+                crate::yield_now().expect("mounted");
+                *task_value + 1
+            })?;
             assert_eq!(task.join()?, 42);
             Ok(())
         })

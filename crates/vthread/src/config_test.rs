@@ -38,3 +38,27 @@ fn tiny_stacks_are_rejected_before_allocation() {
         }
     ));
 }
+
+#[test]
+fn carrier_limits_and_stall_deadlines_are_validated_before_starting_threads() {
+    assert!(Runtime::builder().carriers(0).build().is_err());
+    assert!(
+        Runtime::builder()
+            .carriers(2)
+            .max_vthreads(1)
+            .build()
+            .is_err()
+    );
+    assert!(
+        Runtime::builder()
+            .carrier_queue_capacity(0)
+            .build()
+            .is_err()
+    );
+    assert!(
+        Runtime::builder()
+            .stall_timeout(Some(std::time::Duration::MAX))
+            .build()
+            .is_err()
+    );
+}

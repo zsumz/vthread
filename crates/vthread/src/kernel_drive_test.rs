@@ -1,4 +1,7 @@
-use std::{cell::RefCell, rc::Rc, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use crate::{ParkOutcome, Runtime, WakeReason, park_pair};
 
@@ -34,19 +37,20 @@ fn timeout_updates_task_and_runtime_ledgers() {
 #[test]
 fn parked_tasks_do_not_consume_mounts_until_selected() {
     let runtime = Runtime::new().expect("build runtime");
-    let trace = Rc::new(RefCell::new(Vec::new()));
+    let trace = Arc::new(Mutex::new(Vec::new()));
     let (parker, unparker) = park_pair();
     runtime
         .scope(|scope| {
-            let waiter_trace = Rc::clone(&trace);
+            let waiter_trace = Arc::clone(&trace);
             let waiter = scope.spawn("waiter", move || {
-                waiter_trace.borrow_mut().push("before");
+                waiter_trace.lock().expect("trace").push("before");
                 parker.park().expect("park");
-                waiter_trace.borrow_mut().push("after");
+                waiter_trace.lock().expect("trace").push("after");
             })?;
-            let wake_trace = Rc::clone(&trace);
+            crate::support_test::until(|| scope.snapshot().parked == 1);
+            let wake_trace = Arc::clone(&trace);
             scope.spawn("wake", move || {
-                wake_trace.borrow_mut().push("wake");
+                wake_trace.lock().expect("trace").push("wake");
                 unparker.unpark();
             })?;
             waiter.join()?;
@@ -60,5 +64,5 @@ fn parked_tasks_do_not_consume_mounts_until_selected() {
             Ok(())
         })
         .expect("scope succeeds");
-    assert_eq!(&*trace.borrow(), &["before", "wake", "after"]);
+    assert_eq!(&*trace.lock().expect("trace"), &["before", "wake", "after"]);
 }

@@ -1,5 +1,5 @@
 use std::{
-    rc::{Rc, Weak},
+    sync::{Arc, Weak},
     time::{Duration, Instant},
 };
 
@@ -7,7 +7,7 @@ use crate::{Error, TaskId};
 
 use super::{NotifyResult, WaitBegin, WaitCell, WaitHub, WakeCause};
 
-fn parked(cell: &WaitCell, hub: &Rc<WaitHub>) -> vthread_stack::ParkToken {
+fn parked(cell: &WaitCell, hub: &Arc<WaitHub>) -> vthread_stack::ParkToken {
     match cell
         .begin(
             TaskId::new(1),
@@ -24,7 +24,7 @@ fn parked(cell: &WaitCell, hub: &Rc<WaitHub>) -> vthread_stack::ParkToken {
 #[test]
 fn one_preexisting_permit_is_bounded() {
     let cell = WaitCell::new();
-    let hub = Rc::new(WaitHub::new());
+    let hub = Arc::new(WaitHub::new(64, Arc::default()));
     assert_eq!(cell.notify(), NotifyResult::Stored);
     assert_eq!(cell.notify(), NotifyResult::Stored);
     assert!(matches!(
@@ -41,7 +41,7 @@ fn one_preexisting_permit_is_bounded() {
 #[test]
 fn duplicate_registration_does_not_replace_the_original_wait() {
     let cell = WaitCell::new();
-    let hub = Rc::new(WaitHub::new());
+    let hub = Arc::new(WaitHub::new(64, Arc::default()));
     let token = parked(&cell, &hub);
 
     let duplicate = hub
@@ -67,7 +67,7 @@ fn duplicate_registration_does_not_replace_the_original_wait() {
 #[test]
 fn timeout_wins_one_generation_exactly_once() {
     let cell = WaitCell::new();
-    let hub = Rc::new(WaitHub::new());
+    let hub = Arc::new(WaitHub::new(64, Arc::default()));
     let token = parked(&cell, &hub);
     let registration = hub.take_registration(token).expect("registration");
 
@@ -94,7 +94,7 @@ fn timeout_wins_one_generation_exactly_once() {
 #[test]
 fn stale_generation_cannot_select_a_later_wait() {
     let cell = WaitCell::new();
-    let hub = Rc::new(WaitHub::new());
+    let hub = Arc::new(WaitHub::new(64, Arc::default()));
     let first = parked(&cell, &hub);
     let first_registration = hub.take_registration(first).expect("first registration");
     assert_eq!(cell.notify(), NotifyResult::Woke);
@@ -115,7 +115,7 @@ fn stale_generation_cannot_select_a_later_wait() {
 #[test]
 fn cancellation_and_close_are_distinct_winners() {
     let cell = WaitCell::new();
-    let hub = Rc::new(WaitHub::new());
+    let hub = Arc::new(WaitHub::new(64, Arc::default()));
     let first = parked(&cell, &hub);
     let _registration = hub.take_registration(first).expect("registration");
     assert!(cell.cancel());

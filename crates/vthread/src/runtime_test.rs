@@ -1,6 +1,8 @@
 use std::{
-    cell::{Cell, RefCell},
-    rc::Rc,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -9,22 +11,22 @@ use crate::{Error, ParkOutcome, Runtime, TaskStatus, park_pair, yield_now};
 #[test]
 fn round_robin_mounts_are_visible() {
     let runtime = Runtime::new().expect("build runtime");
-    let trace = Rc::new(RefCell::new(Vec::new()));
+    let trace = Arc::new(Mutex::new(Vec::new()));
 
     runtime
         .scope(|scope| {
-            let left_trace = Rc::clone(&trace);
+            let left_trace = Arc::clone(&trace);
             let left = scope.spawn("left", move || {
-                left_trace.borrow_mut().push("left:1");
+                left_trace.lock().expect("trace").push("left:1");
                 yield_now().expect("mounted task");
-                left_trace.borrow_mut().push("left:2");
+                left_trace.lock().expect("trace").push("left:2");
                 20
             })?;
-            let right_trace = Rc::clone(&trace);
+            let right_trace = Arc::clone(&trace);
             let right = scope.spawn("right", move || {
-                right_trace.borrow_mut().push("right:1");
+                right_trace.lock().expect("trace").push("right:1");
                 yield_now().expect("mounted task");
-                right_trace.borrow_mut().push("right:2");
+                right_trace.lock().expect("trace").push("right:2");
                 22
             })?;
 
@@ -49,9 +51,14 @@ fn round_robin_mounts_are_visible() {
         })
         .expect("scope succeeds");
 
-    assert_eq!(
-        &*trace.borrow(),
-        &["left:1", "right:1", "left:2", "right:2"]
+    let trace = trace.lock().expect("trace");
+    assert!(
+        trace.iter().position(|entry| *entry == "left:1")
+            < trace.iter().position(|entry| *entry == "left:2")
+    );
+    assert!(
+        trace.iter().position(|entry| *entry == "right:1")
+            < trace.iter().position(|entry| *entry == "right:2")
     );
 }
 
@@ -72,17 +79,17 @@ fn a_task_panic_does_not_stop_the_carrier() {
 
 #[test]
 fn panic_runs_stack_destructors() {
-    struct DropFlag(Rc<Cell<bool>>);
+    struct DropFlag(Arc<AtomicBool>);
 
     impl Drop for DropFlag {
         fn drop(&mut self) {
-            self.0.set(true);
+            self.0.store(true, Ordering::SeqCst);
         }
     }
 
     let runtime = Runtime::new().expect("build runtime");
-    let dropped = Rc::new(Cell::new(false));
-    let task_dropped = Rc::clone(&dropped);
+    let dropped = Arc::new(AtomicBool::new(false));
+    let task_dropped = Arc::clone(&dropped);
     runtime
         .scope(|scope| {
             let failed = scope.spawn("failed", move || {
@@ -93,7 +100,7 @@ fn panic_runs_stack_destructors() {
             Ok(())
         })
         .expect("panic is observed");
-    assert!(dropped.get());
+    assert!(dropped.load(Ordering::SeqCst));
 }
 
 #[test]
@@ -117,10 +124,13 @@ fn completed_stacks_are_reused_by_later_tasks() {
 
 #[test]
 fn a_stalled_parked_scope_is_cleaned_before_reuse() {
-    let runtime = Runtime::new().expect("build runtime");
+    let runtime = Runtime::builder()
+        .stall_timeout(Some(Duration::from_millis(10)))
+        .build()
+        .expect("build runtime");
     let (parker, _unparker) = park_pair();
-    let parker = Rc::new(parker);
-    let parked_parker = Rc::clone(&parker);
+    let parker = Arc::new(parker);
+    let parked_parker = Arc::clone(&parker);
     let error = runtime
         .scope(|scope| {
             let _parked = scope.spawn("parked", move || parked_parker.park())?;
@@ -138,7 +148,7 @@ fn a_stalled_parked_scope_is_cleaned_before_reuse() {
     runtime
         .scope(|scope| {
             assert_eq!(scope.spawn("reused", || 42)?.join()?, 42);
-            let reused_parker = Rc::clone(&parker);
+            let reused_parker = Arc::clone(&parker);
             let parked = scope.spawn("park-again", move || {
                 reused_parker.park_timeout(Duration::from_millis(1))
             })?;

@@ -1,6 +1,10 @@
 //! Task identity, state, and scheduler-owned records.
 
-use std::{cell::RefCell, fmt, rc::Rc};
+use std::{
+    fmt,
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 
 use crate::PanicReport;
 
@@ -18,6 +22,30 @@ impl fmt::Display for TaskId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(formatter)
     }
+}
+
+/// Stable carrier index within one runtime.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CarrierId(pub(crate) usize);
+
+impl CarrierId {
+    /// Returns the zero-based carrier index.
+    pub fn index(self) -> usize {
+        self.0
+    }
+}
+
+/// Why a carrier reclaimed a task without normal completion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TaskFailure {
+    /// No live child could progress within the configured stall grace period.
+    ScopeStalled,
+    /// Runtime shutdown was requested.
+    RuntimeStopped,
+    /// An unexpected scheduler error stopped the owner carrier.
+    CarrierFailed,
+    /// The owner carrier could not allocate a task stack.
+    StackAllocation,
 }
 
 /// A reason a task voluntarily returned to its carrier.
@@ -45,6 +73,8 @@ pub enum WakeReason {
 /// Current scheduler-visible task state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TaskStatus {
+    /// An unstarted Send packet is waiting for its carrier.
+    Queued,
     /// Waiting in the carrier run queue.
     Ready,
     /// Mounted on the carrier stack.
@@ -55,11 +85,13 @@ pub enum TaskStatus {
     Completed,
     /// Unwound after a panic.
     Panicked,
+    /// Reclaimed after a runtime or carrier failure.
+    Aborted,
 }
 
 impl TaskStatus {
     pub(crate) fn is_terminal(self) -> bool {
-        matches!(self, Self::Completed | Self::Panicked)
+        matches!(self, Self::Completed | Self::Panicked | Self::Aborted)
     }
 }
 
@@ -70,6 +102,12 @@ pub struct TaskSnapshot {
     pub id: TaskId,
     /// User-supplied task name.
     pub name: String,
+    /// Placement owner; the stack is created and always resumed on this carrier.
+    pub carrier: CarrierId,
+    /// Current park deadline, if any.
+    pub deadline: Option<Instant>,
+    /// Reclamation failure, if the task was aborted.
+    pub failure: Option<TaskFailure>,
     /// Current state.
     pub status: TaskStatus,
     /// Number of times the task stack was mounted.
@@ -86,12 +124,15 @@ pub struct TaskSnapshot {
     pub outcome_observed: bool,
 }
 
-pub(crate) type SharedTaskRecord = Rc<RefCell<TaskRecord>>;
+pub(crate) type SharedTaskRecord = Arc<Mutex<TaskRecord>>;
 
 pub(crate) struct TaskRecord {
     pub(crate) id: TaskId,
     pub(crate) scope: u64,
-    pub(crate) name: Rc<str>,
+    pub(crate) name: Arc<str>,
+    pub(crate) carrier: CarrierId,
+    pub(crate) deadline: Option<Instant>,
+    pub(crate) failure: Option<TaskFailure>,
     pub(crate) status: TaskStatus,
     pub(crate) mounts: u64,
     pub(crate) yields: u64,
@@ -107,6 +148,9 @@ impl TaskRecord {
         TaskSnapshot {
             id: self.id,
             name: self.name.to_string(),
+            carrier: self.carrier,
+            deadline: self.deadline,
+            failure: self.failure,
             status: self.status,
             mounts: self.mounts,
             yields: self.yields,

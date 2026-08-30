@@ -1,13 +1,10 @@
 //! Wake selection for readiness, timeout, cancellation, and close.
 
-use std::{
-    cell::RefCell,
-    rc::{Rc, Weak},
-};
+use std::sync::{Arc, Mutex, Weak};
 
 use vthread_stack::ParkToken;
 
-use crate::{Error, Result, TaskId};
+use crate::{Error, Result, TaskId, signal::lock};
 
 use super::{WaitCell, WaitHub, WaitRegistration, WaitState, WakeCause, WakeNotice};
 
@@ -24,14 +21,22 @@ impl WaitRegistration {
         let Some(state) = self.state.upgrade() else {
             return;
         };
-        let mut state = state.borrow_mut();
+        let mut state = lock(&state);
         if state
             .active
             .as_ref()
             .is_some_and(|active| active.token == token)
         {
+            let hub = state
+                .active
+                .as_ref()
+                .and_then(|active| active.hub.upgrade());
             state.active = None;
             state.selected = None;
+            drop(state);
+            if let Some(hub) = hub {
+                hub.unregister(token);
+            }
         }
     }
 }
@@ -39,7 +44,7 @@ impl WaitRegistration {
 impl WaitCell {
     pub(crate) fn notify(&self) -> NotifyResult {
         let dispatch = {
-            let mut state = self.state.borrow_mut();
+            let mut state = lock(&self.state);
             if state.closed {
                 return NotifyResult::Closed;
             }
@@ -65,7 +70,7 @@ impl WaitCell {
 
     pub(crate) fn close(&self) -> bool {
         let dispatch = {
-            let mut state = self.state.borrow_mut();
+            let mut state = lock(&self.state);
             if state.closed {
                 return false;
             }
@@ -87,7 +92,7 @@ impl WaitCell {
     }
 
     pub(crate) fn is_closed(&self) -> bool {
-        self.state.borrow().closed
+        lock(&self.state).closed
     }
 }
 
@@ -98,9 +103,9 @@ pub(crate) enum NotifyResult {
     Closed,
 }
 
-fn select_current(state: &Rc<RefCell<WaitState>>, cause: WakeCause) -> bool {
+fn select_current(state: &Arc<Mutex<WaitState>>, cause: WakeCause) -> bool {
     let dispatch = {
-        let mut state = state.borrow_mut();
+        let mut state = lock(state);
         let active = state
             .active
             .as_ref()
@@ -115,9 +120,9 @@ fn select_current(state: &Rc<RefCell<WaitState>>, cause: WakeCause) -> bool {
     true
 }
 
-fn select_generation(state: &Rc<RefCell<WaitState>>, token: ParkToken, cause: WakeCause) -> bool {
+fn select_generation(state: &Arc<Mutex<WaitState>>, token: ParkToken, cause: WakeCause) -> bool {
     let dispatch = {
-        let mut state = state.borrow_mut();
+        let mut state = lock(state);
         let active = state
             .active
             .as_ref()

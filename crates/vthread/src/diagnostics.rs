@@ -1,6 +1,6 @@
 //! Runtime and stack-pool diagnostics.
 
-use crate::TaskSnapshot;
+use crate::{CarrierId, TaskSnapshot};
 
 /// Cumulative scheduler counters.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -62,9 +62,66 @@ impl From<vthread_stack::StackPoolSnapshot> for StackSnapshot {
     }
 }
 
+/// Health of one persistent carrier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CarrierStatus {
+    /// Waiting for start packets, wakes, or timers.
+    Idle,
+    /// Executing a task or scheduler transition.
+    Running,
+    /// Shut down and reclaimed all owned stacks.
+    Stopped,
+    /// Reclaimed its work after an unexpected scheduler failure.
+    Failed,
+}
+
+/// Owner-local scheduler counters published by a carrier.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CarrierSnapshot {
+    /// Stable runtime-local identity.
+    pub id: CarrierId,
+    /// Current carrier health.
+    pub status: CarrierStatus,
+    /// Tasks with retained stacks or unstarted admission.
+    pub active: usize,
+    /// Local runnable stacks.
+    pub runnable: usize,
+    /// Local parked stacks.
+    pub parked: usize,
+    /// Active monotonic timers.
+    pub timers: usize,
+    /// Unstarted packets waiting in the bounded inbox.
+    pub pending_starts: usize,
+    /// Selected wake notices waiting in reserved slots.
+    pub pending_wakes: usize,
+    /// Cumulative carrier counters.
+    pub stats: RuntimeStats,
+    /// Carrier-local stack cache.
+    pub stacks: StackSnapshot,
+}
+
+impl CarrierSnapshot {
+    pub(crate) fn new(id: CarrierId) -> Self {
+        Self {
+            id,
+            status: CarrierStatus::Idle,
+            active: 0,
+            runnable: 0,
+            parked: 0,
+            timers: 0,
+            pending_starts: 0,
+            pending_wakes: 0,
+            stats: RuntimeStats::default(),
+            stacks: StackSnapshot::default(),
+        }
+    }
+}
+
 /// Point-in-time runtime state.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RuntimeSnapshot {
+    /// Per-carrier health and ownership counters.
+    pub carriers: Vec<CarrierSnapshot>,
     /// Number of live tasks.
     pub active: usize,
     /// Number of tasks waiting in the run queue.
@@ -79,6 +136,35 @@ pub struct RuntimeSnapshot {
     pub stacks: StackSnapshot,
     /// Task records retained by the active scope.
     pub tasks: Vec<TaskSnapshot>,
+}
+
+impl RuntimeStats {
+    pub(crate) fn add(&mut self, other: Self) {
+        self.spawned += other.spawned;
+        self.completed += other.completed;
+        self.panicked += other.panicked;
+        self.mounts += other.mounts;
+        self.yields += other.yields;
+        self.parks += other.parks;
+        self.wakes += other.wakes;
+        self.timeouts += other.timeouts;
+        self.cancelled += other.cancelled;
+        self.closed += other.closed;
+        self.timer_sleeps += other.timer_sleeps;
+        self.stale_wakes += other.stale_wakes;
+        self.aborted += other.aborted;
+        self.rejected += other.rejected;
+    }
+}
+
+impl StackSnapshot {
+    pub(crate) fn add(&mut self, other: Self) {
+        self.cached += other.cached;
+        self.allocated += other.allocated;
+        self.reused += other.reused;
+        self.retained += other.retained;
+        self.discarded += other.discarded;
+    }
 }
 
 #[cfg(test)]

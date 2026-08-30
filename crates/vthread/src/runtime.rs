@@ -1,26 +1,25 @@
-//! Runtime lifecycle and carrier driving.
-
-use std::{
-    cell::{Cell, RefCell},
-    fmt,
-    panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
-};
+//! Runtime lifecycle and structured ownership of persistent carrier threads.
 
 use crate::{
-    Error, JoinHandle, Result, RuntimeBuilder, RuntimeConfig, RuntimeSnapshot, Scope, TaskId,
-    kernel::Kernel,
+    CarrierId, Error, JoinHandle, Result, RuntimeBuilder, RuntimeConfig, RuntimeSnapshot, Scope,
+    carrier, context, control::Shared, signal::lock,
+};
+use std::{
+    fmt,
+    panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
+    sync::{Arc, Mutex},
+    thread,
 };
 
-/// A single-carrier virtual-thread runtime.
+/// A bounded runtime with persistent, permanently affine carrier threads.
 pub struct Runtime {
     config: RuntimeConfig,
-    kernel: RefCell<Kernel>,
-    active_scope: Cell<bool>,
-    next_scope: Cell<u64>,
+    pub(crate) shared: Arc<Shared>,
+    workers: Mutex<Vec<thread::JoinHandle<()>>>,
 }
 
 impl Runtime {
-    /// Returns a builder with bounded defaults.
+    /// Returns a builder with bounded defaults and one persistent carrier.
     pub fn builder() -> RuntimeBuilder {
         RuntimeBuilder::default()
     }
@@ -30,13 +29,23 @@ impl Runtime {
         Self::builder().build()
     }
 
-    pub(crate) fn from_config(config: RuntimeConfig) -> Self {
-        Self {
+    pub(crate) fn from_config(config: RuntimeConfig) -> Result<Self> {
+        let shared = Arc::new(Shared::new(config));
+        let runtime = Self {
             config,
-            kernel: RefCell::new(Kernel::new(config)),
-            active_scope: Cell::new(false),
-            next_scope: Cell::new(1),
+            shared,
+            workers: Mutex::new(Vec::new()),
+        };
+        for index in 0..config.carriers() {
+            let shared = Arc::clone(&runtime.shared);
+            let name = format!("vthread-carrier-{index}");
+            let worker = thread::Builder::new()
+                .name(name)
+                .spawn(move || carrier::run(shared, CarrierId(index)))
+                .map_err(Error::CarrierStart)?;
+            lock(&runtime.workers).push(worker);
         }
+        Ok(runtime)
     }
 
     /// Returns the immutable runtime configuration.
@@ -44,70 +53,56 @@ impl Runtime {
         self.config
     }
 
-    /// Runs one structured scope on the caller thread.
+    /// Runs a scope body on an ordinary OS caller and drains all admitted children.
+    ///
+    /// Only one scope may be active per runtime. Runtime operations that wait for
+    /// children are rejected inside a virtual thread.
     pub fn scope<R>(&self, body: impl FnOnce(&Scope<'_>) -> Result<R>) -> Result<R> {
-        if self.active_scope.replace(true) {
-            return Err(Error::NestedScope);
+        if context::current().is_some() {
+            return Err(Error::InsideVThread);
         }
-        let _active = ActiveScopeGuard(&self.active_scope);
-        let scope_id = self.next_scope.get();
-        let next_scope = scope_id
-            .checked_add(1)
-            .ok_or(Error::Invariant("scope id space exhausted"))?;
-        self.next_scope.set(next_scope);
-        let scope = Scope::new(self, scope_id);
-        let body_result = catch_unwind(AssertUnwindSafe(|| body(&scope)));
-        let drain_result = self.drain_scope(scope_id);
-        let unobserved = if drain_result.is_ok() {
-            self.kernel.borrow().unobserved_panic(scope_id)
-        } else {
-            None
-        };
-        let abort_result = if drain_result.is_err() {
-            self.kernel.borrow_mut().abort_scope(scope_id)
-        } else {
-            Ok(())
-        };
-        self.kernel.borrow_mut().purge_scope(scope_id);
-
-        match body_result {
-            Err(payload) => {
-                let _ = drain_result;
-                let _ = abort_result;
-                resume_unwind(payload)
-            }
-            Ok(Err(error)) => {
-                abort_result?;
-                drain_result?;
-                Err(error)
-            }
-            Ok(Ok(value)) => {
-                abort_result?;
-                drain_result?;
-                if let Some((task, name, panic)) = unobserved {
-                    return Err(Error::task_panicked(task, name, panic));
-                }
+        let id = self.shared.begin_scope()?;
+        let scope = Scope::new(self, id);
+        let result = catch_unwind(AssertUnwindSafe(|| body(&scope)));
+        let drained = self.shared.wait(id, None);
+        let unobserved = self.shared.unobserved(id);
+        self.shared.finish_scope(id);
+        match result {
+            Err(payload) => resume_unwind(payload),
+            Ok(result) => {
+                drained?;
+                let value = result?;
+                unobserved?;
                 Ok(value)
             }
         }
     }
 
-    /// Returns a point-in-time scheduler and task snapshot.
+    /// Returns the published carrier state and retained task diagnostics.
     pub fn snapshot(&self) -> RuntimeSnapshot {
-        self.kernel.borrow().snapshot()
+        self.shared.snapshot()
     }
 
-    pub(crate) fn spawn<'scope, T, F>(
+    /// Stops admission, reclaims tasks at their next runtime boundary, and joins carriers.
+    ///
+    /// This cannot preempt CPU loops, native blocking calls, or FFI. Such work may
+    /// delay shutdown indefinitely. Calling shutdown inside a virtual thread is rejected.
+    pub fn shutdown(&self) -> Result<()> {
+        if context::current().is_some() {
+            return Err(Error::InsideVThread);
+        }
+        self.shared.request_stop();
+        self.join_workers();
+        Ok(())
+    }
+
+    pub(crate) fn spawn<'scope, T: Send + 'static, F: FnOnce() -> T + Send + 'static>(
         &'scope self,
         scope: u64,
         name: String,
         entry: F,
-    ) -> Result<JoinHandle<'scope, T>>
-    where
-        F: FnOnce() -> T + 'static,
-        T: 'static,
-    {
-        let spawned = self.kernel.borrow_mut().spawn(scope, name, entry)?;
+    ) -> Result<JoinHandle<'scope, T>> {
+        let spawned = self.shared.submit(scope, name, entry)?;
         Ok(JoinHandle::new(
             self,
             spawned.id,
@@ -117,30 +112,22 @@ impl Runtime {
         ))
     }
 
-    pub(crate) fn run_until(&self, task: TaskId) -> Result<()> {
-        loop {
-            if self.kernel.borrow().is_terminal(task)? {
-                return Ok(());
-            }
-            let progressed = self.kernel.borrow_mut().tick()?;
-            if !progressed {
-                let active = self.kernel.borrow().snapshot().active;
-                return Err(Error::RuntimeStalled { active });
+    fn join_workers(&self) {
+        let mut workers = lock(&self.workers);
+        for worker in workers.drain(..) {
+            // A task may drop the last Arc<Runtime>. Its own carrier exits after that
+            // task returns; joining itself here would deadlock.
+            if worker.thread().id() != thread::current().id() {
+                let _ = worker.join();
             }
         }
     }
+}
 
-    fn drain_scope(&self, scope: u64) -> Result<()> {
-        loop {
-            let active = self.kernel.borrow().active_in_scope(scope);
-            if active == 0 {
-                return Ok(());
-            }
-            let progressed = self.kernel.borrow_mut().tick()?;
-            if !progressed {
-                return Err(Error::RuntimeStalled { active });
-            }
-        }
+impl Drop for Runtime {
+    fn drop(&mut self) {
+        self.shared.request_stop();
+        self.join_workers();
     }
 }
 
@@ -150,14 +137,6 @@ impl fmt::Debug for Runtime {
             .debug_struct("Runtime")
             .field("config", &self.config)
             .finish_non_exhaustive()
-    }
-}
-
-struct ActiveScopeGuard<'runtime>(&'runtime Cell<bool>);
-
-impl Drop for ActiveScopeGuard<'_> {
-    fn drop(&mut self) {
-        self.0.set(false);
     }
 }
 

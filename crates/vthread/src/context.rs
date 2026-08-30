@@ -1,13 +1,13 @@
 //! Carrier-local identity installed while one virtual thread is mounted.
 
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, sync::Arc};
 
 use crate::{TaskId, wait::WaitHub};
 
 #[derive(Clone)]
 pub(crate) struct MountedTask {
     task: TaskId,
-    hub: Rc<WaitHub>,
+    hub: Arc<WaitHub>,
 }
 
 impl MountedTask {
@@ -15,8 +15,8 @@ impl MountedTask {
         self.task
     }
 
-    pub(crate) fn hub(&self) -> Rc<WaitHub> {
-        Rc::clone(&self.hub)
+    pub(crate) fn hub(&self) -> Arc<WaitHub> {
+        Arc::clone(&self.hub)
     }
 }
 
@@ -28,7 +28,7 @@ pub(crate) fn current() -> Option<MountedTask> {
     CURRENT.with(|current| current.borrow().clone())
 }
 
-pub(crate) fn mount(task: TaskId, hub: Rc<WaitHub>) -> MountGuard {
+pub(crate) fn mount(task: TaskId, hub: Arc<WaitHub>) -> MountGuard {
     let mounted = MountedTask { task, hub };
     let previous = CURRENT.with(|current| current.replace(Some(mounted)));
     MountGuard { previous }

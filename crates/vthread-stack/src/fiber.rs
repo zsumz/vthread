@@ -89,6 +89,11 @@ thread_local! {
 }
 
 /// One carrier-local stackful execution context.
+///
+/// ```compile_fail
+/// fn require_send<T: Send>() {}
+/// require_send::<vthread_stack::Fiber>();
+/// ```
 pub struct Fiber {
     coroutine: Option<Coroutine<(), Suspension, ()>>,
     yielder: Rc<Cell<*const RawYielder>>,

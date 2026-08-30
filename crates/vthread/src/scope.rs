@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 
 use crate::{JoinHandle, Result, Runtime, RuntimeSnapshot};
 
-/// A lexical owner for carrier-local virtual threads.
+/// A lexical owner for transferable tasks dispatched to persistent carriers.
 pub struct Scope<'runtime> {
     runtime: &'runtime Runtime,
     id: u64,
@@ -22,16 +22,25 @@ impl<'runtime> Scope<'runtime> {
 
     /// Spawns a named virtual thread owned by this scope.
     ///
-    /// This scope is carrier-local, so the closure and result do not require
-    /// `Send`. They must be `'static`.
+    /// The closure and result must be `Send + 'static`. Non-Send values may be
+    /// created inside the task and survive suspension because its stack never migrates.
+    ///
+    /// ```compile_fail
+    /// let runtime = vthread::Runtime::new().unwrap();
+    /// let local = std::rc::Rc::new(42);
+    /// runtime.scope(|scope| {
+    ///     scope.spawn("not-transferable", move || *local)?;
+    ///     Ok(())
+    /// }).unwrap();
+    /// ```
     pub fn spawn<'scope, T, F>(
         &'scope self,
         name: impl Into<String>,
         entry: F,
     ) -> Result<JoinHandle<'scope, T>>
     where
-        F: FnOnce() -> T + 'static,
-        T: 'static,
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
     {
         self.runtime.spawn(self.id, name.into(), entry)
     }

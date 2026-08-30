@@ -3,13 +3,15 @@
 #[path = "wait_select.rs"]
 mod wait_select;
 
+use crate::signal::lock;
+pub(crate) use crate::wait_hub::WaitHub;
 pub(crate) use wait_select::NotifyResult;
 
 use std::{
-    cell::RefCell,
-    collections::{BTreeMap, VecDeque, btree_map::Entry},
-    rc::{Rc, Weak},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Instant,
 };
 
@@ -39,57 +41,13 @@ pub(crate) enum WaitBegin {
     Park(ParkRequest),
 }
 
-#[derive(Default)]
-pub(crate) struct WaitHub {
-    registrations: RefCell<BTreeMap<ParkToken, Weak<RefCell<WaitState>>>>,
-    wakes: RefCell<VecDeque<WakeNotice>>,
-}
-
-impl WaitHub {
-    pub(crate) fn new() -> Self {
-        Self::default()
-    }
-
-    fn register(&self, token: ParkToken, state: Weak<RefCell<WaitState>>) -> Result<()> {
-        let mut registrations = self.registrations.borrow_mut();
-        match registrations.entry(token) {
-            Entry::Vacant(entry) => {
-                entry.insert(state);
-                Ok(())
-            }
-            Entry::Occupied(_) => Err(Error::Invariant("wait token registered twice")),
-        }
-    }
-
-    fn unregister(&self, token: ParkToken) {
-        let _ = self.registrations.borrow_mut().remove(&token);
-    }
-
-    pub(crate) fn take_registration(&self, token: ParkToken) -> Result<WaitRegistration> {
-        let state = self
-            .registrations
-            .borrow_mut()
-            .remove(&token)
-            .ok_or(Error::Invariant("park request has no wait registration"))?;
-        Ok(WaitRegistration { state })
-    }
-
-    fn enqueue(&self, notice: WakeNotice) {
-        self.wakes.borrow_mut().push_back(notice);
-    }
-
-    pub(crate) fn pop_wake(&self) -> Option<WakeNotice> {
-        self.wakes.borrow_mut().pop_front()
-    }
-}
-
 pub(crate) struct WaitRegistration {
-    state: Weak<RefCell<WaitState>>,
+    pub(crate) state: Weak<Mutex<WaitState>>,
 }
 
 #[derive(Clone)]
 pub(crate) struct WaitCell {
-    state: Rc<RefCell<WaitState>>,
+    state: Arc<Mutex<WaitState>>,
 }
 
 impl Default for WaitCell {
@@ -104,7 +62,7 @@ struct ActiveWait {
     hub: Weak<WaitHub>,
 }
 
-struct WaitState {
+pub(crate) struct WaitState {
     id: u64,
     generation: u64,
     permit: bool,
@@ -121,7 +79,7 @@ impl WaitCell {
             })
             .expect("parking identity space exhausted");
         Self {
-            state: Rc::new(RefCell::new(WaitState {
+            state: Arc::new(Mutex::new(WaitState {
                 id,
                 generation: 0,
                 permit: false,
@@ -135,10 +93,10 @@ impl WaitCell {
     pub(crate) fn begin(
         &self,
         task: TaskId,
-        hub: &Rc<WaitHub>,
+        hub: &Arc<WaitHub>,
         deadline: Option<Instant>,
     ) -> Result<WaitBegin> {
-        let mut state = self.state.borrow_mut();
+        let mut state = lock(&self.state);
         if state.active.is_some() {
             return Err(Error::ParkerBusy);
         }
@@ -162,20 +120,19 @@ impl WaitCell {
         state.active = Some(ActiveWait {
             token,
             task,
-            hub: Rc::downgrade(hub),
+            hub: Arc::downgrade(hub),
         });
         state.selected = None;
-        drop(state);
-
-        if let Err(error) = hub.register(token, Rc::downgrade(&self.state)) {
-            self.clear_active(token);
+        if let Err(error) = hub.register(token, Arc::downgrade(&self.state)) {
+            state.active = None;
+            state.selected = None;
             return Err(error);
         }
         Ok(WaitBegin::Park(ParkRequest::new(token, deadline)))
     }
 
     pub(crate) fn finish(&self, token: ParkToken) -> Result<WakeCause> {
-        let mut state = self.state.borrow_mut();
+        let mut state = lock(&self.state);
         let active = state
             .active
             .as_ref()
@@ -193,7 +150,7 @@ impl WaitCell {
 
     pub(crate) fn rollback(&self, token: ParkToken) {
         let hub = {
-            let mut state = self.state.borrow_mut();
+            let mut state = lock(&self.state);
             let Some(active) = state.active.as_ref() else {
                 return;
             };
@@ -207,18 +164,6 @@ impl WaitCell {
         };
         if let Some(hub) = hub {
             hub.unregister(token);
-        }
-    }
-
-    fn clear_active(&self, token: ParkToken) {
-        let mut state = self.state.borrow_mut();
-        if state
-            .active
-            .as_ref()
-            .is_some_and(|active| active.token == token)
-        {
-            state.active = None;
-            state.selected = None;
         }
     }
 }

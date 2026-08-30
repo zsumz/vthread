@@ -2,7 +2,7 @@
 
 use std::{any::Any, error::Error as StdError, fmt, io};
 
-use crate::TaskId;
+use crate::{TaskFailure, TaskId};
 
 /// The result type returned by `vthread` operations.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -52,6 +52,21 @@ pub enum Error {
     },
     /// A scope was entered while another scope was active on the runtime.
     NestedScope,
+    /// The runtime no longer accepts work.
+    RuntimeStopped,
+    /// A blocking runtime operation was called from a virtual thread.
+    InsideVThread,
+    /// No healthy carrier had room for another unstarted packet.
+    CarrierQueueFull,
+    /// An operating-system carrier thread could not be created.
+    CarrierStart(io::Error),
+    /// A child stack was reclaimed without a normal result.
+    TaskAborted {
+        /// Identity of the aborted task.
+        task: TaskId,
+        /// Why the task was reclaimed.
+        reason: TaskFailure,
+    },
     /// Suspension was attempted without a mounted virtual thread.
     OutsideVThread,
     /// One parker was asked to own two active generations simultaneously.
@@ -98,6 +113,17 @@ impl fmt::Display for Error {
                 write!(formatter, "virtual-thread capacity {limit} reached")
             }
             Self::NestedScope => formatter.write_str("nested runtime scopes are not supported yet"),
+            Self::RuntimeStopped => formatter.write_str("runtime has stopped accepting work"),
+            Self::InsideVThread => formatter.write_str(
+                "this operation blocks an OS caller and cannot run inside a virtual thread",
+            ),
+            Self::CarrierQueueFull => {
+                formatter.write_str("all healthy carrier ingress queues are full")
+            }
+            Self::CarrierStart(error) => write!(formatter, "start carrier: {error}"),
+            Self::TaskAborted { task, reason } => {
+                write!(formatter, "task {task} aborted: {reason:?}")
+            }
             Self::OutsideVThread => formatter.write_str("no virtual thread is mounted"),
             Self::ParkerBusy => {
                 formatter.write_str("parker already owns an active wait generation")
@@ -120,7 +146,7 @@ impl fmt::Display for Error {
 impl StdError for Error {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
         match self {
-            Self::StackAllocation(error) => Some(error),
+            Self::StackAllocation(error) | Self::CarrierStart(error) => Some(error),
             _ => None,
         }
     }

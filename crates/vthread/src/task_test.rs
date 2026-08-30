@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::sync::Arc;
 
 use crate::task::TaskRecord;
 use crate::{SuspensionReason, TaskId, TaskStatus, WakeReason};
@@ -8,7 +8,10 @@ fn snapshots_copy_operator_visible_state() {
     let record = TaskRecord {
         id: TaskId::new(3),
         scope: 1,
-        name: Rc::from("query"),
+        carrier: crate::CarrierId(0),
+        deadline: None,
+        failure: None,
+        name: Arc::from("query"),
         status: TaskStatus::Suspended(SuspensionReason::Park),
         mounts: 2,
         yields: 1,
@@ -18,7 +21,7 @@ fn snapshots_copy_operator_visible_state() {
         outcome_observed: false,
         panic: None,
     };
-    let snapshot = Rc::new(RefCell::new(record)).borrow().snapshot();
+    let snapshot = record.snapshot();
 
     assert_eq!(snapshot.id.to_string(), "3");
     assert_eq!(snapshot.name, "query");

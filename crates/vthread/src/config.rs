@@ -1,6 +1,7 @@
 //! Runtime capacity and stack configuration.
 
 use crate::{Error, Result, Runtime};
+use std::time::{Duration, Instant};
 
 const DEFAULT_MAX_VTHREADS: usize = 65_536;
 const DEFAULT_STACK_SIZE: usize = 1024 * 1024;
@@ -13,10 +14,27 @@ pub struct RuntimeConfig {
     max_vthreads: usize,
     stack_size: usize,
     stack_cache_capacity: usize,
+    carriers: usize,
+    carrier_queue_capacity: usize,
+    stall_timeout: Option<Duration>,
 }
 
 impl RuntimeConfig {
-    /// Maximum number of live virtual threads.
+    /// Number of persistent carrier threads.
+    pub fn carriers(self) -> usize {
+        self.carriers
+    }
+
+    /// Maximum unstarted packets queued per carrier.
+    pub fn carrier_queue_capacity(self) -> usize {
+        self.carrier_queue_capacity
+    }
+
+    /// Grace period for an entirely parked, timerless scope; None disables recovery.
+    pub fn stall_timeout(self) -> Option<Duration> {
+        self.stall_timeout
+    }
+    /// Maximum live tasks plus unobserved completion records.
     pub fn max_vthreads(self) -> usize {
         self.max_vthreads
     }
@@ -26,7 +44,7 @@ impl RuntimeConfig {
         self.stack_size
     }
 
-    /// Maximum completed stacks retained for reuse.
+    /// Maximum completed stacks retained for reuse per carrier.
     pub fn stack_cache_capacity(self) -> usize {
         self.stack_cache_capacity
     }
@@ -38,18 +56,38 @@ impl Default for RuntimeConfig {
             max_vthreads: DEFAULT_MAX_VTHREADS,
             stack_size: DEFAULT_STACK_SIZE,
             stack_cache_capacity: DEFAULT_STACK_CACHE,
+            carriers: 1,
+            carrier_queue_capacity: 256,
+            stall_timeout: Some(Duration::from_secs(1)),
         }
     }
 }
 
-/// Builder for a single-carrier runtime.
+/// Builder for a bounded multicarrier runtime.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RuntimeBuilder {
     config: RuntimeConfig,
 }
 
 impl RuntimeBuilder {
-    /// Sets the maximum number of live virtual threads.
+    /// Sets the number of persistent carriers; started tasks never migrate.
+    pub fn carriers(mut self, count: usize) -> Self {
+        self.config.carriers = count;
+        self
+    }
+
+    /// Sets the bounded unstarted-packet capacity of each carrier inbox.
+    pub fn carrier_queue_capacity(mut self, capacity: usize) -> Self {
+        self.config.carrier_queue_capacity = capacity;
+        self
+    }
+
+    /// Sets quiescent-scope recovery; use None for indefinite external wake waits.
+    pub fn stall_timeout(mut self, timeout: Option<Duration>) -> Self {
+        self.config.stall_timeout = timeout;
+        self
+    }
+    /// Bounds live tasks and unobserved completions; joined records may be evicted.
     pub fn max_vthreads(mut self, limit: usize) -> Self {
         self.config.max_vthreads = limit;
         self
@@ -61,7 +99,7 @@ impl RuntimeBuilder {
         self
     }
 
-    /// Sets the number of completed stacks retained by the runtime.
+    /// Sets the number of completed stacks retained per carrier.
     pub fn stack_cache_capacity(mut self, capacity: usize) -> Self {
         self.config.stack_cache_capacity = capacity;
         self
@@ -69,9 +107,31 @@ impl RuntimeBuilder {
 
     /// Validates the configuration and constructs a runtime.
     pub fn build(self) -> Result<Runtime> {
+        if self
+            .config
+            .stall_timeout
+            .is_some_and(|timeout| Instant::now().checked_add(timeout).is_none())
+        {
+            return Err(Error::invalid_configuration(
+                "stall_timeout",
+                "must fit the monotonic clock",
+            ));
+        }
         if self.config.max_vthreads == 0 {
             return Err(Error::invalid_configuration(
                 "max_vthreads",
+                "must be greater than zero",
+            ));
+        }
+        if self.config.carriers == 0 || self.config.carriers > self.config.max_vthreads {
+            return Err(Error::invalid_configuration(
+                "carriers",
+                "must be between one and max_vthreads",
+            ));
+        }
+        if self.config.carrier_queue_capacity == 0 {
+            return Err(Error::invalid_configuration(
+                "carrier_queue_capacity",
                 "must be greater than zero",
             ));
         }
@@ -87,7 +147,7 @@ impl RuntimeBuilder {
                 "cannot exceed max_vthreads",
             ));
         }
-        Ok(Runtime::from_config(self.config))
+        Runtime::from_config(self.config)
     }
 }
 

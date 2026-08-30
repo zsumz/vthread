@@ -43,3 +43,30 @@ fn empty_names_are_rejected() {
     });
     assert!(result.is_ok());
 }
+
+#[test]
+fn already_admitted_tasks_yield_to_the_tail_of_the_owner_queue() {
+    use crate::{CarrierId, RuntimeConfig, control::Shared, kernel::Kernel};
+    use std::sync::{Arc, Mutex};
+    let shared = Arc::new(Shared::new(RuntimeConfig::default()));
+    let scope = shared.begin_scope().expect("scope");
+    let trace = Arc::new(Mutex::new(Vec::new()));
+    for label in ["left", "right"] {
+        let trace = Arc::clone(&trace);
+        shared
+            .submit(scope, label.into(), move || {
+                trace.lock().expect("trace").push(label);
+                crate::yield_now().expect("yield");
+                trace.lock().expect("trace").push(label);
+            })
+            .expect("submit");
+    }
+    let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
+    kernel.receive();
+    while kernel.tick().expect("tick") {}
+    assert_eq!(
+        &*trace.lock().expect("trace"),
+        &["left", "right", "left", "right"]
+    );
+    assert_eq!(shared.snapshot().active, 0);
+}
