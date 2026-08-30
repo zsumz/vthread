@@ -31,6 +31,7 @@ pub(crate) struct Shared {
 }
 
 struct State {
+    last_stall: Option<crate::StallSnapshot>,
     accepting: bool,
     active_scope: Option<u64>,
     scopes: BTreeMap<u64, control_scope::ScopeState>,
@@ -41,7 +42,6 @@ struct State {
     loads: Vec<usize>,
     rejected: u64,
     spawned: u64,
-    activity: u64,
     records: BTreeMap<TaskId, SharedTaskRecord>,
     carriers: Vec<CarrierSnapshot>,
 }
@@ -63,6 +63,7 @@ impl Shared {
                 })
                 .collect(),
             state: Mutex::new(State {
+                last_stall: None,
                 accepting: true,
                 active_scope: None,
                 scopes: BTreeMap::new(),
@@ -73,7 +74,6 @@ impl Shared {
                 loads: vec![0; config.carriers()],
                 rejected: 0,
                 spawned: 0,
-                activity: 0,
                 records: BTreeMap::new(),
                 carriers: (0..config.carriers())
                     .map(|id| CarrierSnapshot::new(CarrierId(id)))
@@ -126,8 +126,12 @@ impl Shared {
         update: impl FnOnce(&mut TaskRecord),
     ) {
         let mut state = lock(&self.state);
-        update(&mut lock(record));
-        state.activity = state.activity.wrapping_add(1);
+        let mut record = lock(record);
+        update(&mut record);
+        if let Some(scope) = state.scopes.get_mut(&record.scope) {
+            scope.activity = scope.activity.wrapping_add(1);
+        }
+        drop(record);
         drop(state);
         self.changed.notify();
     }
@@ -148,6 +152,7 @@ impl Shared {
             TaskStatus::Completed
         };
         if let Some(scope) = state.scopes.get_mut(&record.scope) {
+            scope.activity = scope.activity.wrapping_add(1);
             match record.status {
                 TaskStatus::Aborted => scope.aborted += 1,
                 TaskStatus::Panicked => scope.panicked += 1,
@@ -157,7 +162,6 @@ impl Shared {
         let completion = Arc::clone(&record.completion);
         state.active -= 1;
         state.loads[record.carrier.0] -= 1;
-        state.activity = state.activity.wrapping_add(1);
         drop(record);
         drop(state);
         completion.complete();
@@ -167,6 +171,7 @@ impl Shared {
     pub(crate) fn snapshot(&self) -> RuntimeSnapshot {
         let state = lock(&self.state);
         let mut snapshot = RuntimeSnapshot {
+            last_stall: state.last_stall.clone(),
             active: state.active,
             services: self
                 .services

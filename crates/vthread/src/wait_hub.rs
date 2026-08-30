@@ -105,6 +105,14 @@ impl WaitHub {
         lock(&self.state).ready.len()
     }
 
+    pub(crate) fn pending_tasks(&self) -> Vec<crate::TaskId> {
+        lock(&self.state)
+            .ready
+            .iter()
+            .map(|notice| notice.task)
+            .collect()
+    }
+
     pub(crate) fn stale(&self) -> u64 {
         lock(&self.state).stale
     }

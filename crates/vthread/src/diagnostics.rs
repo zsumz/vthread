@@ -2,6 +2,19 @@
 
 use crate::{CarrierId, TaskSnapshot};
 
+/// Most recent automatic scope recovery, retained after its task records are reclaimed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StallSnapshot {
+    /// Root scope selected for recovery.
+    pub scope: u64,
+    /// Monotonic detection time.
+    pub detected_at: std::time::Instant,
+    /// Observed quiescent interval before recovery.
+    pub quiescent_for: std::time::Duration,
+    /// Live tasks before abort, bounded by the configured task admission limit.
+    pub tasks: Vec<TaskSnapshot>,
+}
+
 /// Cumulative scheduler counters.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RuntimeStats {
@@ -120,6 +133,8 @@ impl CarrierSnapshot {
 /// Point-in-time runtime state.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RuntimeSnapshot {
+    /// Most recent stalled scope; only one bounded report is retained per runtime.
+    pub last_stall: Option<StallSnapshot>,
     /// Readiness registration and delegated native-work bounds and activity.
     pub services: crate::ServiceSnapshot,
     /// Per-carrier health and ownership counters.

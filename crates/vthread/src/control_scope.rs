@@ -4,6 +4,7 @@ use super::Shared;
 use crate::{Error, Result, ScopeOptions, TaskFailure, options::TaskOptions, signal::lock};
 
 pub(super) struct ScopeState {
+    pub(super) activity: u64,
     pub(super) options: TaskOptions,
     pub(super) supervised: bool,
     pub(super) aborting: Option<TaskFailure>,
@@ -66,6 +67,7 @@ impl Shared {
         state.scopes.insert(
             id,
             ScopeState {
+                activity: 0,
                 options: TaskOptions::root(options, self.config.max_vthreads()),
                 supervised,
                 aborting: None,

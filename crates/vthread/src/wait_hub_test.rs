@@ -43,6 +43,7 @@ fn duplicates_and_stale_generations_cannot_fill_the_inbox() {
         });
     }
     assert_eq!(hub.pending(), 1);
+    assert_eq!(hub.pending_tasks(), vec![TaskId::new(1)]);
     assert_eq!(hub.stale(), 200);
     assert_eq!(hub.pop_wake(), Some(notice));
     assert!(hub.pop_wake().is_none());

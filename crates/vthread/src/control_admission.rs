@@ -97,7 +97,9 @@ impl Shared {
         state.active += 1;
         state.loads[owner] += 1;
         state.spawned += 1;
-        state.activity = state.activity.wrapping_add(1);
+        if let Some(scope) = state.scopes.get_mut(&scope) {
+            scope.activity = scope.activity.wrapping_add(1);
+        }
         state.cursor = (owner + 1) % self.inboxes.len();
         drop(state);
         self.changed.notify();
@@ -112,7 +114,9 @@ impl Shared {
         state.loads[record.carrier.0] -= 1;
         state.spawned -= 1;
         state.rejected += 1;
-        state.activity = state.activity.wrapping_add(1);
+        if let Some(scope) = state.scopes.get_mut(&record.scope) {
+            scope.activity = scope.activity.wrapping_add(1);
+        }
         drop(record);
         drop(state);
         self.changed.notify();

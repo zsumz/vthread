@@ -34,6 +34,7 @@ mod config;
 mod context;
 mod control;
 mod diagnostics;
+mod dump;
 mod error;
 pub mod fs;
 mod inbox;
@@ -66,7 +67,7 @@ pub use cancellation::CancellationToken;
 pub use config::{RuntimeBuilder, RuntimeConfig};
 pub use context::{cancellation_token, checkpoint, deadline};
 pub use diagnostics::{
-    CarrierSnapshot, CarrierStatus, RuntimeSnapshot, RuntimeStats, StackSnapshot,
+    CarrierSnapshot, CarrierStatus, RuntimeSnapshot, RuntimeStats, StackSnapshot, StallSnapshot,
 };
 pub use error::{Error, PanicReport, Result};
 pub use join::JoinHandle;
