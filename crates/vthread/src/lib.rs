@@ -27,6 +27,7 @@
 
 mod cancellation;
 mod carrier;
+pub mod channel;
 mod completion;
 mod config;
 mod context;
@@ -46,6 +47,7 @@ mod runtime;
 mod scope;
 mod signal;
 mod supervisor;
+pub mod sync;
 mod task;
 mod task_body;
 mod task_context;

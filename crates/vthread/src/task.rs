@@ -63,6 +63,18 @@ pub enum SuspensionReason {
     ScopeDrain,
     /// A modeled parking generation.
     Park,
+    /// Waiting for exclusive access to a virtual mutex.
+    Mutex,
+    /// Waiting for a condition-variable notification.
+    Condvar,
+    /// Waiting for a semaphore permit.
+    Semaphore,
+    /// Waiting for a notification permit.
+    Notify,
+    /// Waiting for capacity in a bounded channel.
+    ChannelSend,
+    /// Waiting for a value from a bounded channel.
+    ChannelRecv,
 }
 
 /// The winner that made one parked task runnable again.

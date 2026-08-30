@@ -38,6 +38,15 @@ impl fmt::Display for PanicReport {
 /// A runtime, scheduling, parking, or task failure.
 #[derive(Debug)]
 pub enum Error {
+    /// A synchronization primitive or channel no longer accepts this operation.
+    Closed,
+    /// A nonblocking synchronization operation cannot complete immediately.
+    WouldBlock,
+    /// A primitive reached its explicitly configured waiter limit.
+    WaitQueueFull {
+        /// Maximum outstanding waits, including selected but unconsumed wakes.
+        limit: usize,
+    },
     /// The current task or an ancestor scope requested cancellation.
     Cancelled,
     /// The earliest inherited deadline expired at a runtime boundary.
@@ -112,6 +121,9 @@ impl Error {
 impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Closed => formatter.write_str("synchronization primitive is closed"),
+            Self::WouldBlock => formatter.write_str("operation would block"),
+            Self::WaitQueueFull { limit } => write!(formatter, "waiter capacity {limit} reached"),
             Self::Cancelled => formatter.write_str("scope cancellation requested"),
             Self::DeadlineExceeded => formatter.write_str("inherited deadline exceeded"),
             Self::TaskLocalCapacity => formatter.write_str("task-local entry capacity reached"),
