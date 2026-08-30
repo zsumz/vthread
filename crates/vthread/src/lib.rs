@@ -68,7 +68,8 @@ pub use cancellation::CancellationToken;
 pub use config::{RuntimeBuilder, RuntimeConfig};
 pub use context::{cancellation_token, checkpoint, deadline};
 pub use diagnostics::{
-    CarrierSnapshot, CarrierStatus, RuntimeSnapshot, RuntimeStats, StackSnapshot, StallSnapshot,
+    CarrierSnapshot, CarrierStatus, RuntimeSnapshot, RuntimeStats, ShutdownPhase, StackSnapshot,
+    StallSnapshot,
 };
 pub use error::{Error, PanicReport, Result};
 pub use join::JoinHandle;

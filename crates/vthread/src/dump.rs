@@ -12,8 +12,13 @@ impl RuntimeSnapshot {
     pub fn write_dump(&self, output: &mut impl Write) -> fmt::Result {
         writeln!(
             output,
-            "vthread dump v1 active={} runnable={} parked={} timers={} accepting={}",
-            self.active, self.runnable, self.parked, self.timers, self.accepting
+            "vthread dump v1 active={} runnable={} parked={} timers={} accepting={} shutdown={:?}",
+            self.active,
+            self.runnable,
+            self.parked,
+            self.timers,
+            self.accepting,
+            self.shutdown_phase
         )?;
         for carrier in &self.carriers {
             writeln!(

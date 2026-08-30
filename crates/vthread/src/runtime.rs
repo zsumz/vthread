@@ -125,6 +125,8 @@ impl Runtime {
     }
 
     fn join_workers(&self) {
+        self.shared
+            .advance_shutdown(crate::ShutdownPhase::JoiningCarriers);
         let mut workers = lock(&self.workers);
         for worker in workers.drain(..) {
             // A task may drop the last Arc<Runtime>. Its own carrier exits after that
@@ -145,10 +147,11 @@ impl Drop for Runtime {
             return;
         }
         self.join_workers();
-        if let Some(services) = self.shared.services.get() {
-            services.join();
-        }
+        self.drain_services();
         self.join_shutdown_driver();
+        if !self.owns_current_worker() {
+            self.shared.advance_shutdown(crate::ShutdownPhase::Complete);
+        }
     }
 }
 

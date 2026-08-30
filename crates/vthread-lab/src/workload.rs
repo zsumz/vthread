@@ -1,9 +1,14 @@
 //! Payload-checked channels, TCP, native jobs, timers, and cancellation races.
 
 use std::{sync::Arc, thread, time::Duration};
-use vthread::{Result, Runtime, Scope, blocking, channel, net, park_pair, sleep, yield_now};
+use vthread::{Result, Runtime, Scope, blocking, channel, park_pair, sleep, yield_now};
 
-pub(crate) fn batch(scope: &Scope<'_>, tasks: usize, iteration: u64) -> Result<()> {
+pub(crate) fn batch(
+    scope: &Scope<'_>,
+    tasks: usize,
+    iteration: u64,
+    previous: Option<super::network::Pair>,
+) -> Result<super::network::Pair> {
     let (sender, receiver) = channel::bounded(8, tasks + 8)?;
     let producer = scope.spawn("soak-channel-send", move || -> Result<()> {
         for value in 0..128u64 {
@@ -17,23 +22,7 @@ pub(crate) fn batch(scope: &Scope<'_>, tasks: usize, iteration: u64) -> Result<(
         }
         Ok(())
     })?;
-    let listener = net::TcpListener::bind("127.0.0.1:0".parse().expect("loopback"))?;
-    let address = listener.local_addr()?;
-    let server = scope.spawn("soak-tcp-echo", move || -> Result<()> {
-        let (stream, _) = listener.accept()?;
-        let mut bytes = [0; 8];
-        stream.read_exact(&mut bytes)?;
-        assert_eq!(bytes, iteration.to_be_bytes());
-        stream.write_all(&bytes)
-    })?;
-    let client = scope.spawn("soak-tcp-client", move || -> Result<()> {
-        let stream = net::TcpStream::connect(address)?;
-        stream.write_all(&iteration.to_be_bytes())?;
-        let mut bytes = [0; 8];
-        stream.read_exact(&mut bytes)?;
-        assert_eq!(bytes, iteration.to_be_bytes());
-        Ok(())
-    })?;
+    let exchange = super::network::start(scope, iteration, previous)?;
     let semaphore = Arc::new(vthread::sync::Semaphore::new(2, tasks + 8)?);
     let mut jobs = Vec::new();
     for id in 0..tasks {
@@ -58,12 +47,11 @@ pub(crate) fn batch(scope: &Scope<'_>, tasks: usize, iteration: u64) -> Result<(
     }
     producer.join()??;
     consumer.join()??;
-    server.join()??;
-    client.join()??;
+    let pair = exchange.finish()?;
     for job in jobs {
         job.join()??;
     }
-    Ok(())
+    Ok(pair)
 }
 
 pub(crate) fn cancel(runtime: &Runtime) -> Result<()> {

@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod network;
 mod soak;
 mod workload;
 
@@ -12,7 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let report = soak::run(duration, carriers, tasks)?;
     writeln!(
         std::io::stdout(),
-        "{{\"schema\":1,\"workload\":\"mixed-soak\",\"carriers\":{carriers},\"tasks\":{tasks},\"iterations\":{},\"elapsed_ns\":{},\"spawned\":{},\"completed\":{},\"parks\":{},\"wakes\":{},\"stack_allocated\":{},\"stack_reused\":{}}}",
+        "{{\"schema\":1,\"workload\":\"mixed-soak\",\"connection_strategy\":\"persistent-pair\",\"carriers\":{carriers},\"tasks\":{tasks},\"iterations\":{},\"elapsed_ns\":{},\"spawned\":{},\"completed\":{},\"parks\":{},\"wakes\":{},\"stack_allocated\":{},\"stack_reused\":{}}}",
         report.iterations,
         report.elapsed.as_nanos(),
         report.stats.spawned,

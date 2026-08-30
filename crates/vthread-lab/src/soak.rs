@@ -21,11 +21,12 @@ pub(crate) fn run(duration: Duration, carriers: usize, tasks: usize) -> Result<R
         .build()?;
     let start = Instant::now();
     let mut iterations = 0;
+    let mut network = None;
     while start.elapsed() < duration {
         let options = ScopeOptions::default().deadline(Instant::now() + Duration::from_secs(10));
-        runtime.scope_with(options, |scope| {
-            super::workload::batch(scope, tasks, iterations)
-        })?;
+        network = Some(runtime.scope_with(options, |scope| {
+            super::workload::batch(scope, tasks, iterations, network.take())
+        })?);
         super::workload::cancel(&runtime)?;
         let drain_deadline = Instant::now() + Duration::from_secs(2);
         loop {

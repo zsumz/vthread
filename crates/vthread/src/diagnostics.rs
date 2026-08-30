@@ -2,6 +2,26 @@
 
 use crate::{CarrierId, TaskSnapshot};
 
+/// Furthest shutdown stage reached; stages never move backward between concurrent callers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ShutdownPhase {
+    /// No shutdown request has been made (admission may still close on carrier failure).
+    #[default]
+    NotRequested,
+    /// Admission is closed and stop/cancellation signals are being delivered.
+    Requested,
+    /// Waiting for carrier threads, including their OS thread-local cleanup.
+    JoiningCarriers,
+    /// Carriers are joined; waiting for the readiness driver to exit.
+    JoiningReadiness,
+    /// Carriers/readiness are joined; waiting for native workers and their TLS cleanup.
+    JoiningNative,
+    /// The shutdown coordinator failed; a blocking shutdown may still recover ownership.
+    Failed,
+    /// Every carrier and native/readiness service thread has been joined.
+    Complete,
+}
+
 /// Most recent automatic scope recovery, retained after its task records are reclaimed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StallSnapshot {
@@ -133,6 +153,8 @@ impl CarrierSnapshot {
 /// Point-in-time runtime state.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RuntimeSnapshot {
+    /// Current shutdown progress, including waits beyond task and native-job completion.
+    pub shutdown_phase: ShutdownPhase,
     /// Whether new root scopes and task admissions are accepted (subject to capacity).
     pub accepting: bool,
     /// Most recent stalled scope; only one bounded report is retained per runtime.

@@ -1,7 +1,7 @@
 //! Stop requests and deadline-bounded observation without detaching owned work.
 
 use super::Runtime;
-use crate::{Error, Result, RuntimeSnapshot, ShutdownReport, context};
+use crate::{Error, Result, RuntimeSnapshot, ShutdownPhase, ShutdownReport, context};
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     sync::{Arc, Mutex},
@@ -12,15 +12,6 @@ use std::{
 #[derive(Default)]
 pub(super) struct ShutdownDriver {
     worker: Mutex<Option<thread::JoinHandle<()>>>,
-    state: Arc<Mutex<DrainStatus>>,
-}
-
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-enum DrainStatus {
-    #[default]
-    Pending,
-    Complete,
-    Failed,
 }
 
 /// Result of a deadline-based runtime shutdown wait.
@@ -51,11 +42,8 @@ impl Runtime {
         self.check_shutdown_caller()?;
         self.request_shutdown();
         self.join_workers();
-        if let Some(services) = self.shared.services.get() {
-            services.join();
-        }
-        *crate::signal::lock(&self.shutdown_driver.state) = DrainStatus::Complete;
-        self.shared.changed.notify();
+        self.drain_services();
+        self.shared.advance_shutdown(ShutdownPhase::Complete);
         Ok(self.shutdown_report())
     }
 
@@ -85,12 +73,14 @@ impl Runtime {
         self.start_shutdown_driver()?;
         loop {
             let observed = self.shared.changed.version();
-            match *crate::signal::lock(&self.shutdown_driver.state) {
-                DrainStatus::Complete => {
+            match self.shared.shutdown_phase() {
+                ShutdownPhase::Complete => {
                     return Ok(ShutdownOutcome::Complete(self.shutdown_report()));
                 }
-                DrainStatus::Failed => return Err(Error::Invariant("shutdown coordinator failed")),
-                DrainStatus::Pending => {}
+                ShutdownPhase::Failed => {
+                    return Err(Error::Invariant("shutdown coordinator failed"));
+                }
+                _ => {}
             }
             if Instant::now() >= deadline {
                 return Ok(ShutdownOutcome::TimedOut(Box::new(self.snapshot())));
@@ -101,14 +91,11 @@ impl Runtime {
 
     pub(super) fn start_shutdown_driver(&self) -> Result<()> {
         let mut worker = crate::signal::lock(&self.shutdown_driver.worker);
-        if worker.is_some()
-            || *crate::signal::lock(&self.shutdown_driver.state) == DrainStatus::Complete
-        {
+        if worker.is_some() || self.shared.shutdown_phase() == ShutdownPhase::Complete {
             return Ok(());
         }
         let shared = Arc::clone(&self.shared);
         let workers = Arc::clone(&self.workers);
-        let state = Arc::clone(&self.shutdown_driver.state);
         *worker = Some(
             thread::Builder::new()
                 .name("vthread-shutdown".to_owned())
@@ -117,19 +104,17 @@ impl Runtime {
                     // JoinHandle::is_finished may precede OS TLS destructors. Only a real join
                     // proves thread reclamation; timed callers must never perform that join.
                     let outcome = catch_unwind(AssertUnwindSafe(|| {
+                        shared.advance_shutdown(ShutdownPhase::JoiningCarriers);
                         for worker in crate::signal::lock(&workers).drain(..) {
                             let _ = worker.join();
                         }
-                        if let Some(services) = shared.services.get() {
-                            services.join();
-                        }
+                        drain_services(&shared);
                     }));
-                    *crate::signal::lock(&state) = if outcome.is_ok() {
-                        DrainStatus::Complete
+                    shared.advance_shutdown(if outcome.is_ok() {
+                        ShutdownPhase::Complete
                     } else {
-                        DrainStatus::Failed
-                    };
-                    shared.changed.notify();
+                        ShutdownPhase::Failed
+                    });
                 })?,
         );
         Ok(())
@@ -142,6 +127,10 @@ impl Runtime {
                 .services
                 .get()
                 .is_some_and(|services| services.blocking.owns_current_thread())
+    }
+
+    pub(super) fn drain_services(&self) {
+        drain_services(&self.shared);
     }
 
     pub(super) fn join_shutdown_driver(&self) {
@@ -178,6 +167,15 @@ impl Runtime {
                 .filter(|carrier| carrier.status == crate::CarrierStatus::Failed)
                 .count(),
         }
+    }
+}
+
+fn drain_services(shared: &crate::control::Shared) {
+    if let Some(services) = shared.services.get() {
+        shared.advance_shutdown(ShutdownPhase::JoiningReadiness);
+        services.reactor.join();
+        shared.advance_shutdown(ShutdownPhase::JoiningNative);
+        services.blocking.join();
     }
 }
 

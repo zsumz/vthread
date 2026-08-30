@@ -65,7 +65,13 @@ fn a_timed_wait_does_not_queue_behind_a_blocking_shutdown_join() {
             release.send(()).unwrap();
             let report = stopper.join().unwrap()?;
             assert!(elapsed < Duration::from_secs(1));
-            assert!(matches!(outcome, ShutdownOutcome::TimedOut(_)));
+            let ShutdownOutcome::TimedOut(snapshot) = outcome else {
+                panic!("carrier join lost");
+            };
+            assert_eq!(
+                snapshot.shutdown_phase,
+                crate::ShutdownPhase::JoiningCarriers
+            );
             assert_eq!(runtime.shutdown()?, report);
             let _ = task.join();
             Ok(())
@@ -138,6 +144,8 @@ fn zero_active_jobs_do_not_mean_native_thread_local_cleanup_has_finished() {
         .unwrap();
     runtime.request_shutdown();
     dropping.recv_timeout(Duration::from_secs(5)).unwrap();
+    let _ = runtime.shutdown_until(Instant::now()).unwrap();
+    until(|| runtime.snapshot().shutdown_phase == crate::ShutdownPhase::JoiningNative);
     let outcome = runtime.shutdown_until(Instant::now()).unwrap();
     let _ = release.send(());
     let ShutdownOutcome::TimedOut(snapshot) = outcome else {
@@ -145,6 +153,10 @@ fn zero_active_jobs_do_not_mean_native_thread_local_cleanup_has_finished() {
     };
     assert_eq!(snapshot.active, 0);
     assert_eq!(snapshot.services.blocking_running, 0);
+    assert_eq!(snapshot.shutdown_phase, crate::ShutdownPhase::JoiningNative);
+    let mut dump = String::new();
+    snapshot.write_dump(&mut dump).unwrap();
+    assert!(dump.contains("shutdown=JoiningNative"));
     assert!(matches!(
         runtime.shutdown_until(Instant::now() + Duration::from_secs(5)),
         Ok(ShutdownOutcome::Complete(_))

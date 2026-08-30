@@ -31,6 +31,7 @@ pub(crate) struct Shared {
 }
 
 struct State {
+    shutdown_phase: crate::ShutdownPhase,
     last_stall: Option<crate::StallSnapshot>,
     accepting: bool,
     active_scope: Option<u64>,
@@ -63,6 +64,7 @@ impl Shared {
                 })
                 .collect(),
             state: Mutex::new(State {
+                shutdown_phase: crate::ShutdownPhase::NotRequested,
                 last_stall: None,
                 accepting: true,
                 active_scope: None,
@@ -86,6 +88,7 @@ impl Shared {
         let tokens = {
             let mut state = lock(&self.state);
             state.accepting = false;
+            state.shutdown_phase = state.shutdown_phase.max(crate::ShutdownPhase::Requested);
             state
                 .scopes
                 .values()
@@ -116,6 +119,17 @@ impl Shared {
         }) {
             state.accepting = false;
         }
+        drop(state);
+        self.changed.notify();
+    }
+
+    pub(crate) fn shutdown_phase(&self) -> crate::ShutdownPhase {
+        lock(&self.state).shutdown_phase
+    }
+
+    pub(crate) fn advance_shutdown(&self, phase: crate::ShutdownPhase) {
+        let mut state = lock(&self.state);
+        state.shutdown_phase = state.shutdown_phase.max(phase);
         drop(state);
         self.changed.notify();
     }
@@ -171,6 +185,7 @@ impl Shared {
     pub(crate) fn snapshot(&self) -> RuntimeSnapshot {
         let state = lock(&self.state);
         let mut snapshot = RuntimeSnapshot {
+            shutdown_phase: state.shutdown_phase,
             accepting: state.accepting,
             last_stall: state.last_stall.clone(),
             active: state.active,
