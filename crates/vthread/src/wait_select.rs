@@ -9,6 +9,17 @@ use crate::{Error, Result, TaskId, signal::lock};
 use super::{WaitCell, WaitHub, WaitRegistration, WaitState, WakeCause, WakeNotice};
 
 impl WaitRegistration {
+    pub(crate) fn select_ready(&self, token: ParkToken) -> bool {
+        self.state
+            .upgrade()
+            .is_some_and(|state| select_generation(&state, token, WakeCause::Ready))
+    }
+
+    pub(crate) fn select_closed(&self, token: ParkToken) -> bool {
+        self.state
+            .upgrade()
+            .is_some_and(|state| select_generation(&state, token, WakeCause::Closed))
+    }
     pub(crate) fn select_cancelled(&self, token: ParkToken) -> bool {
         self.state
             .upgrade()

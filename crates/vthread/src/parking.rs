@@ -59,6 +59,21 @@ impl Parker {
     }
 
     fn park_deadline(&self, deadline: Option<Instant>) -> Result<ParkOutcome> {
+        self.park_with(deadline, |_, _| Ok(()))
+    }
+
+    pub(crate) fn park_registered<G>(
+        &self,
+        register: impl FnOnce(vthread_stack::ParkToken, crate::wait::WaitRegistration) -> Result<G>,
+    ) -> Result<ParkOutcome> {
+        self.park_with(None, register)
+    }
+
+    fn park_with<G>(
+        &self,
+        deadline: Option<Instant>,
+        register: impl FnOnce(vthread_stack::ParkToken, crate::wait::WaitRegistration) -> Result<G>,
+    ) -> Result<ParkOutcome> {
         let mounted = context::current().ok_or(Error::OutsideVThread)?;
         let execution = mounted.execution()?;
         execution.data.check()?;
@@ -88,6 +103,7 @@ impl Parker {
                 } else {
                     None
                 };
+                let _external = register(token, self.wait.registration())?;
                 let suspension = vthread_stack::Suspension::Park(request);
                 if let Err(error) = vthread_stack::suspend(suspension) {
                     self.wait.rollback(token);

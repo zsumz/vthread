@@ -120,6 +120,8 @@ impl CarrierSnapshot {
 /// Point-in-time runtime state.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RuntimeSnapshot {
+    /// Readiness registration and delegated native-work bounds and activity.
+    pub services: crate::ServiceSnapshot,
     /// Per-carrier health and ownership counters.
     pub carriers: Vec<CarrierSnapshot>,
     /// Number of live tasks.

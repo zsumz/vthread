@@ -13,6 +13,9 @@ authors = ["vthread contributors"]
 [workspace.dependencies]
 corosensei = { version = "=0.3.4", default-features = true }
 vthread-stack = { path = "crates/vthread-stack", version = "0.0.1" }
+zio = { git = "https://github.com/zsumz/zio.git", rev = "eaf713a58b9ab54b219755f5b96efa087b27ff60", default-features = false }
+socket2 = { version = "=0.6.5", default-features = false }
+libc = "=0.2.189"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

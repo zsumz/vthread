@@ -1,0 +1,192 @@
+//! Bounded queued/running native jobs and cancellation-safe queue leases.
+
+use crate::{Error, Result, ServiceSnapshot, signal::lock, wait::WaitRegistration};
+use std::{
+    collections::VecDeque,
+    panic::{AssertUnwindSafe, catch_unwind},
+    sync::{
+        Arc, Condvar, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+};
+use vthread_stack::ParkToken;
+
+struct Job {
+    id: u64,
+    token: ParkToken,
+    wake: WaitRegistration,
+    body: Box<dyn FnOnce() -> bool + Send>,
+}
+struct State {
+    queue: VecDeque<Job>,
+    running: usize,
+    panicked: u64,
+    next: u64,
+    stopped: bool,
+}
+struct Inner {
+    state: Mutex<State>,
+    changed: Condvar,
+    capacity: usize,
+}
+pub(crate) struct Pool {
+    inner: Arc<Inner>,
+    workers: Mutex<Vec<thread::JoinHandle<()>>>,
+    worker_ids: Vec<thread::ThreadId>,
+}
+pub(crate) struct Lease {
+    inner: Arc<Inner>,
+    id: u64,
+    abandoned: Arc<AtomicBool>,
+}
+
+impl Pool {
+    pub(crate) fn new(threads: usize, capacity: usize) -> Result<Self> {
+        let mut pool = Self {
+            inner: Arc::new(Inner {
+                state: Mutex::new(State {
+                    queue: VecDeque::new(),
+                    running: 0,
+                    panicked: 0,
+                    next: 1,
+                    stopped: false,
+                }),
+                changed: Condvar::new(),
+                capacity,
+            }),
+            workers: Mutex::new(Vec::new()),
+            worker_ids: Vec::new(),
+        };
+        for index in 0..threads {
+            let inner = Arc::clone(&pool.inner);
+            let worker = thread::Builder::new()
+                .name(format!("vthread-blocking-{index}"))
+                .spawn(move || work(inner))?;
+            pool.worker_ids.push(worker.thread().id());
+            lock(&pool.workers).push(worker);
+        }
+        Ok(pool)
+    }
+
+    pub(crate) fn submit(
+        &self,
+        abandoned: Arc<AtomicBool>,
+        token: ParkToken,
+        wake: WaitRegistration,
+        body: Box<dyn FnOnce() -> bool + Send>,
+    ) -> Result<Lease> {
+        let mut state = lock(&self.inner.state);
+        if state.stopped {
+            return Err(Error::RuntimeStopped);
+        }
+        if state.queue.len() + state.running >= self.inner.capacity {
+            return Err(Error::BlockingCapacity);
+        }
+        let id = state.next;
+        state.next = id
+            .checked_add(1)
+            .ok_or(Error::Invariant("blocking identity exhausted"))?;
+        state.queue.push_back(Job {
+            id,
+            token,
+            wake,
+            body,
+        });
+        self.inner.changed.notify_one();
+        Ok(Lease {
+            inner: Arc::clone(&self.inner),
+            id,
+            abandoned,
+        })
+    }
+
+    pub(crate) fn stop(&self) {
+        let queue = {
+            let mut state = lock(&self.inner.state);
+            state.stopped = true;
+            self.inner.changed.notify_all();
+            std::mem::take(&mut state.queue)
+        };
+        for job in queue {
+            job.wake.select_closed(job.token);
+            if catch_unwind(AssertUnwindSafe(|| drop(job))).is_err() {
+                lock(&self.inner.state).panicked += 1;
+            }
+        }
+    }
+    pub(crate) fn join(&self) {
+        for worker in lock(&self.workers).drain(..) {
+            if worker.thread().id() != thread::current().id() {
+                let _ = worker.join();
+            }
+        }
+    }
+    pub(crate) fn is_stopped(&self) -> bool {
+        lock(&self.inner.state).stopped
+    }
+    pub(crate) fn owns_current_thread(&self) -> bool {
+        self.worker_ids.contains(&thread::current().id())
+    }
+    pub(crate) fn snapshot(&self, snapshot: &mut ServiceSnapshot) {
+        let state = lock(&self.inner.state);
+        snapshot.blocking_queued = state.queue.len();
+        snapshot.blocking_running = state.running;
+        snapshot.blocking_capacity = self.inner.capacity;
+        snapshot.blocking_panics = state.panicked;
+    }
+}
+impl Drop for Pool {
+    fn drop(&mut self) {
+        self.stop();
+        self.join();
+    }
+}
+
+impl Drop for Lease {
+    fn drop(&mut self) {
+        self.abandoned.store(true, Ordering::Release);
+        let removed = {
+            let mut state = lock(&self.inner.state);
+            state
+                .queue
+                .iter()
+                .position(|job| job.id == self.id)
+                .and_then(|index| state.queue.remove(index))
+        };
+        drop(removed);
+    }
+}
+
+fn work(inner: Arc<Inner>) {
+    loop {
+        let job = {
+            let mut state = lock(&inner.state);
+            while state.queue.is_empty() && !state.stopped {
+                state = inner
+                    .changed
+                    .wait(state)
+                    .unwrap_or_else(|poison| poison.into_inner());
+            }
+            let Some(job) = state.queue.pop_front() else {
+                return;
+            };
+            state.running += 1;
+            job
+        };
+        let result = catch_unwind(AssertUnwindSafe(job.body));
+        if result.is_err() {
+            job.wake.select_closed(job.token);
+        }
+        let mut state = lock(&inner.state);
+        state.running -= 1;
+        state.panicked += u64::from(!matches!(result, Ok(false)));
+        drop(state);
+        // Panic payload destructors also run outside the queue lock.
+        let _ = catch_unwind(AssertUnwindSafe(|| drop(result)));
+    }
+}
+
+#[cfg(test)]
+#[path = "pool_test.rs"]
+mod pool_test;

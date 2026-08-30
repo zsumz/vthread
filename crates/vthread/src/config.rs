@@ -11,6 +11,9 @@ const MIN_STACK_SIZE: usize = 64 * 1024;
 /// Immutable runtime configuration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RuntimeConfig {
+    io_capacity: usize,
+    blocking_threads: usize,
+    blocking_capacity: usize,
     max_vthreads: usize,
     stack_size: usize,
     stack_cache_capacity: usize,
@@ -21,6 +24,18 @@ pub struct RuntimeConfig {
 }
 
 impl RuntimeConfig {
+    /// Maximum outstanding readiness registrations.
+    pub fn io_capacity(self) -> usize {
+        self.io_capacity
+    }
+    /// Number of dedicated native blocking workers.
+    pub fn blocking_threads(self) -> usize {
+        self.blocking_threads
+    }
+    /// Maximum queued plus running native jobs.
+    pub fn blocking_capacity(self) -> usize {
+        self.blocking_capacity
+    }
     /// Maximum initialized task-local keys per virtual thread.
     pub fn task_local_capacity(self) -> usize {
         self.task_local_capacity
@@ -59,6 +74,9 @@ impl RuntimeConfig {
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
+            io_capacity: 1024,
+            blocking_threads: 2,
+            blocking_capacity: 256,
             max_vthreads: DEFAULT_MAX_VTHREADS,
             stack_size: DEFAULT_STACK_SIZE,
             stack_cache_capacity: DEFAULT_STACK_CACHE,
@@ -77,6 +95,21 @@ pub struct RuntimeBuilder {
 }
 
 impl RuntimeBuilder {
+    /// Bounds readiness waits across this runtime.
+    pub fn io_capacity(mut self, capacity: usize) -> Self {
+        self.config.io_capacity = capacity;
+        self
+    }
+    /// Sets a positive dedicated native worker count.
+    pub fn blocking_threads(mut self, threads: usize) -> Self {
+        self.config.blocking_threads = threads;
+        self
+    }
+    /// Bounds queued and running native work; excess work is rejected.
+    pub fn blocking_capacity(mut self, capacity: usize) -> Self {
+        self.config.blocking_capacity = capacity;
+        self
+    }
     /// Bounds initialized task-local keys per virtual thread.
     pub fn task_local_capacity(mut self, capacity: usize) -> Self {
         self.config.task_local_capacity = capacity;
@@ -120,6 +153,20 @@ impl RuntimeBuilder {
 
     /// Validates the configuration and constructs a runtime.
     pub fn build(self) -> Result<Runtime> {
+        if self.config.io_capacity == 0 {
+            return Err(Error::invalid_configuration(
+                "io_capacity",
+                "must be positive",
+            ));
+        }
+        if self.config.blocking_threads == 0
+            || self.config.blocking_threads > self.config.blocking_capacity
+        {
+            return Err(Error::invalid_configuration(
+                "blocking_threads",
+                "must be between one and blocking_capacity",
+            ));
+        }
         if self
             .config
             .stall_timeout

@@ -74,3 +74,30 @@ fn concurrent_ready_timeout_cancel_and_close_select_exactly_one_notice() {
         assert_eq!(hub.stale(), 0);
     }
 }
+
+#[test]
+fn stale_native_ready_and_close_never_select_or_store_for_a_new_generation() {
+    let cell = WaitCell::new();
+    let hub = Arc::new(WaitHub::new(1, Arc::default()));
+    let WaitBegin::Park(first) = cell.begin(TaskId::new(1), &hub, None).unwrap() else {
+        panic!("park");
+    };
+    let registration = cell.registration();
+    assert!(registration.select_cancelled(first.token()));
+    hub.pop_wake().unwrap();
+    cell.finish(first.token()).unwrap();
+    let WaitBegin::Park(second) = cell.begin(TaskId::new(1), &hub, None).unwrap() else {
+        panic!("park");
+    };
+    assert!(!registration.select_ready(first.token()));
+    assert!(!registration.select_closed(first.token()));
+    assert!(hub.pop_wake().is_none());
+    assert!(registration.select_ready(second.token()));
+    assert!(!registration.select_closed(second.token()));
+    hub.pop_wake().unwrap();
+    cell.finish(second.token()).unwrap();
+    let WaitBegin::Park(third) = cell.begin(TaskId::new(1), &hub, None).unwrap() else {
+        panic!("late events must not store permits");
+    };
+    cell.rollback(third.token());
+}

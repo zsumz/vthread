@@ -3,7 +3,7 @@
 use std::time::Instant;
 
 use super::Shared;
-use crate::{Error, Result, TaskFailure, TaskId, TaskStatus, signal::lock};
+use crate::{Error, Result, SuspensionReason, TaskFailure, TaskId, TaskStatus, signal::lock};
 
 impl Shared {
     pub(crate) fn wait(&self, scope: u64, target: Option<TaskId>) -> Result<()> {
@@ -30,7 +30,10 @@ impl Shared {
                 }
                 if !record.status.is_terminal() {
                     active += 1;
-                    quiescent &= matches!(record.status, TaskStatus::Suspended(_))
+                    quiescent &= matches!(record.status, TaskStatus::Suspended(reason) if !matches!(reason,
+                        SuspensionReason::IoRead | SuspensionReason::IoWrite |
+                        SuspensionReason::IoAccept | SuspensionReason::IoConnect |
+                        SuspensionReason::Blocking | SuspensionReason::Dns | SuspensionReason::FileIo))
                         && record.deadline.is_none();
                 }
             }

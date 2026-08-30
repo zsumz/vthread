@@ -25,6 +25,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod blocking;
 mod cancellation;
 mod carrier;
 pub mod channel;
@@ -34,6 +35,7 @@ mod context;
 mod control;
 mod diagnostics;
 mod error;
+pub mod fs;
 mod inbox;
 mod join;
 mod join_wait;
@@ -41,10 +43,13 @@ mod kernel;
 mod local_carrier;
 mod local_join;
 mod local_scope;
+pub mod net;
 mod options;
 mod parking;
+mod readiness;
 mod runtime;
 mod scope;
+mod services;
 mod signal;
 mod supervisor;
 pub mod sync;
@@ -71,6 +76,7 @@ pub use options::ScopeOptions;
 pub use parking::{ParkOutcome, Parker, UnparkResult, Unparker, park_pair};
 pub use runtime::Runtime;
 pub use scope::Scope;
+pub use services::ServiceSnapshot;
 pub use supervisor::{ShutdownReport, Supervisor};
 pub use task::{
     CarrierId, SuspensionReason, TaskFailure, TaskId, TaskSnapshot, TaskStatus, WakeReason,

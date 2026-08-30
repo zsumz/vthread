@@ -38,6 +38,21 @@ impl fmt::Display for PanicReport {
 /// A runtime, scheduling, parking, or task failure.
 #[derive(Debug)]
 pub enum Error {
+    /// A socket, filesystem, resolver, or readiness backend operation failed.
+    Io(io::Error),
+    /// The readiness driver stopped after a backend failure.
+    ReadinessFailed,
+    /// All configured blocking-job slots are occupied.
+    BlockingCapacity,
+    /// A bounded I/O result exceeded its requested limit.
+    LimitExceeded {
+        /// Which result was bounded.
+        resource: &'static str,
+        /// Configured maximum size or count.
+        limit: usize,
+    },
+    /// A delegated blocking operation panicked.
+    BlockingPanicked(PanicReport),
     /// A synchronization primitive or channel no longer accepts this operation.
     Closed,
     /// A nonblocking synchronization operation cannot complete immediately.
@@ -71,6 +86,8 @@ pub enum Error {
     RuntimeStopped,
     /// A blocking runtime operation was called from a virtual thread.
     InsideVThread,
+    /// Shutdown was requested by a native worker owned by the same runtime.
+    InsideBlockingWorker,
     /// No healthy carrier had room for another unstarted packet.
     CarrierQueueFull,
     /// An operating-system carrier thread could not be created.
@@ -121,6 +138,15 @@ impl Error {
 impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Io(error) => write!(formatter, "I/O: {error}"),
+            Self::ReadinessFailed => formatter.write_str("readiness driver failed"),
+            Self::BlockingCapacity => formatter.write_str("blocking job capacity reached"),
+            Self::LimitExceeded { resource, limit } => {
+                write!(formatter, "{resource} limit {limit} exceeded")
+            }
+            Self::BlockingPanicked(panic) => {
+                write!(formatter, "blocking operation panicked: {panic}")
+            }
             Self::Closed => formatter.write_str("synchronization primitive is closed"),
             Self::WouldBlock => formatter.write_str("operation would block"),
             Self::WaitQueueFull { limit } => write!(formatter, "waiter capacity {limit} reached"),
@@ -138,6 +164,9 @@ impl fmt::Display for Error {
             Self::InsideVThread => formatter.write_str(
                 "this operation blocks an OS caller and cannot run inside a virtual thread",
             ),
+            Self::InsideBlockingWorker => {
+                formatter.write_str("a native worker cannot shut down its owning runtime")
+            }
             Self::CarrierQueueFull => {
                 formatter.write_str("all healthy carrier ingress queues are full")
             }
@@ -167,7 +196,9 @@ impl fmt::Display for Error {
 impl StdError for Error {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
         match self {
-            Self::StackAllocation(error) | Self::CarrierStart(error) => Some(error),
+            Self::Io(error) | Self::StackAllocation(error) | Self::CarrierStart(error) => {
+                Some(error)
+            }
             _ => None,
         }
     }
@@ -176,6 +207,12 @@ impl StdError for Error {
 impl From<vthread_stack::SuspendError> for Error {
     fn from(_: vthread_stack::SuspendError) -> Self {
         Self::OutsideVThread
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
     }
 }
 

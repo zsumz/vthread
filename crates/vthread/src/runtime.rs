@@ -31,6 +31,10 @@ impl Runtime {
 
     pub(crate) fn from_config(config: RuntimeConfig) -> Result<Self> {
         let shared = Arc::new(Shared::new(config));
+        shared
+            .services
+            .set(crate::services::Services::new(config)?)
+            .map_err(|_| Error::Invariant("runtime services initialized twice"))?;
         let runtime = Self {
             config,
             shared,
@@ -95,16 +99,28 @@ impl Runtime {
         self.shared.snapshot()
     }
 
-    /// Stops admission, reclaims tasks at their next runtime boundary, and joins carriers.
+    /// Stops admission, reclaims tasks, and joins carriers and native services.
     ///
     /// This cannot preempt CPU loops, native blocking calls, or FFI. Such work may
-    /// delay shutdown indefinitely. Calling shutdown inside a virtual thread is rejected.
+    /// delay shutdown indefinitely. Virtual threads and this runtime's own native
+    /// workers cannot call shutdown; that would require joining their own work.
     pub fn shutdown(&self) -> Result<crate::ShutdownReport> {
         if context::current().is_some() {
             return Err(Error::InsideVThread);
         }
+        if self
+            .shared
+            .services
+            .get()
+            .is_some_and(|services| services.blocking.owns_current_thread())
+        {
+            return Err(Error::InsideBlockingWorker);
+        }
         self.shared.request_stop();
         self.join_workers();
+        if let Some(services) = self.shared.services.get() {
+            services.join();
+        }
         let snapshot = self.snapshot();
         Ok(crate::ShutdownReport {
             completed: snapshot.stats.completed,
@@ -150,6 +166,9 @@ impl Drop for Runtime {
     fn drop(&mut self) {
         self.shared.request_stop();
         self.join_workers();
+        if let Some(services) = self.shared.services.get() {
+            services.join();
+        }
     }
 }
 

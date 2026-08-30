@@ -75,6 +75,20 @@ pub enum SuspensionReason {
     ChannelSend,
     /// Waiting for a value from a bounded channel.
     ChannelRecv,
+    /// Waiting for socket read readiness.
+    IoRead,
+    /// Waiting for socket write readiness.
+    IoWrite,
+    /// Waiting for an incoming connection.
+    IoAccept,
+    /// Waiting for a nonblocking connection attempt.
+    IoConnect,
+    /// Waiting for explicitly delegated native work.
+    Blocking,
+    /// Waiting for a delegated hostname lookup.
+    Dns,
+    /// Waiting for delegated filesystem work.
+    FileIo,
 }
 
 /// The winner that made one parked task runnable again.

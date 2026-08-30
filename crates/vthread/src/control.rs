@@ -9,7 +9,7 @@ mod control_wait;
 
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use crate::{
@@ -21,6 +21,7 @@ use crate::{
 };
 
 pub(crate) struct Shared {
+    pub(crate) services: OnceLock<crate::services::Services>,
     pub(crate) config: RuntimeConfig,
     pub(crate) inboxes: Vec<Arc<Inbox>>,
     pub(crate) changed: Signal,
@@ -48,6 +49,7 @@ struct State {
 impl Shared {
     pub(crate) fn new(config: RuntimeConfig) -> Self {
         Self {
+            services: OnceLock::new(),
             config,
             changed: Signal::default(),
             #[cfg(test)]
@@ -92,6 +94,9 @@ impl Shared {
         };
         for inbox in &self.inboxes {
             inbox.stop();
+        }
+        if let Some(services) = self.services.get() {
+            services.stop();
         }
         for token in tokens {
             token.cancel();
@@ -163,6 +168,11 @@ impl Shared {
         let state = lock(&self.state);
         let mut snapshot = RuntimeSnapshot {
             active: state.active,
+            services: self
+                .services
+                .get()
+                .map(|services| services.snapshot())
+                .unwrap_or_default(),
             ..RuntimeSnapshot::default()
         };
         for (index, carrier) in state.carriers.iter().enumerate() {
