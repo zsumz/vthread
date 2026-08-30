@@ -86,7 +86,7 @@ pub enum Error {
     RuntimeStopped,
     /// A blocking runtime operation was called from a virtual thread.
     InsideVThread,
-    /// Shutdown was requested by a native worker owned by the same runtime.
+    /// A native worker tried to wait for shutdown of its owning runtime.
     InsideBlockingWorker,
     /// No healthy carrier had room for another unstarted packet.
     CarrierQueueFull,

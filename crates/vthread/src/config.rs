@@ -32,7 +32,7 @@ impl RuntimeConfig {
     pub fn blocking_threads(self) -> usize {
         self.blocking_threads
     }
-    /// Maximum queued plus running native jobs.
+    /// Maximum queued, running, and stopped-job cleanup operations combined.
     pub fn blocking_capacity(self) -> usize {
         self.blocking_capacity
     }
@@ -105,7 +105,7 @@ impl RuntimeBuilder {
         self.config.blocking_threads = threads;
         self
     }
-    /// Bounds queued and running native work; excess work is rejected.
+    /// Bounds queued, running, and stopped-job cleanup work; excess work is rejected.
     pub fn blocking_capacity(mut self, capacity: usize) -> Self {
         self.config.blocking_capacity = capacity;
         self
