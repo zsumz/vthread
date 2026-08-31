@@ -32,6 +32,8 @@ pub enum ConfigurationField {
     IoCapacity,
     /// Native blocking worker count.
     BlockingThreads,
+    /// Outstanding native work, including queued and cleanup ownership.
+    BlockingCapacity,
     /// Inactivity observation policy.
     StallPolicy,
     /// Runtime task-record capacity.
@@ -63,6 +65,7 @@ impl fmt::Display for ConfigurationField {
         f.write_str(match self {
             Self::IoCapacity => "io_capacity",
             Self::BlockingThreads => "blocking_threads",
+            Self::BlockingCapacity => "blocking_capacity",
             Self::StallPolicy => "stall_policy",
             Self::MaxVthreads => "max_vthreads",
             Self::Carriers => "carriers",

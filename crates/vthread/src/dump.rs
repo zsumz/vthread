@@ -68,7 +68,7 @@ impl RuntimeSnapshot {
         let io = &self.services;
         writeln!(
             output,
-            "services readiness={}/{} installed={} failed={} error={:?} blocking_queued={} blocking_running={} blocking_discarding={} blocking_capacity={} blocking_panics={}",
+            "services readiness={}/{} installed={} failed={} error={:?} blocking_queued={} blocking_running={} blocking_completed={} blocking_discarding={} blocking_capacity={} blocking_panics={}",
             io.readiness_waits,
             io.readiness_capacity,
             io.readiness_registered,
@@ -76,6 +76,7 @@ impl RuntimeSnapshot {
             io.readiness_error,
             io.blocking_queued,
             io.blocking_running,
+            io.blocking_completed,
             io.blocking_discarding,
             io.blocking_capacity,
             io.blocking_panics

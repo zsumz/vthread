@@ -50,10 +50,12 @@ pub mod fs;
 mod identity;
 mod inbox;
 mod join;
+mod join_slot;
 mod join_wait;
 mod kernel;
 pub mod lifecycle;
 mod lifecycle_owner;
+mod lifecycle_resources;
 mod local_carrier;
 mod local_join;
 mod local_scope;
@@ -135,6 +137,32 @@ pub fn run<R>(body: impl FnOnce(&Scope<'_>) -> Result<R>) -> Result<R> {
         return Err(Error::InsideVThread);
     }
     runner::run(Runtime::new()?, body)
+}
+
+/// Runs an application-error scope and explicitly shuts down its default runtime.
+///
+/// The body error stays caller-owned and needs no `Send`, formatting, or `'static`
+/// bound. [`error::ApplicationRunFailure`] independently preserves body, structured
+/// scope/runtime, and shutdown failures. Failure to construct a runtime is returned
+/// in its `scope` field, without running the body or attempting shutdown.
+/// Body panics resume unwinding after child reclamation; runtime Drop then attempts
+/// shutdown during unwind, so shutdown failures cannot be returned with that panic.
+///
+/// ```
+/// let input = String::from("invalid input");
+/// let failure = vthread::try_run(|_| Err::<(), _>(&input)).unwrap_err();
+/// assert_eq!(failure.body(), Some(&&input));
+/// assert!(failure.scope().is_none());
+/// assert!(failure.shutdown().is_none());
+/// ```
+pub fn try_run<R, E>(
+    body: impl FnOnce(&Scope<'_>) -> std::result::Result<R, E>,
+) -> std::result::Result<R, error::ApplicationRunFailure<E>> {
+    if context::current().is_some() {
+        return Err(error::ApplicationRunFailure::runtime(Error::InsideVThread));
+    }
+    let runtime = Runtime::new().map_err(error::ApplicationRunFailure::runtime)?;
+    runner::try_run(runtime, body)
 }
 
 #[cfg(test)]

@@ -10,7 +10,12 @@ use crate::{
     wait::{NotifyResult, WaitBegin, WaitCell, WakeCause},
 };
 
-/// The selected winner for one parking generation.
+/// The exact selected winner for one parking generation.
+///
+/// Once a winner is selected, later inherited cancellation or deadline expiry
+/// cannot replace it. Policy is observed at the next cooperative boundary.
+/// Inherited cancellation selecting first returns [`Error::Cancelled`]; inherited
+/// deadline selection returns [`Error::DeadlineExceeded`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ParkOutcome {
@@ -18,7 +23,7 @@ pub enum ParkOutcome {
     Ready,
     /// The monotonic deadline won.
     TimedOut,
-    /// Explicit cancellation won.
+    /// Explicit [`Unparker::cancel`] won; this is distinct from inherited cancellation.
     Cancelled,
     /// The parking pair was permanently closed.
     Closed,
@@ -81,13 +86,13 @@ impl Parker {
         execution.data.check()?;
         let policy = &execution.data.options;
         let unmasked = execution.data.masked.get() == 0;
-        let deadline = deadline
-            .into_iter()
-            .chain(policy.deadline.filter(|_| unmasked))
-            .min();
+        let inherited_deadline = policy.deadline.filter(|_| unmasked);
+        let inherited_timeout = inherited_deadline
+            .is_some_and(|inherited| deadline.is_none_or(|explicit| inherited <= explicit));
+        let deadline = deadline.into_iter().chain(inherited_deadline).min();
         let hub = mounted.hub();
         match self.wait.begin(mounted.task_id(), &hub, deadline)? {
-            WaitBegin::Immediate(cause) => Ok(ParkOutcome::from(cause)),
+            WaitBegin::Immediate(cause) => selected(cause, inherited_timeout),
             WaitBegin::Park(request) => {
                 let token = request.token();
                 let _generation = self.wait.guard(token);
@@ -112,8 +117,7 @@ impl Parker {
                     return Err(Error::from(error));
                 }
                 let cause = self.wait.finish(token)?;
-                execution.data.check()?;
-                Ok(ParkOutcome::from(cause))
+                selected(cause, inherited_timeout)
             }
         }
     }
@@ -172,17 +176,21 @@ pub fn park_pair() -> (Parker, Unparker) {
     (Parker { wait: wait.clone() }, Unparker { wait })
 }
 
-impl From<WakeCause> for ParkOutcome {
-    fn from(cause: WakeCause) -> Self {
-        match cause {
-            WakeCause::Ready => Self::Ready,
-            WakeCause::TimedOut => Self::TimedOut,
-            WakeCause::Cancelled => Self::Cancelled,
-            WakeCause::Closed => Self::Closed,
-        }
+fn selected(cause: WakeCause, inherited_timeout: bool) -> Result<ParkOutcome> {
+    match cause {
+        WakeCause::Ready => Ok(ParkOutcome::Ready),
+        WakeCause::TimedOut if inherited_timeout => Err(Error::DeadlineExceeded),
+        WakeCause::TimedOut => Ok(ParkOutcome::TimedOut),
+        WakeCause::Cancelled => Ok(ParkOutcome::Cancelled),
+        WakeCause::InheritedCancelled => Err(Error::Cancelled),
+        WakeCause::Closed => Ok(ParkOutcome::Closed),
     }
 }
 
 #[cfg(test)]
 #[path = "parking_test.rs"]
 mod parking_test;
+
+#[cfg(test)]
+#[path = "parking_deadline_test.rs"]
+mod parking_deadline_test;

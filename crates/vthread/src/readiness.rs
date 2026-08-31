@@ -37,7 +37,7 @@ struct Inner {
 }
 pub(crate) struct Reactor {
     inner: Arc<Inner>,
-    worker: Mutex<Option<thread::JoinHandle<()>>>,
+    workers: Arc<crate::join_slot::JoinSlots>,
 }
 pub(crate) struct Lease {
     inner: Arc<Inner>,
@@ -58,13 +58,15 @@ impl Reactor {
                 driver::start(capacity, ready, runtime);
             })
             .map_err(|error| Error::thread_start(crate::ThreadComponent::Readiness, error))?;
+        let workers = Arc::new(crate::join_slot::JoinSlots::default());
+        workers.push(worker);
+        if let Some(owner) = owner.upgrade() {
+            let _ = owner.resources.readiness.set(Arc::clone(&workers));
+        }
         match receive.recv() {
-            Ok(Ok(inner)) => Ok(Self {
-                inner,
-                worker: Mutex::new(Some(worker)),
-            }),
+            Ok(Ok(inner)) => Ok(Self { inner, workers }),
             result => {
-                crate::thread_failure::join(worker, &owner, crate::ThreadComponent::Readiness);
+                workers.join_all(&owner, crate::ThreadComponent::Readiness);
                 Err(match result {
                     Ok(Err(error)) => error,
                     _ => Error::fault(
@@ -140,14 +142,13 @@ impl Reactor {
         self.inner.close(None);
     }
     pub(crate) fn join(&self) {
-        let worker = lock(&self.worker).take();
-        if let Some(worker) = worker {
-            crate::thread_failure::join(
-                worker,
-                &self.inner.owner,
-                crate::ThreadComponent::Readiness,
-            );
-        }
+        self.workers
+            .join_all(&self.inner.owner, crate::ThreadComponent::Readiness);
+    }
+    pub(crate) fn cleanup_complete(&self) -> bool {
+        self.workers.joined()
+            && lock(&self.inner.state).entries.is_empty()
+            && self.inner.registered.load(Ordering::Acquire) == 0
     }
     pub(crate) fn snapshot(&self, snapshot: &mut ServiceSnapshot) {
         let state = lock(&self.inner.state);

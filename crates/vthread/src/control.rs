@@ -4,6 +4,8 @@
 mod control_admission;
 #[path = "control_scope.rs"]
 mod control_scope;
+#[path = "control_snapshot.rs"]
+mod control_snapshot;
 #[path = "control_wait.rs"]
 mod control_wait;
 
@@ -13,19 +15,23 @@ use std::{
 };
 
 use crate::{
-    CarrierId, CarrierSnapshot, CarrierStatus, RuntimeConfig, RuntimeSnapshot, TaskFailure, TaskId,
-    TaskStatus,
+    CarrierId, CarrierSnapshot, CarrierStatus, RuntimeConfig, TaskFailure, TaskId, TaskStatus,
     inbox::Inbox,
     signal::{Signal, lock},
     task::{SharedTaskRecord, TaskRecord},
 };
 
 pub(crate) struct Shared {
+    pub(crate) resources: Arc<crate::lifecycle_resources::CoordinatorResources>,
     pub(crate) id: crate::identity::RuntimeId,
     #[cfg(test)]
     pub(crate) fail_coordinator_start: std::sync::atomic::AtomicBool,
     #[cfg(test)]
     pub(crate) fail_coordinator_before_drain: std::sync::atomic::AtomicBool,
+    #[cfg(test)]
+    pub(crate) coordinator_fault: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    pub(crate) carrier_fault: std::sync::atomic::AtomicUsize,
     pub(crate) services: OnceLock<crate::services::Services>,
     pub(crate) config: RuntimeConfig,
     pub(crate) inboxes: Vec<Arc<Inbox>>,
@@ -40,11 +46,13 @@ pub(crate) struct Shared {
     pub(crate) coordinator_exit_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     #[cfg(test)]
     pub(crate) carrier_exit_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    #[cfg(test)]
+    snapshot_observe_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 struct State {
     shutdown_phase: crate::ShutdownPhase,
-    last_stall: Option<crate::StallSnapshot>,
+    last_stall: Option<Arc<crate::StallSnapshot>>,
     accepting: bool,
     active_scope: Option<u64>,
     scopes: BTreeMap<u64, control_scope::ScopeState>,
@@ -62,11 +70,16 @@ struct State {
 impl Shared {
     pub(crate) fn new(config: RuntimeConfig) -> Self {
         Self {
+            resources: Arc::default(),
             id: crate::identity::RuntimeId::next(),
             #[cfg(test)]
             fail_coordinator_start: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
             fail_coordinator_before_drain: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            coordinator_fault: std::sync::atomic::AtomicUsize::new(0),
+            #[cfg(test)]
+            carrier_fault: std::sync::atomic::AtomicUsize::new(0),
             services: OnceLock::new(),
             config,
             changed: Signal::default(),
@@ -78,6 +91,8 @@ impl Shared {
             coordinator_exit_hook: Mutex::new(None),
             #[cfg(test)]
             carrier_exit_hook: Mutex::new(None),
+            #[cfg(test)]
+            snapshot_observe_hook: Mutex::new(None),
             inboxes: (0..config.carriers())
                 .map(|_| {
                     Arc::new(Inbox::new(
@@ -214,44 +229,6 @@ impl Shared {
         drop(state);
         completion.complete();
         self.changed.notify();
-    }
-
-    pub(crate) fn snapshot(&self) -> RuntimeSnapshot {
-        let state = lock(&self.state);
-        let mut snapshot = RuntimeSnapshot {
-            shutdown_phase: state.shutdown_phase,
-            accepting: state.accepting,
-            last_stall: state.last_stall.clone(),
-            failures: lock(&self.failures).clone(),
-            last_scope_failure: lock(&self.last_scope_failure).clone(),
-            active: state.active,
-            services: self
-                .services
-                .get()
-                .map(|services| services.snapshot())
-                .unwrap_or_default(),
-            ..RuntimeSnapshot::empty(self.id)
-        };
-        for (index, carrier) in state.carriers.iter().enumerate() {
-            let mut carrier = carrier.clone();
-            carrier.active = state.loads[index];
-            carrier.pending_starts = self.inboxes[index].pending();
-            carrier.pending_wakes = self.inboxes[index].hub.pending();
-            snapshot.runnable += carrier.runnable + carrier.pending_starts;
-            snapshot.parked += carrier.parked;
-            snapshot.timers += carrier.timers;
-            snapshot.stats.add(carrier.stats);
-            snapshot.stacks.add(carrier.stacks);
-            snapshot.carriers.push(carrier);
-        }
-        snapshot.stats.admitted = state.admitted;
-        snapshot.stats.rejected = state.rejected;
-        snapshot.tasks = state
-            .records
-            .values()
-            .map(|record| lock(record).snapshot())
-            .collect();
-        snapshot
     }
 }
 

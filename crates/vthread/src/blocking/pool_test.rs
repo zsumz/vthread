@@ -2,7 +2,7 @@ use crate::{Error, Runtime, blocking, support_test::until};
 use std::{sync::mpsc, time::Duration};
 
 #[test]
-fn saturation_rejects_and_cancellation_removes_queued_work() {
+fn saturation_rejects_and_cancellation_tombstones_queued_work() {
     let runtime = Runtime::builder()
         .blocking_threads(1)
         .blocking_capacity(2)
@@ -30,7 +30,7 @@ fn saturation_rejects_and_cancellation_removes_queued_work() {
             scope.cancel();
             assert!(matches!(queued.join()?, Err(Error::Cancelled)));
             assert!(matches!(first.join()?, Err(Error::Cancelled)));
-            assert_eq!(runtime.snapshot().services.blocking_queued, 0);
+            assert_eq!(runtime.snapshot().services.blocking_queued, 1);
             release.send(()).unwrap();
             Ok(())
         })

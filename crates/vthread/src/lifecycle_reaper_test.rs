@@ -12,21 +12,21 @@ fn failed_claims_retain_the_entry_before_and_after_join() {
         Permit::reserve(Arc::clone(&state))
             .unwrap()
             .install(Entry {
-                worker: Some(worker),
+                worker: crate::join_slot::JoinSlot::new(worker),
                 shared: Arc::clone(&shared),
                 resources: Arc::default(),
             })
             .unwrap();
         state.fail_at.store(phase, Ordering::Release);
         super::run(Arc::clone(&state));
-        let mut slots = lock(&state.slots);
+        let slots = lock(&state.slots);
         assert_eq!(slots.occupied, 1);
         assert_eq!(slots.entries.len(), 1);
         assert!(slots.failure.is_some());
-        assert_eq!(slots.entries[0].worker.is_some(), phase == 2);
-        if let Some(worker) = slots.entries[0].worker.take() {
-            worker.join().unwrap();
-        }
+        assert_eq!(slots.entries[0].worker.joined(), phase == 3);
+        slots.entries[0]
+            .worker
+            .join(&Arc::downgrade(&shared), ThreadComponent::Coordinator);
         drop(slots);
         assert_eq!(
             lock(&shared.failures).entries()[0].component(),
@@ -43,7 +43,7 @@ fn failure_racing_installation_keeps_the_reserved_handle_and_rejects_new_work() 
     state.fail(super::stopped_failure());
     let shared = Arc::new(Shared::new(crate::RuntimeConfig::default()));
     let result = permit.install(Entry {
-        worker: Some(std::thread::spawn(|| {})),
+        worker: crate::join_slot::JoinSlot::new(std::thread::spawn(|| {})),
         shared: Arc::clone(&shared),
         resources: Arc::default(),
     });
@@ -52,10 +52,12 @@ fn failure_racing_installation_keeps_the_reserved_handle_and_rejects_new_work() 
         Permit::reserve(Arc::clone(&state)),
         Err(crate::Error::LifecycleFailed(_))
     ));
-    let mut slots = lock(&state.slots);
+    let slots = lock(&state.slots);
     assert_eq!(slots.occupied, 1);
     assert_eq!(slots.entries.len(), 1);
-    slots.entries[0].worker.take().unwrap().join().unwrap();
+    slots.entries[0]
+        .worker
+        .join(&Arc::downgrade(&shared), ThreadComponent::Coordinator);
     assert_eq!(
         lock(&shared.failures).entries()[0].component(),
         ThreadComponent::LifecycleOwner

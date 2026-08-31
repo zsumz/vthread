@@ -14,6 +14,9 @@ pub use error_types::{ConfigurationField, LimitResource};
 mod run_error;
 use crate::{TaskFailure, TaskId};
 pub use run_error::{RunFailure, ScopeRunError};
+#[path = "application_run_failure.rs"]
+mod application_run_failure;
+pub use application_run_failure::ApplicationRunFailure;
 #[path = "error_context.rs"]
 mod error_context;
 pub use error_context::{CapacityResource, FaultComponent, IoFailure, RuntimeFault};

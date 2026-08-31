@@ -23,7 +23,7 @@ impl WaitRegistration {
     pub(crate) fn select_cancelled(&self, token: ParkToken) -> bool {
         self.state
             .upgrade()
-            .is_some_and(|state| select_generation(&state, token, WakeCause::Cancelled))
+            .is_some_and(|state| select_generation(&state, token, WakeCause::InheritedCancelled))
     }
 
     pub(crate) fn select_timeout(&self, token: ParkToken) -> Result<bool> {

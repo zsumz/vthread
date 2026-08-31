@@ -6,10 +6,9 @@ use crate::{
 };
 use std::{
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicBool, Ordering},
     },
-    thread,
     time::Instant,
 };
 
@@ -18,17 +17,11 @@ pub(super) struct ShutdownDriver {
 }
 
 impl ShutdownDriver {
-    pub(super) fn new(
-        shared: &Arc<Shared>,
-        workers: &Arc<Mutex<Vec<thread::JoinHandle<()>>>>,
-    ) -> Result<Self> {
+    pub(super) fn new(shared: &Arc<Shared>) -> Result<Self> {
         let ready = Arc::new(AtomicBool::new(false));
         let constructed = Arc::clone(&ready);
         let shared = Arc::clone(shared);
-        let resources = Arc::new(crate::lifecycle_owner::CoordinatorResources {
-            workers: Arc::clone(workers),
-            drained: AtomicBool::new(false),
-        });
+        let resources = Arc::clone(&shared.resources);
         let cleanup = Arc::clone(&resources);
         crate::lifecycle_owner::start(Arc::clone(&shared), resources, move || {
             loop {
@@ -46,19 +39,15 @@ impl ShutdownDriver {
                 "injected coordinator failure before cleanup"
             );
             shared.advance_shutdown(ShutdownPhase::JoiningCarriers);
-            loop {
-                let worker = crate::signal::lock(&cleanup.workers).pop();
-                let Some(worker) = worker else {
-                    break;
-                };
-                crate::thread_failure::join(
-                    worker,
-                    &Arc::downgrade(&shared),
-                    crate::ThreadComponent::Carrier,
-                );
+            cleanup
+                .workers
+                .join_all(&Arc::downgrade(&shared), crate::ThreadComponent::Carrier);
+            // A retained affine stack may own a native-result acknowledgement. Joining
+            // services then could wait forever; let the process owner fail stop now.
+            if !cleanup.carriers_reclaimed(&shared) {
+                return;
             }
             drain_services(&shared);
-            cleanup.drained.store(true, Ordering::Release);
             #[cfg(test)]
             if let Some(hook) = crate::signal::lock(&shared.coordinator_exit_hook).take() {
                 hook();

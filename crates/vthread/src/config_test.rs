@@ -94,3 +94,22 @@ fn carrier_limits_and_stall_deadlines_are_validated_before_starting_threads() {
             .is_err()
     );
 }
+
+#[test]
+fn native_capacity_and_worker_errors_identify_the_selected_field() {
+    use crate::error::ConfigurationField::{BlockingCapacity, BlockingThreads};
+    for (capacity, threads, expected) in [
+        (0, 2, BlockingCapacity),
+        (0, 0, BlockingCapacity),
+        (1, 0, BlockingThreads),
+        (1, 2, BlockingThreads),
+    ] {
+        let error = Runtime::builder()
+            .blocking_capacity(capacity)
+            .blocking_threads(threads)
+            .build()
+            .unwrap_err();
+        assert!(matches!(error, Error::InvalidConfiguration { field, .. } if field == expected));
+    }
+    assert_eq!(BlockingCapacity.to_string(), "blocking_capacity");
+}

@@ -23,7 +23,7 @@ pub struct Mutex<T> {
 /// Forgetting a guard leaks the value and permanently retains the lock.
 ///
 /// ```compile_fail
-/// let mutex = vthread::sync::Mutex::new(42).unwrap();
+/// let mutex = vthread::sync::Mutex::new(42);
 /// let guard = mutex.try_lock().unwrap();
 /// std::thread::scope(|scope| { scope.spawn(move || drop(guard)); });
 /// ```
@@ -37,8 +37,9 @@ pub struct MutexGuard<'a, T> {
 
 impl<T> Mutex<T> {
     /// Creates an unlocked mutex using [`super::DEFAULT_WAIT_CAPACITY`].
-    pub fn new(value: T) -> Result<Self> {
+    pub fn new(value: T) -> Self {
         Self::with_wait_capacity(value, super::DEFAULT_WAIT_CAPACITY)
+            .expect("default waiter capacity is positive")
     }
 
     /// Creates an unlocked mutex with an explicit positive waiter limit.
@@ -80,6 +81,12 @@ impl<T> Mutex<T> {
     /// Configured outstanding-wait limit, including selected waiters.
     pub fn wait_capacity(&self) -> usize {
         self.semaphore.wait_capacity()
+    }
+}
+
+impl<T: Default> Default for Mutex<T> {
+    fn default() -> Self {
+        Self::new(T::default())
     }
 }
 

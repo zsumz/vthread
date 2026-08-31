@@ -54,7 +54,12 @@ impl<T> JoinHandle<T> {
     }
 
     /// Waits without consuming observation ownership. Cancellation/deadlines are retryable.
+    /// A completed handle returns immediately, even after its result was consumed or
+    /// its diagnostic record was evicted, without checking the caller's cancellation.
     pub fn wait(&mut self) -> Result<()> {
+        if self.is_finished() {
+            return Ok(());
+        }
         if context::current().is_some() {
             crate::join_wait::wait_for(
                 &self.record,

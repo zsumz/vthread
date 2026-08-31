@@ -12,8 +12,9 @@ pub struct Notify {
 
 impl Notify {
     /// Creates a notification source using [`super::DEFAULT_WAIT_CAPACITY`].
-    pub fn new() -> Result<Self> {
+    pub fn new() -> Self {
         Self::with_wait_capacity(super::DEFAULT_WAIT_CAPACITY)
+            .expect("default waiter capacity is positive")
     }
 
     /// Creates a notification source with a positive outstanding-wait limit.
@@ -54,6 +55,12 @@ impl Notify {
     /// Configured outstanding-wait limit, including selected waiters.
     pub fn wait_capacity(&self) -> usize {
         self.gate.wait_capacity()
+    }
+}
+
+impl Default for Notify {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

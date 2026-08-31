@@ -44,13 +44,17 @@ fn premature_coordinator_exit_retains_undrained_runtime_ownership() {
         .find(|entry| entry.shared.id == id)
         .unwrap();
     assert!(
-        retained.worker.is_none(),
+        retained.worker.joined(),
         "coordinator exit itself was not joined"
     );
-    assert!(!retained.resources.drained.load(Ordering::Acquire));
+    assert!(
+        !retained
+            .resources
+            .drained(&retained.shared, retained.worker.joined())
+    );
     assert_eq!(
-        lock(&retained.resources.workers).len(),
-        1,
+        retained.resources.workers.counts(),
+        (1, 0),
         "carrier join handles were dropped during coordinator unwind"
     );
     assert_ne!(

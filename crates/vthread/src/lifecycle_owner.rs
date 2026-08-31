@@ -9,7 +9,7 @@ use crate::{
     signal::{Signal, lock},
 };
 use std::{
-    sync::{Arc, Mutex, OnceLock, atomic::AtomicBool, mpsc},
+    sync::{Arc, Mutex, OnceLock, mpsc},
     thread,
 };
 
@@ -82,17 +82,12 @@ struct Slots {
 }
 
 struct Entry {
-    worker: Option<thread::JoinHandle<()>>,
+    worker: Arc<crate::join_slot::JoinSlot>,
     shared: Arc<Shared>,
     resources: Arc<CoordinatorResources>,
 }
 
-/// Retained outside the coordinator's stack, including during premature unwind.
-#[derive(Default)]
-pub(crate) struct CoordinatorResources {
-    pub(crate) workers: Arc<Mutex<Vec<thread::JoinHandle<()>>>>,
-    pub(crate) drained: AtomicBool,
-}
+pub(crate) use crate::lifecycle_resources::CoordinatorResources;
 
 impl State {
     fn fail(&self, failure: ThreadFailure) {
@@ -205,6 +200,7 @@ pub(crate) fn start(
         ));
     }
     let runtime = Arc::downgrade(&shared);
+    let returned = Arc::clone(&resources);
     let (admitted, gate) = mpsc::sync_channel(1);
     let worker = thread::Builder::new()
         .name("vthread-shutdown".into())
@@ -214,11 +210,14 @@ pub(crate) fn start(
             if gate.recv().is_ok() {
                 crate::worker_context::attach(runtime, crate::ThreadComponent::Coordinator);
                 body();
+                returned
+                    .returned
+                    .store(true, std::sync::atomic::Ordering::Release);
             }
         })
         .map_err(|error| Error::thread_start(crate::ThreadComponent::Coordinator, error))?;
     permit.install(Entry {
-        worker: Some(worker),
+        worker: crate::join_slot::JoinSlot::new(worker),
         shared,
         resources,
     })?;
@@ -233,3 +232,11 @@ mod lifecycle_owner_test;
 #[cfg(test)]
 #[path = "lifecycle_failure_test.rs"]
 mod lifecycle_failure_test;
+
+#[cfg(test)]
+#[path = "lifecycle_partial_test.rs"]
+mod lifecycle_partial_test;
+
+#[cfg(test)]
+#[path = "lifecycle_cleanup_test.rs"]
+mod lifecycle_cleanup_test;

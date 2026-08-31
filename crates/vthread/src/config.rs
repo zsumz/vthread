@@ -169,12 +169,22 @@ impl RuntimeBuilder {
                 "must be positive",
             ));
         }
-        if self.config.blocking_threads == 0
-            || self.config.blocking_threads > self.config.blocking_capacity
-        {
+        if self.config.blocking_capacity == 0 {
+            return Err(Error::invalid_configuration(
+                crate::error::ConfigurationField::BlockingCapacity,
+                "must be positive",
+            ));
+        }
+        if self.config.blocking_threads == 0 {
             return Err(Error::invalid_configuration(
                 crate::error::ConfigurationField::BlockingThreads,
-                "must be between one and blocking_capacity",
+                "must be positive",
+            ));
+        }
+        if self.config.blocking_threads > self.config.blocking_capacity {
+            return Err(Error::invalid_configuration(
+                crate::error::ConfigurationField::BlockingThreads,
+                "cannot exceed blocking_capacity",
             ));
         }
         if self

@@ -80,7 +80,7 @@ impl Shared {
                 };
             if deadline.is_some_and(|deadline| deadline <= Instant::now()) {
                 let detected_at = Instant::now();
-                state.last_stall = Some(crate::StallSnapshot {
+                state.last_stall = Some(std::sync::Arc::new(crate::StallSnapshot {
                     policy: self.config.stall_policy(),
                     scope,
                     detected_at,
@@ -94,7 +94,7 @@ impl Shared {
                                 .then(|| record.snapshot())
                         })
                         .collect(),
-                });
+                }));
                 reported = true;
                 if !self.config.stall_policy().aborts() {
                     drop(state);

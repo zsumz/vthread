@@ -172,7 +172,12 @@ impl CarrierSnapshot {
     }
 }
 
-/// Point-in-time runtime state.
+/// Weakly consistent diagnostic view assembled from independently observed components.
+///
+/// Admission counters and record membership are captured together, then service,
+/// inbox and task details are read after releasing runtime control state. Components
+/// can advance between those reads; cross-field totals need not reconcile during
+/// activity. This view is not a synchronization barrier or shutdown-completion proof.
 #[derive(Clone, Debug)]
 pub struct RuntimeSnapshot {
     pub(crate) runtime_id: RuntimeId,

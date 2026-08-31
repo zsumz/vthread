@@ -92,7 +92,7 @@ impl Kernel {
                 record.last_wake = Some(match notice.cause {
                     WakeCause::Ready => WakeReason::Ready,
                     WakeCause::TimedOut => WakeReason::TimedOut,
-                    WakeCause::Cancelled => WakeReason::Cancelled,
+                    WakeCause::Cancelled | WakeCause::InheritedCancelled => WakeReason::Cancelled,
                     WakeCause::Closed => WakeReason::Closed,
                 });
             });
@@ -100,7 +100,7 @@ impl Kernel {
             match notice.cause {
                 WakeCause::Ready => {}
                 WakeCause::TimedOut => self.stats.timeouts += 1,
-                WakeCause::Cancelled => self.stats.cancelled += 1,
+                WakeCause::Cancelled | WakeCause::InheritedCancelled => self.stats.cancelled += 1,
                 WakeCause::Closed => self.stats.closed += 1,
             }
             self.ready.push_back(parked.task);

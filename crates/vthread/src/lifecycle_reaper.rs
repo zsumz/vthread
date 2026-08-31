@@ -6,7 +6,7 @@ use crate::{
 };
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
-    sync::{Arc, atomic::Ordering},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -18,12 +18,10 @@ struct Claim {
 impl Claim {
     fn ready(state: &Arc<State>) -> Option<Self> {
         let mut slots = lock(&state.slots);
-        let index = slots.entries.iter().position(|entry| {
-            entry
-                .worker
-                .as_ref()
-                .is_some_and(std::thread::JoinHandle::is_finished)
-        })?;
+        let index = slots
+            .entries
+            .iter()
+            .position(|entry| entry.worker.finished())?;
         Some(Self {
             state: Arc::clone(state),
             entry: Some(slots.entries.swap_remove(index)),
@@ -34,14 +32,15 @@ impl Claim {
         #[cfg(test)]
         inject(&self.state, 2);
         let entry = self.entry.as_mut().expect("claimed entry");
-        crate::thread_failure::join(
-            entry.worker.take().expect("unjoined coordinator"),
-            &Arc::downgrade(&entry.shared),
-            ThreadComponent::Coordinator,
-        );
+        entry
+            .worker
+            .join(&Arc::downgrade(&entry.shared), ThreadComponent::Coordinator);
         #[cfg(test)]
         inject(&self.state, 3);
-        if !entry.resources.drained.load(Ordering::Acquire) {
+        if !entry
+            .resources
+            .drained(&entry.shared, entry.worker.joined())
+        {
             // Retain all unjoined carrier/service handles; dropping Shared could
             // otherwise block the process owner in live service cleanup.
             return Some(failure("coordinator exited before cleanup was confirmed"));

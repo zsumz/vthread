@@ -26,6 +26,7 @@ pub(crate) enum WakeCause {
     Ready,
     TimedOut,
     Cancelled,
+    InheritedCancelled,
     Closed,
 }
 

@@ -121,9 +121,26 @@ impl Kernel {
     }
 
     pub(crate) fn retire(&self, status: CarrierStatus) {
+        #[cfg(test)]
+        assert_ne!(
+            self.shared
+                .carrier_fault
+                .load(std::sync::atomic::Ordering::Acquire),
+            2,
+            "injected carrier retirement failure"
+        );
         let mut snapshot = self.snapshot(status);
         snapshot.stacks.cached = 0;
         self.shared.publish(snapshot);
+    }
+
+    pub(crate) fn reclaimed(&self) -> bool {
+        self.pending.is_none()
+            && self.in_flight.is_none()
+            && self.ready.is_empty()
+            && self.parked.is_empty()
+            && self.local.starts.borrow().is_empty()
+            && self.inbox.pending() == 0
     }
 
     fn snapshot(&self, status: CarrierStatus) -> CarrierSnapshot {

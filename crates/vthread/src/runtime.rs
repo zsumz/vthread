@@ -8,13 +8,9 @@ pub use runtime_lifecycle::ShutdownOutcome;
 
 use crate::{
     CarrierId, Error, JoinHandle, Result, RuntimeBuilder, RuntimeConfig, RuntimeSnapshot, carrier,
-    context, control::Shared, signal::lock,
+    context, control::Shared,
 };
-use std::{
-    fmt,
-    sync::{Arc, Mutex},
-    thread,
-};
+use std::{fmt, sync::Arc, thread};
 
 /// An application lifecycle owner with one active root scope and persistent affine carriers.
 /// Explicit supervisors may coexist with that root; independent roots use separate runtimes.
@@ -47,8 +43,7 @@ impl Runtime {
             return Err(Error::InsideManagedWorker);
         }
         let shared = Arc::new(Shared::new(config));
-        let workers = Arc::new(Mutex::new(Vec::new()));
-        let shutdown_driver = runtime_lifecycle::ShutdownDriver::new(&shared, &workers)?;
+        let shutdown_driver = runtime_lifecycle::ShutdownDriver::new(&shared)?;
         let runtime = Self {
             config,
             shared,
@@ -79,12 +74,15 @@ impl Runtime {
                     );
                     carrier::run(Arc::clone(&shared), CarrierId(index));
                     #[cfg(test)]
-                    if let Some(hook) = lock(&shared.carrier_exit_hook).take() {
+                    if let Some(hook) = crate::signal::lock(&shared.carrier_exit_hook).take() {
                         hook();
                     }
                 })
                 .map_err(|error| Error::thread_start(crate::ThreadComponent::Carrier, error))?;
-            lock(&workers).push(worker);
+            runtime.shared.inboxes[index]
+                .started
+                .store(true, std::sync::atomic::Ordering::Release);
+            runtime.shared.resources.workers.push(worker);
         }
         runtime.shutdown_driver.ready(&runtime.shared);
         crate::lifecycle_owner::check_health()?;
@@ -101,7 +99,9 @@ impl Runtime {
         self.config
     }
 
-    /// Returns the published carrier state and retained task diagnostics.
+    /// Returns a weakly consistent view of carrier state and retained task diagnostics.
+    /// Components can advance independently while this view is assembled. Task and
+    /// service observation does not hold the global admission/completion lock.
     pub fn snapshot(&self) -> RuntimeSnapshot {
         self.shared.snapshot()
     }

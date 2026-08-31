@@ -2,7 +2,10 @@
 
 use std::{
     collections::{BTreeMap, VecDeque},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use crate::{
@@ -25,6 +28,9 @@ struct InboxState {
 }
 
 pub(crate) struct Inbox {
+    pub(crate) started: AtomicBool,
+    pub(crate) scheduler_stopped: AtomicBool,
+    pub(crate) reclaimed: AtomicBool,
     capacity: usize,
     state: Mutex<InboxState>,
     pub(crate) signal: Arc<Signal>,
@@ -35,6 +41,9 @@ impl Inbox {
     pub(crate) fn new(capacity: usize, wait_capacity: usize) -> Self {
         let signal = Arc::new(Signal::default());
         Self {
+            started: AtomicBool::new(false),
+            scheduler_stopped: AtomicBool::new(false),
+            reclaimed: AtomicBool::new(false),
             capacity,
             state: Mutex::default(),
             hub: Arc::new(WaitHub::new(wait_capacity, Arc::clone(&signal))),
@@ -62,18 +71,20 @@ impl Inbox {
         lock(&self.state).starts.pop_front()
     }
 
-    pub(crate) fn drain(&self, scope: Option<u64>) -> VecDeque<SpawnPacket> {
+    pub(crate) fn pop_scope(&self, scope: Option<u64>) -> Option<SpawnPacket> {
         let mut state = lock(&self.state);
-        let mut removed = VecDeque::new();
-        for _ in 0..state.starts.len() {
-            let packet = state.starts.pop_front().expect("queued packet");
-            if scope.is_none_or(|scope| lock(&packet.record).scope == scope) {
-                removed.push_back(packet);
-            } else {
-                state.starts.push_back(packet);
-            }
-        }
-        removed
+        let index = state
+            .starts
+            .iter()
+            .position(|packet| scope.is_none_or(|scope| lock(&packet.record).scope == scope))?;
+        state.starts.remove(index)
+    }
+
+    pub(crate) fn cleanup_complete(&self) -> bool {
+        (!self.started.load(Ordering::Acquire)
+            || (self.scheduler_stopped.load(Ordering::Acquire)
+                && self.reclaimed.load(Ordering::Acquire)))
+            && self.pending() == 0
     }
 
     pub(crate) fn pending(&self) -> usize {

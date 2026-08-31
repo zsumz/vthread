@@ -1,11 +1,13 @@
 //! Explicit delegation of owned native work to a bounded runtime worker pool.
 //!
-//! Cancellation removes queued work. Already-running calls cannot be stopped:
-//! the caller stops waiting, while the runtime retains the job and drops its late
-//! result. Runtime shutdown waits for those calls. Scope exit alone does not drain
-//! abandoned native calls. Closures/results must be Send + 'static; borrowed work
-//! cannot outlive a cancelling caller. Pool saturation rejects work immediately. Once the
-//! pool is stopping, queued captures are discarded by native workers, never the stop caller.
+//! Cancellation leaves queued jobs as native-owned tombstones. Already-running
+//! calls cannot be stopped: the caller stops waiting, while the runtime retains
+//! the job and reclaims its captures and result on a native worker. Capacity stays
+//! charged until this cleanup finishes. Runtime shutdown waits for those calls;
+//! scope exit alone does not drain abandoned native calls. Closures/results must
+//! be Send + 'static. Pool saturation rejects work immediately, before ownership
+//! transfers. A result whose Ready wake wins is committed when the caller takes
+//! it; later cancellation is observed at the next cooperative boundary.
 
 pub(crate) mod pool;
 mod result;
@@ -46,14 +48,16 @@ pub(crate) fn run_for<T: Send + 'static>(
         .ok_or(Error::RuntimeStopped)?;
     let output = Arc::new(Output::new());
     let worker_output = Arc::clone(&output);
+    let reclaim_output = Arc::clone(&output);
     let abandoned = Arc::new(AtomicBool::new(false));
     let worker_abandoned = Arc::clone(&abandoned);
     let parker = Parker {
         wait: WaitCell::new(),
     };
+    let mut lease = None;
     let outcome = parker.park_registered(|token, wake| {
         let completion = wake.clone();
-        services.blocking.submit(
+        lease = Some(services.blocking.submit(
             abandoned,
             token,
             wake,
@@ -69,9 +73,10 @@ pub(crate) fn run_for<T: Send + 'static>(
                 completion.select_ready(token);
                 panicked
             }),
-        )
+            Box::new(move || reclaim_output.discard()),
+        )?);
+        Ok(())
     })?;
-    execution.data.check()?;
     if outcome == ParkOutcome::Closed {
         return Err(if services.blocking.is_failed() {
             Error::BlockingFailed

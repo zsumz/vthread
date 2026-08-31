@@ -147,3 +147,69 @@ fn close_wakes_and_is_terminal() {
         .expect("scope succeeds");
     assert!(unparker.is_closed());
 }
+
+#[test]
+fn selected_winners_are_not_replaced_by_inherited_cancellation() {
+    for selected in [
+        ParkOutcome::Ready,
+        ParkOutcome::Closed,
+        ParkOutcome::Cancelled,
+        ParkOutcome::TimedOut,
+    ] {
+        let runtime = Runtime::new().unwrap();
+        runtime
+            .run_scope(|scope| {
+                let cancellation = scope.cancellation_token();
+                let mut task = scope.spawn("selected-winner", move || {
+                    let (parker, unparker) = park_pair();
+                    let result = parker.park_registered(|token, wake| {
+                        match selected {
+                            ParkOutcome::Ready => {
+                                assert!(wake.select_ready(token));
+                            }
+                            ParkOutcome::Closed => {
+                                assert!(wake.select_closed(token));
+                            }
+                            ParkOutcome::Cancelled => {
+                                assert!(unparker.cancel());
+                            }
+                            ParkOutcome::TimedOut => {
+                                assert!(wake.select_timeout(token)?);
+                            }
+                        }
+                        cancellation.cancel();
+                        Ok(())
+                    });
+                    (result, crate::checkpoint())
+                })?;
+                let (outcome, checkpoint) = task.join()?;
+                assert!(
+                    matches!(outcome, Ok(winner) if winner == selected),
+                    "{outcome:?}"
+                );
+                assert!(matches!(checkpoint, Err(Error::Cancelled)));
+                Ok(())
+            })
+            .unwrap();
+    }
+}
+
+#[test]
+fn inherited_cancellation_is_an_error_when_it_selects_first() {
+    let runtime = Runtime::new().unwrap();
+    runtime
+        .run_scope(|scope| {
+            let cancellation = scope.cancellation_token();
+            let mut task = scope.spawn("inherited-winner", move || {
+                let (parker, _) = park_pair();
+                parker.park_registered(|token, wake| {
+                    cancellation.cancel();
+                    assert!(!wake.select_ready(token));
+                    Ok(())
+                })
+            })?;
+            assert!(matches!(task.join()?, Err(Error::Cancelled)));
+            Ok(())
+        })
+        .unwrap();
+}

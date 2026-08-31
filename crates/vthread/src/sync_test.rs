@@ -7,7 +7,7 @@ use std::{
 
 #[test]
 fn simple_constructors_expose_bounded_wait_capacity() {
-    let mutex = Mutex::new(42).unwrap();
+    let mutex = Mutex::new(42);
     assert_eq!(mutex.wait_capacity(), super::DEFAULT_WAIT_CAPACITY);
     assert_eq!(*mutex.try_lock().unwrap(), 42);
     let semaphore = Semaphore::new(2).unwrap();
@@ -17,23 +17,33 @@ fn simple_constructors_expose_bounded_wait_capacity() {
     drop(permit);
     assert_eq!(semaphore.available_permits(), 2);
     assert!(Semaphore::new(0).is_err());
-    let notify = Notify::new().unwrap();
+    let notify = Notify::new();
     assert_eq!(notify.wait_capacity(), super::DEFAULT_WAIT_CAPACITY);
     notify.notify_one();
     notify.try_notified().unwrap();
-    let changed = Condvar::new().unwrap();
+    let changed = Condvar::new();
     assert_eq!(changed.wait_capacity(), super::DEFAULT_WAIT_CAPACITY);
     changed.notify_all();
     assert!(Mutex::with_wait_capacity(0, 0).is_err());
     assert!(Semaphore::with_wait_capacity(1, 0).is_err());
     assert!(Notify::with_wait_capacity(0).is_err());
     assert!(Condvar::with_wait_capacity(0).is_err());
+    let default_mutex = Mutex::<usize>::default();
+    assert_eq!(*default_mutex.try_lock().unwrap(), 0);
+    assert_eq!(
+        Notify::default().wait_capacity(),
+        super::DEFAULT_WAIT_CAPACITY
+    );
+    assert_eq!(
+        Condvar::default().wait_capacity(),
+        super::DEFAULT_WAIT_CAPACITY
+    );
 }
 
 #[test]
 fn default_waiter_budget_rejects_overflow_without_losing_existing_waits() {
     let runtime = Runtime::new().unwrap();
-    let notify = Arc::new(Notify::new().unwrap());
+    let notify = Arc::new(Notify::new());
     runtime
         .run_scope(|scope| {
             let mut waits = Vec::new();

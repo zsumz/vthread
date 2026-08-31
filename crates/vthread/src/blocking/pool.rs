@@ -15,17 +15,21 @@ use std::{
 use vthread_stack::ParkToken;
 
 struct Job {
-    id: u64,
     token: ParkToken,
     wake: WaitRegistration,
     body: Box<dyn FnOnce() -> bool + Send>,
+    reclaim: Reclaim,
+}
+struct Reclaim {
+    abandoned: Arc<AtomicBool>,
+    body: Box<dyn FnOnce() + Send>,
 }
 struct State {
     queue: VecDeque<Job>,
+    completed: VecDeque<Reclaim>,
     running: usize,
     discarding: usize,
     panicked: u64,
-    next: u64,
     stopped: bool,
     failed: bool,
 }
@@ -38,12 +42,11 @@ struct Inner {
 }
 pub(crate) struct Pool {
     inner: Arc<Inner>,
-    workers: Mutex<Vec<thread::JoinHandle<()>>>,
+    workers: Arc<crate::join_slot::JoinSlots>,
     owner: std::sync::Weak<crate::control::Shared>,
 }
 pub(crate) struct Lease {
     inner: Arc<Inner>,
-    id: u64,
     abandoned: Arc<AtomicBool>,
 }
 
@@ -57,10 +60,10 @@ impl Pool {
             inner: Arc::new(Inner {
                 state: Mutex::new(State {
                     queue: VecDeque::new(),
+                    completed: VecDeque::new(),
                     running: 0,
                     discarding: 0,
                     panicked: 0,
-                    next: 1,
                     stopped: false,
                     failed: false,
                 }),
@@ -69,9 +72,12 @@ impl Pool {
                 #[cfg(test)]
                 fail_worker: AtomicBool::new(false),
             }),
-            workers: Mutex::new(Vec::new()),
+            workers: Arc::default(),
             owner,
         };
+        if let Some(owner) = pool.owner.upgrade() {
+            let _ = owner.resources.native.set(Arc::clone(&pool.workers));
+        }
         for index in 0..threads {
             let inner = Arc::clone(&pool.inner);
             let owner = pool.owner.clone();
@@ -87,7 +93,7 @@ impl Pool {
                 .map_err(|error| {
                     Error::thread_start(crate::ThreadComponent::NativeWorker, error)
                 })?;
-            lock(&pool.workers).push(worker);
+            pool.workers.push(worker);
         }
         Ok(pool)
     }
@@ -98,6 +104,7 @@ impl Pool {
         token: ParkToken,
         wake: WaitRegistration,
         body: Box<dyn FnOnce() -> bool + Send>,
+        reclaim: Box<dyn FnOnce() + Send>,
     ) -> Result<Lease> {
         let mut state = lock(&self.inner.state);
         if state.failed {
@@ -106,27 +113,26 @@ impl Pool {
         if state.stopped {
             return Err(Error::RuntimeStopped);
         }
-        if state.queue.len() + state.running + state.discarding >= self.inner.capacity {
+        if state.queue.len() + state.completed.len() + state.running + state.discarding
+            >= self.inner.capacity
+        {
             return Err(Error::Capacity {
                 resource: crate::error::CapacityResource::NativeJobs,
                 limit: self.inner.capacity,
             });
         }
-        let id = state.next;
-        state.next = id.checked_add(1).ok_or(Error::fault(
-            crate::error::FaultComponent::Native,
-            "blocking identity exhausted",
-        ))?;
         state.queue.push_back(Job {
-            id,
             token,
             wake,
             body,
+            reclaim: Reclaim {
+                abandoned: Arc::clone(&abandoned),
+                body: reclaim,
+            },
         });
         self.inner.changed.notify_one();
         Ok(Lease {
             inner: Arc::clone(&self.inner),
-            id,
             abandoned,
         })
     }
@@ -137,10 +143,16 @@ impl Pool {
         self.inner.changed.notify_all();
     }
     pub(crate) fn join(&self) {
-        let workers = std::mem::take(&mut *lock(&self.workers));
-        for worker in workers {
-            crate::thread_failure::join(worker, &self.owner, crate::ThreadComponent::NativeWorker);
-        }
+        self.workers
+            .join_all(&self.owner, crate::ThreadComponent::NativeWorker);
+    }
+    pub(crate) fn cleanup_complete(&self) -> bool {
+        let state = lock(&self.inner.state);
+        self.workers.joined()
+            && state.queue.is_empty()
+            && state.completed.is_empty()
+            && state.running == 0
+            && state.discarding == 0
     }
     pub(crate) fn is_failed(&self) -> bool {
         lock(&self.inner.state).failed
@@ -152,6 +164,7 @@ impl Pool {
         let state = lock(&self.inner.state);
         snapshot.blocking_queued = state.queue.len();
         snapshot.blocking_running = state.running;
+        snapshot.blocking_completed = state.completed.len();
         snapshot.blocking_discarding = state.discarding;
         snapshot.blocking_capacity = self.inner.capacity;
         snapshot.blocking_panics = state.panicked;
@@ -168,20 +181,10 @@ impl Drop for Pool {
 impl Drop for Lease {
     fn drop(&mut self) {
         self.abandoned.store(true, Ordering::Release);
-        let removed = {
-            let mut state = lock(&self.inner.state);
-            // Once stop selects queued cleanup, workers retain ownership. A carrier
-            // must not run an arbitrary queued destructor while reclaiming its lease.
-            if state.stopped {
-                return;
-            }
-            state
-                .queue
-                .iter()
-                .position(|job| job.id == self.id)
-                .and_then(|index| state.queue.remove(index))
-        };
-        drop(removed);
+        // Ownership stays native through capture/result destruction. Taking the
+        // mutex closes the condition-variable check/wait race without user cleanup.
+        let _state = lock(&self.inner.state);
+        self.inner.changed.notify_all();
     }
 }
 
@@ -192,3 +195,7 @@ mod pool_test;
 #[cfg(test)]
 #[path = "shutdown_test.rs"]
 mod shutdown_test;
+
+#[cfg(test)]
+#[path = "ownership_test.rs"]
+mod ownership_test;

@@ -9,8 +9,7 @@ use std::{
 fn stop_before_service_publication_still_drains_late_services() {
     let config = crate::RuntimeConfig::default();
     let shared = Arc::new(crate::control::Shared::new(config));
-    let workers = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let driver = super::ShutdownDriver::new(&shared, &workers).unwrap();
+    let driver = super::ShutdownDriver::new(&shared).unwrap();
     shared.request_stop();
     assert!(
         shared

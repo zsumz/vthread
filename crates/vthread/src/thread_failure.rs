@@ -124,22 +124,32 @@ impl ThreadFailures {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn join(
     worker: thread::JoinHandle<()>,
     shared: &Weak<Shared>,
     component: ThreadComponent,
 ) {
     let name = worker.thread().name().unwrap_or("unnamed").to_owned();
-    if let Err(payload) = worker.join() {
+    report_join(worker.join(), shared, component, &name);
+}
+
+pub(crate) fn report_join(
+    result: thread::Result<()>,
+    shared: &Weak<Shared>,
+    component: ThreadComponent,
+    name: &str,
+) {
+    if let Err(payload) = result {
         let (captured, quarantined) = vthread_stack::panic_payload::capture_for_join(payload);
         let panic = PanicReport::from_captured(captured);
         if let Some(shared) = shared.upgrade() {
-            let mut failure = ThreadFailure::new(component, &name, FailurePhase::Join, panic);
+            let mut failure = ThreadFailure::new(component, name, FailurePhase::Join, panic);
             failure.cleanup_complete &= !quarantined;
             shared.record_failure(failure);
         }
     } else if let Some(shared) = shared.upgrade() {
-        crate::signal::lock(&shared.failures).joined(component, &name);
+        crate::signal::lock(&shared.failures).joined(component, name);
     }
 }
 

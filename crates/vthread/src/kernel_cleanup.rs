@@ -17,9 +17,17 @@ impl Kernel {
             self.discard_pending(reason);
         }
         let retained_pending = self.pending.take();
-        for packet in self.inbox.drain(scope) {
+        while let Some(packet) = self.inbox.pop_scope(scope) {
             self.pending = Some(packet);
             self.discard_pending(reason);
+            #[cfg(test)]
+            assert_ne!(
+                self.shared
+                    .carrier_fault
+                    .load(std::sync::atomic::Ordering::Acquire),
+                1,
+                "injected carrier failure during partial inbox abort"
+            );
         }
         self.pending = retained_pending;
         if self

@@ -19,9 +19,11 @@ pub struct ServiceSnapshot {
     pub(crate) blocking_queued: usize,
     /// Native jobs already executing; these cannot be forcibly cancelled.
     pub(crate) blocking_running: usize,
-    /// Stopped queued jobs whose capture destructors are executing on native workers.
+    /// Completed results retained natively until caller commit or abandonment.
+    pub(crate) blocking_completed: usize,
+    /// Queued captures or abandoned results being destroyed on native workers.
     pub(crate) blocking_discarding: usize,
-    /// Maximum queued, running, and discarding native jobs combined.
+    /// Maximum queued, running, completed, and discarding native jobs combined.
     pub(crate) blocking_capacity: usize,
     /// Native body or late-result/queued-capture destructor panics observed by workers.
     pub(crate) blocking_panics: u64,
@@ -99,11 +101,15 @@ impl ServiceSnapshot {
     pub fn blocking_running(&self) -> usize {
         self.blocking_running
     }
-    /// Stopped queued jobs whose capture destructors are executing on native workers.
+    /// Completed results retained natively until caller commit or abandonment.
+    pub fn blocking_completed(&self) -> usize {
+        self.blocking_completed
+    }
+    /// Queued captures or abandoned results being destroyed on native workers.
     pub fn blocking_discarding(&self) -> usize {
         self.blocking_discarding
     }
-    /// Maximum queued, running, and discarding native jobs combined.
+    /// Maximum queued, running, completed, and discarding native jobs combined.
     pub fn blocking_capacity(&self) -> usize {
         self.blocking_capacity
     }

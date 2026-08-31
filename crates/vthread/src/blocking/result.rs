@@ -15,6 +15,10 @@ impl<T> Output<T> {
     pub(super) fn store(&self, result: Result<T>) {
         *lock(&self.value) = Some(result);
     }
+    pub(super) fn discard(&self) {
+        let value = lock(&self.value).take();
+        drop(value);
+    }
     pub(super) fn take(&self) -> Result<T> {
         lock(&self.value).take().ok_or(Error::fault(
             crate::error::FaultComponent::Native,
