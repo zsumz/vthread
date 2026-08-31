@@ -2,6 +2,8 @@
 
 #![forbid(unsafe_code)]
 
+#[path = "application/failure.rs"]
+mod failure;
 #[path = "application/protocol.rs"]
 mod protocol;
 #[path = "application/server.rs"]

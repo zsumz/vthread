@@ -1,7 +1,7 @@
 //! Fixed virtual workers and a bounded TCP admission queue, owned by one supervisor.
 
 use super::{
-    protocol,
+    failure, protocol,
     state::{self, Connection, Shared},
 };
 use std::{
@@ -97,29 +97,17 @@ fn serve(connection: &Connection, timeout: Duration) -> Result<()> {
     })();
     match result {
         Ok(()) => Ok(()),
-        Err(error) if matches!(error.primary(), Error::DeadlineExceeded) => {
-            state::change(&connection.state, |state| state.deadlines += 1);
+        Err(error) => {
+            let Some(expected) = failure::expected_service(&error) else {
+                return Err(error);
+            };
+            state::change(&connection.state, |state| match expected {
+                failure::ServiceFailure::Deadline => state.deadlines += 1,
+                failure::ServiceFailure::Malformed => state.malformed += 1,
+                failure::ServiceFailure::Disconnected => state.disconnected += 1,
+            });
             Ok(())
         }
-        Err(error) if matches!(error.primary(), Error::Io(source) if source.kind() == std::io::ErrorKind::InvalidData) =>
-        {
-            state::change(&connection.state, |state| state.malformed += 1);
-            Ok(())
-        }
-        Err(error)
-            if matches!(error.primary(), Error::Io(source) if matches!(
-                source.kind(),
-                std::io::ErrorKind::UnexpectedEof
-                    | std::io::ErrorKind::BrokenPipe
-                    | std::io::ErrorKind::ConnectionReset
-                    | std::io::ErrorKind::ConnectionAborted
-                    | std::io::ErrorKind::NotConnected
-            )) =>
-        {
-            state::change(&connection.state, |state| state.disconnected += 1);
-            Ok(())
-        }
-        Err(error) => Err(error),
     }
 }
 
@@ -184,11 +172,8 @@ impl Service {
         for mut task in self.tasks {
             // These handles are observed after runtime shutdown; interrupted I/O is expected.
             match task.join().and_then(|result| result) {
-                Ok(()) | Err(Error::Cancelled | Error::RuntimeStopped) => {}
-                Err(Error::TaskAborted {
-                    reason: vthread::diagnostics::TaskFailure::RuntimeStopped,
-                    ..
-                }) => {}
+                Ok(()) => {}
+                Err(error) if failure::expected_shutdown(&error) => {}
                 Err(error) => return Err(error),
             }
         }
