@@ -2,23 +2,25 @@ use crate::{Error, Runtime, signal::lock};
 use std::{
     sync::{atomic::Ordering, mpsc},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 #[test]
 fn premature_coordinator_exit_retains_undrained_runtime_ownership() {
     const CHILD: &str = "VTHREAD_UNDRAINED_COORDINATOR_CHILD";
     if std::env::var_os(CHILD).is_none() {
+        let started = Instant::now();
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "lifecycle_owner::lifecycle_failure_test::premature_coordinator_exit_retains_undrained_runtime_ownership", "--nocapture"])
             .env(CHILD, "1").output().unwrap();
+        let elapsed = started.elapsed();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
-            output.status.success(),
-            "isolated coordinator failure: {}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
+            output.status.success() && stdout.contains("1 passed"),
+            "isolated coordinator failure; status={:?}; elapsed={elapsed:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+            output.status,
         );
-        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
         return;
     }
     let (finished, watchdog) = mpsc::sync_channel(1);
