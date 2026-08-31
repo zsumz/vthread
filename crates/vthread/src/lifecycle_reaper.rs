@@ -50,11 +50,21 @@ impl Claim {
         } else {
             ShutdownPhase::Failed
         };
-        entry.shared.advance_shutdown(phase);
+        let shared = Arc::clone(&entry.shared);
+        #[cfg(test)]
+        inject(&self.state, 4);
+        // All handles and affine state are already reclaimed. Drop the inert entry
+        // and release admission before making terminal shutdown observable.
+        drop(self.entry.take());
         lock(&self.state.slots).occupied -= 1;
-        // Shared contains only inert diagnostics. Services were joined by the
-        // coordinator; no user destructor or live service is released here.
-        self.entry.take();
+        #[cfg(test)]
+        if let Some(hook) = lock(&self.state.terminal_hook).take() {
+            hook();
+        }
+        drop(self);
+        // Final commit: no entry cleanup, capacity accounting, or failure reporting
+        // follows publication. The remaining Shared reference contains inert state.
+        shared.advance_shutdown(phase);
         None
     }
 }

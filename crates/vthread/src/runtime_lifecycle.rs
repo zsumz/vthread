@@ -69,6 +69,8 @@ impl ShutdownDriver {
 #[must_use = "Inspect timeout diagnostics and retain the owner until shutdown completes"]
 pub enum ShutdownOutcome {
     /// Every carrier, service and coordinator has been joined, including OS TLS cleanup.
+    /// Its process lifecycle admission slot is released. Caller-owned root callbacks
+    /// may still be executing on other OS threads.
     Complete(ShutdownReport),
     /// Work remains runtime-owned; the deadline expired without detaching any thread.
     TimedOut(Box<RuntimeSnapshot>),
@@ -90,6 +92,10 @@ impl Runtime {
     /// No virtual thread or managed native worker may wait, including foreign workers.
     /// A failed process lifecycle service returns `Error::LifecycleFailed` promptly;
     /// unfinished coordinators stay process-owned and cleanup is not claimed complete.
+    /// Terminal shutdown also releases this runtime's process lifecycle admission slot.
+    /// Root callbacks belong to ordinary OS callers and may continue after shutdown;
+    /// each `run_scope` invocation waits for its own callback to return. Shutdown cannot
+    /// forcibly terminate callback code or wait for callbacks that can themselves stop it.
     pub fn shutdown(&self) -> Result<ShutdownReport> {
         self.check_shutdown_caller()?;
         self.request_shutdown();
@@ -106,6 +112,8 @@ impl Runtime {
     /// The process service retains and joins the coordinator, including OS TLS cleanup.
     /// Service failure returns `Error::LifecycleFailed` without waiting for the deadline.
     /// Scheduling and metadata locks are not a hard real-time guarantee.
+    /// Completion releases lifecycle capacity but does not wait for caller-owned root
+    /// callbacks on other OS threads; their scope invocations await their own return.
     ///
     /// ```
     /// use std::time::{Duration, Instant};

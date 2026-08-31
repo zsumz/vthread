@@ -69,6 +69,8 @@ pub enum FailureKind {
     Fault,
     /// Both scope execution and runtime shutdown failed.
     RunFailed,
+    /// Runtime initialization and its explicit rollback both failed.
+    ConstructionFailed,
 }
 
 /// One sanitized cause. Text is copied only from inert runtime fields, never user formatting.

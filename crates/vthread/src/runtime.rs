@@ -1,5 +1,7 @@
 //! Runtime lifecycle and structured ownership of persistent carrier threads.
 
+#[path = "runtime_build.rs"]
+mod runtime_build;
 #[path = "runtime_lifecycle.rs"]
 mod runtime_lifecycle;
 #[path = "runtime_scope.rs"]
@@ -7,10 +9,9 @@ mod runtime_scope;
 pub use runtime_lifecycle::ShutdownOutcome;
 
 use crate::{
-    CarrierId, Error, JoinHandle, Result, RuntimeBuilder, RuntimeConfig, RuntimeSnapshot, carrier,
-    context, control::Shared,
+    JoinHandle, Result, RuntimeBuilder, RuntimeConfig, RuntimeSnapshot, context, control::Shared,
 };
-use std::{fmt, sync::Arc, thread};
+use std::{fmt, sync::Arc};
 
 /// An application lifecycle owner with one active root scope and persistent affine carriers.
 /// Explicit supervisors may coexist with that root; independent roots use separate runtimes.
@@ -18,6 +19,11 @@ use std::{fmt, sync::Arc, thread};
 /// Each runtime owns `carriers + blocking_threads + 2` OS threads (five by default), plus
 /// one process-shared lifecycle owner. See [`RuntimeBuilder`] for thread/stack costs and
 /// [`crate::lifecycle::LIFECYCLE_CAPACITY`] for the fixed process admission bound.
+///
+/// Root callbacks run on their ordinary OS callers, not on runtime workers. Shutdown
+/// reclaims runtime-owned children and joins workers, services and the coordinator;
+/// a concurrent root callback may continue afterward. Its `run_scope` invocation
+/// returns only when that callback returns. Shutdown cannot forcibly terminate it.
 pub struct Runtime {
     config: RuntimeConfig,
     pub(crate) shared: Arc<Shared>,
@@ -31,62 +37,10 @@ impl Runtime {
     }
 
     /// Creates a runtime with default configuration.
+    /// Partial initialization is explicitly shut down. If both construction and cleanup
+    /// fail, [`crate::Error::ConstructionFailed`] retains both causes.
     pub fn new() -> Result<Self> {
         Self::builder().build()
-    }
-
-    pub(crate) fn from_config(config: RuntimeConfig) -> Result<Self> {
-        if context::current().is_some() {
-            return Err(Error::InsideVThread);
-        }
-        if crate::worker_context::is_managed() {
-            return Err(Error::InsideManagedWorker);
-        }
-        let shared = Arc::new(Shared::new(config));
-        let shutdown_driver = runtime_lifecycle::ShutdownDriver::new(&shared)?;
-        let runtime = Self {
-            config,
-            shared,
-            shutdown_driver,
-        };
-        runtime
-            .shared
-            .services
-            .set(crate::services::Services::new(
-                config,
-                Arc::downgrade(&runtime.shared),
-            )?)
-            .map_err(|_| {
-                Error::fault(
-                    crate::error::FaultComponent::Lifecycle,
-                    "runtime services initialized twice",
-                )
-            })?;
-        for index in 0..config.carriers() {
-            let shared = Arc::clone(&runtime.shared);
-            let name = format!("vthread-carrier-{index}");
-            let worker = thread::Builder::new()
-                .name(name)
-                .spawn(move || {
-                    crate::worker_context::attach(
-                        Arc::downgrade(&shared),
-                        crate::ThreadComponent::Carrier,
-                    );
-                    carrier::run(Arc::clone(&shared), CarrierId(index));
-                    #[cfg(test)]
-                    if let Some(hook) = crate::signal::lock(&shared.carrier_exit_hook).take() {
-                        hook();
-                    }
-                })
-                .map_err(|error| Error::thread_start(crate::ThreadComponent::Carrier, error))?;
-            runtime.shared.inboxes[index]
-                .started
-                .store(true, std::sync::atomic::Ordering::Release);
-            runtime.shared.resources.workers.push(worker);
-        }
-        runtime.shutdown_driver.ready(&runtime.shared);
-        crate::lifecycle_owner::check_health()?;
-        Ok(runtime)
     }
 
     /// Returns the process-unique runtime identity used by diagnostics.

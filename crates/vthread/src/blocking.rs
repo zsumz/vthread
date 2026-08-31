@@ -6,7 +6,9 @@
 //! charged until this cleanup finishes. Runtime shutdown waits for those calls;
 //! scope exit alone does not drain abandoned native calls. Closures/results must
 //! be Send + 'static. Pool saturation rejects work immediately, before ownership
-//! transfers. A result whose Ready wake wins is committed when the caller takes
+//! transfers: the consumed closure and captures are destroyed on the calling thread,
+//! not returned to the user. Their destructors can block or panic on that carrier.
+//! A result whose Ready wake wins is committed when the caller takes
 //! it; later cancellation is observed at the next cooperative boundary.
 
 pub(crate) mod pool;
@@ -25,6 +27,9 @@ use std::{
 };
 
 /// Runs owned native work off the carrier, parking the virtual caller for its result.
+/// Successful submission transfers capture/result cleanup to native workers. On
+/// rejection, this consumed closure and its captures are destroyed on the calling
+/// thread and are not recoverable; their destructors can block or panic there.
 ///
 /// ```compile_fail
 /// let local = String::from("borrowed");

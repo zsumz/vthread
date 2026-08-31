@@ -36,8 +36,12 @@ pub enum ShutdownPhase {
     /// Carriers/readiness are joined; waiting for native workers and their TLS cleanup.
     JoiningNative,
     /// Every owned runtime thread, including its coordinator, has been joined.
+    /// The process lifecycle admission slot is released. Root callbacks are owned by
+    /// ordinary OS callers and may continue; their scope invocations await their return.
+    /// Shutdown cannot forcibly terminate those callbacks.
     Complete,
     /// All owned threads have been joined, but terminal component failures were retained.
+    /// The process lifecycle admission slot is released; caller-owned callbacks may remain.
     Failed,
 }
 

@@ -145,3 +145,46 @@ fn reciprocal_final_owner_drops_complete_without_join_cycles() {
     finished.send(()).unwrap();
     watcher.join().unwrap();
 }
+#[test]
+fn root_callbacks_remain_caller_owned_after_concurrent_shutdown() {
+    use std::{
+        sync::{Arc, mpsc},
+        thread,
+        time::Duration,
+    };
+    for generic in [false, true] {
+        let runtime = Arc::new(crate::Runtime::new().unwrap());
+        let caller = Arc::clone(&runtime);
+        let (entered, ready) = mpsc::sync_channel(1);
+        let (release, resume) = mpsc::sync_channel(1);
+        let worker = thread::spawn(move || {
+            let body = |scope: &crate::Scope<'_>| {
+                scope.spawn("owned child", || ())?.join()?;
+                entered.send(()).unwrap();
+                resume.recv_timeout(Duration::from_secs(5)).unwrap();
+                assert_eq!(
+                    caller.snapshot().shutdown_phase(),
+                    crate::ShutdownPhase::Complete
+                );
+                assert!(matches!(
+                    scope.spawn("late", || ()),
+                    Err(crate::Error::RuntimeStopped)
+                ));
+                Ok::<_, crate::Error>(42)
+            };
+            if generic {
+                caller.try_run_scope(body).unwrap()
+            } else {
+                caller.run_scope(body).unwrap()
+            }
+        });
+        ready.recv_timeout(Duration::from_secs(5)).unwrap();
+        runtime.shutdown().unwrap();
+        assert!(
+            !worker.is_finished(),
+            "shutdown waited for or stopped the caller callback"
+        );
+        release.send(()).unwrap();
+        assert_eq!(worker.join().unwrap(), 42);
+    }
+}

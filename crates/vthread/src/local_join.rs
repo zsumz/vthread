@@ -30,7 +30,13 @@ impl<T> LocalJoinHandle<'_, T> {
         lock(&self.record).completion.done()
     }
     /// Parks until reclamation without consuming observation ownership on interruption.
+    /// Completed children succeed immediately and idempotently, even after result
+    /// consumption or later caller cancellation/deadline expiry. Policy governs only
+    /// waiting for an incomplete child.
     pub fn wait(&mut self) -> Result<()> {
+        if self.is_finished() {
+            return Ok(());
+        }
         join_wait::wait_for(&self.record, SuspensionReason::Join(self.task_id()), false)?;
         Ok(())
     }

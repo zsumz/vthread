@@ -8,6 +8,9 @@ impl Runtime {
     ///
     /// One lexical root scope may be active per runtime; supervisors may coexist.
     /// Virtual callers use local_scope for borrowed, nested ownership.
+    /// The callback belongs to this OS caller. Concurrent shutdown can finish joining
+    /// all runtime workers while the callback continues; it cannot forcibly stop it.
+    /// This invocation still waits for its own callback to return and children to drain.
     pub fn run_scope<R>(&self, body: impl FnOnce(&Scope<'_>) -> Result<R>) -> Result<R> {
         self.run_scope_with(crate::ScopeOptions::default(), body)
     }
@@ -15,6 +18,7 @@ impl Runtime {
     /// Runs a root with an inherited task deadline, observed before and after the callback.
     /// The OS callback cannot be preempted. Child reclamation may exceed the deadline;
     /// full failures are returned to the caller; the latest snapshot retains an inert report.
+    /// Concurrent shutdown may complete before this caller-owned callback returns.
     pub fn run_scope_with<R>(
         &self,
         options: crate::ScopeOptions,
@@ -26,6 +30,9 @@ impl Runtime {
     /// Runs a root callback with a caller-owned application error.
     /// Body failure cancels children before reclamation. Application errors need not
     /// implement Send, Display, Error, or static lifetimes and are never retained.
+    /// The root callback belongs to the ordinary OS caller, not a runtime worker.
+    /// Concurrent shutdown reclaims children and joins runtime threads but cannot stop
+    /// that callback; this invocation returns only after its callback has returned.
     ///
     /// ```
     /// use vthread::{Runtime, error::ScopeRunError};
@@ -44,6 +51,8 @@ impl Runtime {
     }
 
     /// Runs a generic-error root with the same inherited deadline as run_scope_with.
+    /// Its caller-owned callback may outlive concurrent runtime shutdown, just as in
+    /// [`Runtime::try_run_scope`]; this invocation still waits for the callback to return.
     pub fn try_run_scope_with<R, E>(
         &self,
         options: crate::ScopeOptions,

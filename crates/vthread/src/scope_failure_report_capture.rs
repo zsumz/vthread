@@ -66,6 +66,7 @@ impl FailureReport {
             Error::ShutdownFailed(_) => K::ShutdownFailed,
             Error::LifecycleFailed(_) => K::LifecycleFailed,
             Error::RunFailed(_) => K::RunFailed,
+            Error::ConstructionFailed(_) => K::ConstructionFailed,
             Error::InsideVThread | Error::InsideManagedWorker => K::ManagedThread,
             Error::ThreadStart { .. } => K::ThreadStart,
             Error::JoinSelf => K::JoinSelf,

@@ -65,3 +65,47 @@ fn cancelling_a_running_call_returns_before_its_late_result_is_destroyed() {
     runtime.shutdown().unwrap();
     assert_eq!(drops.load(Ordering::SeqCst), 1);
 }
+#[test]
+fn rejected_native_submission_destroys_consumed_captures_on_the_caller() {
+    use std::{sync::mpsc, thread, time::Duration};
+    struct Capture(mpsc::SyncSender<thread::ThreadId>);
+    impl Drop for Capture {
+        fn drop(&mut self) {
+            self.0.send(thread::current().id()).unwrap();
+        }
+    }
+    let runtime = crate::Runtime::builder()
+        .blocking_threads(1)
+        .blocking_capacity(1)
+        .build()
+        .unwrap();
+    let (release, gate) = mpsc::sync_channel(1);
+    let (dropped, observed) = mpsc::sync_channel(1);
+    runtime
+        .run_scope(|scope| {
+            let mut running = scope.spawn("holds capacity", move || {
+                super::run(move || gate.recv_timeout(Duration::from_secs(5)).unwrap())
+            })?;
+            crate::support_test::until(|| runtime.snapshot().services().blocking_running() == 1);
+            let mut rejected = scope.spawn("rejected", move || {
+                let caller = thread::current().id();
+                let capture = Capture(dropped);
+                let result = super::run(move || drop(capture));
+                assert!(matches!(
+                    result,
+                    Err(crate::Error::Capacity {
+                        resource: crate::error::CapacityResource::NativeJobs,
+                        limit: 1
+                    })
+                ));
+                caller
+            })?;
+            let caller = rejected.join()?;
+            let disposer = observed.recv_timeout(Duration::from_secs(5)).unwrap();
+            release.send(()).unwrap();
+            running.join()??;
+            assert_eq!(disposer, caller);
+            Ok(())
+        })
+        .unwrap();
+}

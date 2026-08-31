@@ -144,7 +144,8 @@ pub fn run<R>(body: impl FnOnce(&Scope<'_>) -> Result<R>) -> Result<R> {
 /// The body error stays caller-owned and needs no `Send`, formatting, or `'static`
 /// bound. [`error::ApplicationRunFailure`] independently preserves body, structured
 /// scope/runtime, and shutdown failures. Failure to construct a runtime is returned
-/// in its `scope` field, without running the body or attempting shutdown.
+/// in its `scope` field without running the body. Partial initialization is explicitly
+/// shut down; an independent cleanup failure appears in its `shutdown` field.
 /// Body panics resume unwinding after child reclamation; runtime Drop then attempts
 /// shutdown during unwind, so shutdown failures cannot be returned with that panic.
 ///

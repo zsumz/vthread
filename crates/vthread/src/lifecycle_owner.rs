@@ -72,6 +72,10 @@ struct State {
     changed: Signal,
     #[cfg(test)]
     fail_at: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    capacity: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    terminal_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 #[derive(Default)]
@@ -124,14 +128,20 @@ struct Permit {
 
 impl Permit {
     fn reserve(state: Arc<State>) -> Result<Self> {
+        let limit = LIFECYCLE_CAPACITY;
+        #[cfg(test)]
+        let limit = match state.capacity.load(std::sync::atomic::Ordering::Acquire) {
+            0 => limit,
+            capacity => capacity,
+        };
         let mut slots = lock(&state.slots);
         if let Some(failure) = &slots.failure {
             return Err(Error::LifecycleFailed(Box::new(failure.clone())));
         }
-        if slots.occupied == LIFECYCLE_CAPACITY {
+        if slots.occupied >= limit {
             return Err(Error::Capacity {
                 resource: crate::error::CapacityResource::Lifecycles,
-                limit: LIFECYCLE_CAPACITY,
+                limit,
             });
         }
         slots.occupied += 1;
@@ -240,3 +250,7 @@ mod lifecycle_partial_test;
 #[cfg(test)]
 #[path = "lifecycle_cleanup_test.rs"]
 mod lifecycle_cleanup_test;
+
+#[cfg(test)]
+#[path = "lifecycle_terminal_test.rs"]
+mod lifecycle_terminal_test;

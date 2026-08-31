@@ -21,7 +21,7 @@ fn dropping_a_local_join_handle_keeps_the_child_owned_by_its_scope() {
 }
 
 #[test]
-fn cancellation_of_a_local_wait_preserves_nonblocking_result_observation() {
+fn completed_local_waits_ignore_later_cancellation_and_remain_idempotent() {
     let runtime = Runtime::new().unwrap();
     runtime
         .run_scope(|scope| {
@@ -33,8 +33,10 @@ fn cancellation_of_a_local_wait_preserves_nonblocking_result_observation() {
                             crate::yield_now()?;
                         }
                         crate::cancellation_token()?.cancel();
-                        assert!(matches!(child.wait(), Err(crate::Error::Cancelled)));
-                        assert_eq!(child.take_result()?, 42);
+                        child.wait().expect("completed child ignores cancellation");
+                        child.wait().expect("completed wait is idempotent");
+                        assert_eq!(child.join().unwrap(), 42);
+                        child.wait().expect("consumed child stays completed");
                         assert!(matches!(
                             child.take_result(),
                             Err(crate::Error::ResultAlreadyTaken)
@@ -49,4 +51,27 @@ fn cancellation_of_a_local_wait_preserves_nonblocking_result_observation() {
                 .join()
         })
         .unwrap();
+}
+
+#[test]
+fn an_incomplete_local_wait_still_observes_cancellation() {
+    crate::run(|scope| {
+        scope
+            .spawn("parent", || {
+                let result = local_scope(|local| {
+                    let mut child = local.spawn("pending", || 42)?;
+                    assert!(!child.is_finished());
+                    crate::cancellation_token()?.cancel();
+                    assert!(matches!(child.wait(), Err(crate::Error::Cancelled)));
+                    assert!(!child.is_finished());
+                    Ok(())
+                });
+                assert!(matches!(
+                    result.as_ref().map_err(crate::Error::primary),
+                    Err(crate::Error::Cancelled)
+                ));
+            })?
+            .join()
+    })
+    .unwrap();
 }

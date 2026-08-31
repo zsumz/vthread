@@ -17,6 +17,9 @@ pub use run_error::{RunFailure, ScopeRunError};
 #[path = "application_run_failure.rs"]
 mod application_run_failure;
 pub use application_run_failure::ApplicationRunFailure;
+#[path = "runtime_build_failure.rs"]
+mod runtime_build_failure;
+pub use runtime_build_failure::RuntimeBuildFailure;
 #[path = "error_context.rs"]
 mod error_context;
 pub use error_context::{CapacityResource, FaultComponent, IoFailure, RuntimeFault};
@@ -121,6 +124,8 @@ pub enum Error {
     LifecycleFailed(Box<crate::ThreadFailure>),
     /// Both the application scope and explicit shutdown failed.
     RunFailed(Box<RunFailure>),
+    /// Runtime construction and explicit cleanup both failed. Both causes are retained.
+    ConstructionFailed(Box<RuntimeBuildFailure>),
     /// A blocking runtime operation was called from a virtual thread.
     InsideVThread,
     /// A managed runtime thread attempted an operation reserved for ordinary OS callers.

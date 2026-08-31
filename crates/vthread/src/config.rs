@@ -32,7 +32,7 @@ impl RuntimeConfig {
     pub fn blocking_threads(self) -> usize {
         self.blocking_threads
     }
-    /// Maximum queued, running, and stopped-job cleanup operations combined.
+    /// Maximum queued, running, completed-but-unclaimed and native-disposal jobs combined.
     pub fn blocking_capacity(self) -> usize {
         self.blocking_capacity
     }
@@ -55,7 +55,9 @@ impl RuntimeConfig {
     pub fn stall_policy(self) -> StallPolicy {
         self.stall_policy
     }
-    /// Maximum live tasks plus unobserved completion records.
+    /// Maximum live tasks plus retained completions; also the independent limit on
+    /// active scope records (roots, supervisors and local groups). Each count uses this
+    /// same limit; scope exhaustion reports `CapacityResource::Scopes`.
     pub fn max_vthreads(self) -> usize {
         self.max_vthreads
     }
@@ -115,7 +117,7 @@ impl RuntimeBuilder {
         self.config.blocking_threads = threads;
         self
     }
-    /// Bounds queued, running, and stopped-job cleanup work; excess work is rejected.
+    /// Bounds queued, running, completed-but-unclaimed and native-disposal jobs combined.
     pub fn blocking_capacity(mut self, capacity: usize) -> Self {
         self.config.blocking_capacity = capacity;
         self
@@ -144,6 +146,8 @@ impl RuntimeBuilder {
         self
     }
     /// Bounds live tasks and unobserved completions; joined records may be evicted.
+    /// Also independently bounds active scope records, including supervisors and local
+    /// groups. Scope saturation reports `CapacityResource::Scopes` with this limit.
     pub fn max_vthreads(mut self, limit: usize) -> Self {
         self.config.max_vthreads = limit;
         self
@@ -162,6 +166,8 @@ impl RuntimeBuilder {
     }
 
     /// Validates the configuration and constructs a runtime.
+    /// Explicitly rolls back partial initialization. Returns the construction error
+    /// directly if cleanup succeeds, or [`Error::ConstructionFailed`] with both causes.
     pub fn build(self) -> Result<Runtime> {
         if self.config.io_capacity == 0 {
             return Err(Error::invalid_configuration(

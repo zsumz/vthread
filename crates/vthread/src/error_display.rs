@@ -48,6 +48,7 @@ impl fmt::Display for Error {
             }
             Self::LifecycleFailed(_) => formatter.write_str("process lifecycle owner failed"),
             Self::RunFailed(failure) => failure.fmt(formatter),
+            Self::ConstructionFailed(failure) => failure.fmt(formatter),
             Self::InsideVThread => formatter.write_str(
                 "this operation blocks an OS caller and cannot run inside a virtual thread",
             ),
@@ -85,6 +86,7 @@ impl StdError for Error {
             Self::ScopeFailed(failure) => Some(failure.as_ref()),
             Self::Io(error) => Some(error),
             Self::RunFailed(failure) => Some(failure.as_ref()),
+            Self::ConstructionFailed(failure) => Some(failure.as_ref()),
             Self::StackAllocation(error) | Self::ThreadStart { source: error, .. } => Some(error),
             _ => None,
         }

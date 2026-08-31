@@ -8,8 +8,9 @@ use std::fmt;
 ///
 /// At least one field is present. The body error has no `Send`, formatting, or
 /// `'static` requirement, and no runtime snapshot retains or formats it. Runtime
-/// construction/admission failures appear in `scope`; `shutdown` is absent if no
-/// runtime was constructed. Accessors and `into_parts` do not format any error.
+/// construction/admission failures appear in `scope`. Partial-construction cleanup
+/// failures appear independently in `shutdown`, even though no runtime was returned.
+/// Accessors and `into_parts` do not format any error.
 /// Body panics unwind instead of creating this value; runtime Drop attempts shutdown
 /// during unwind, without a returned shutdown-error channel.
 #[derive(Debug)]
@@ -35,7 +36,13 @@ impl<E> ApplicationRunFailure<E> {
     }
 
     pub(crate) fn runtime(error: Error) -> Self {
-        Self::new(Some(ScopeRunError::Runtime(error)), None)
+        match error {
+            Error::ConstructionFailed(failure) => {
+                let (construction, shutdown) = failure.into_parts();
+                Self::new(Some(ScopeRunError::Runtime(construction)), Some(shutdown))
+            }
+            error => Self::new(Some(ScopeRunError::Runtime(error)), None),
+        }
     }
 
     /// Original application body error, owned solely by this result.
@@ -49,7 +56,7 @@ impl<E> ApplicationRunFailure<E> {
         self.scope.as_deref()
     }
 
-    /// Explicit runtime shutdown failure, even if the body and scope succeeded.
+    /// Explicit shutdown or partial-construction cleanup failure.
     pub fn shutdown(&self) -> Option<&Error> {
         self.shutdown.as_deref()
     }
