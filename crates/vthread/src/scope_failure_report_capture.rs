@@ -61,6 +61,7 @@ impl FailureReport {
             Error::InvalidConfiguration { .. } => K::InvalidConfiguration,
             Error::Capacity { .. } => K::Capacity,
             Error::RootScopeActive => K::RootScopeActive,
+            Error::ScopeClosed => K::ScopeClosed,
             Error::RuntimeStopped => K::RuntimeStopped,
             Error::ScopeFailed(_) => K::ScopeFailed,
             Error::ShutdownFailed(_) => K::ShutdownFailed,

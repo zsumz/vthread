@@ -6,7 +6,7 @@ use crate::{
     completion::Completion,
     inbox::SpawnPacket,
     join::JoinCell,
-    options::TaskOptions,
+    options::{SpawnOptions, SpawnParent, TaskOptions},
     signal::lock,
     task::{SharedTaskRecord, TaskRecord},
 };
@@ -26,6 +26,17 @@ impl Shared {
         name: String,
         local: Option<(CarrierId, TaskId, TaskOptions)>,
     ) -> Result<SharedTaskRecord> {
+        self.reserve_with(scope, name, local, SpawnOptions::default(), None)
+    }
+
+    fn reserve_with(
+        &self,
+        scope: u64,
+        name: String,
+        local: Option<(CarrierId, TaskId, TaskOptions)>,
+        options: SpawnOptions,
+        parent: Option<SpawnParent>,
+    ) -> Result<SharedTaskRecord> {
         if name.trim().is_empty() {
             return Err(Error::invalid_configuration(
                 crate::error::ConfigurationField::TaskName,
@@ -39,13 +50,17 @@ impl Shared {
             });
         }
         let mut state = lock(&self.state);
-        let scope_state = state.scopes.get(&scope).ok_or(Error::RuntimeStopped)?;
+        let scope_state = state.scopes.get(&scope).ok_or(Error::ScopeClosed)?;
+        if local.is_none() && !scope_state.admitting {
+            return Err(Error::ScopeClosed);
+        }
         if !state.accepting || scope_state.aborting.is_some() {
             return Err(Error::RuntimeStopped);
         }
-        let options = local
-            .as_ref()
-            .map_or_else(|| scope_state.options.child(None), |local| local.2.clone());
+        let options = local.as_ref().map_or_else(
+            || scope_state.options.spawned(scope, parent.as_ref(), options),
+            |local| local.2.clone(),
+        );
         options.check()?;
         if state.records.len() >= self.config.max_vthreads() {
             state.records.retain(|_, record| {
@@ -86,7 +101,9 @@ impl Shared {
         let record = Arc::new(Mutex::new(TaskRecord {
             id,
             scope,
-            parent: local.map(|local| local.1),
+            parent: local
+                .map(|local| local.1)
+                .or_else(|| parent.map(|parent| parent.id)),
             options,
             completion: Arc::new(Completion::new(self.config.max_vthreads())),
             name: Arc::from(name),
@@ -131,13 +148,25 @@ impl Shared {
         self.changed.notify();
     }
 
+    #[cfg(test)]
     pub(crate) fn submit<T: Send + 'static, F: FnOnce() -> T + Send + 'static>(
         &self,
         scope: u64,
         name: String,
         entry: F,
     ) -> Result<Spawned<T>> {
-        let record = self.reserve(scope, name, None)?;
+        self.submit_with(scope, SpawnOptions::default(), name, entry, None)
+    }
+
+    pub(crate) fn submit_with<T: Send + 'static, F: FnOnce() -> T + Send + 'static>(
+        &self,
+        scope: u64,
+        options: SpawnOptions,
+        name: String,
+        entry: F,
+        parent: Option<SpawnParent>,
+    ) -> Result<Spawned<T>> {
+        let record = self.reserve_with(scope, name, None, options, parent)?;
         let (id, name, owner) = {
             let record = lock(&record);
             (record.id, Arc::clone(&record.name), record.carrier.0)

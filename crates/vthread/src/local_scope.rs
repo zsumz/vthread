@@ -29,6 +29,16 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
         name: impl Into<String>,
         entry: impl FnOnce() -> T + 'scope,
     ) -> Result<LocalJoinHandle<'scope, T>> {
+        self.spawn_with(crate::SpawnOptions::default(), name, entry)
+    }
+
+    /// Spawns borrowed work with a deadline no later than the local group's deadline.
+    pub fn spawn_with<T: 'scope>(
+        &self,
+        options: crate::SpawnOptions,
+        name: impl Into<String>,
+        entry: impl FnOnce() -> T + 'scope,
+    ) -> Result<LocalJoinHandle<'scope, T>> {
         self.execution.data.check()?;
         self.options.check()?;
         self.execution.local.check_capacity()?;
@@ -39,7 +49,7 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
         let record = self.execution.shared.reserve(
             root,
             name.into(),
-            Some((carrier, parent, self.options.child(None))),
+            Some((carrier, parent, self.options.child(options.deadline))),
         )?;
         let acquired = self.execution.local.stacks.borrow_mut().acquire();
         let stack = match acquired {

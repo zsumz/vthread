@@ -78,9 +78,17 @@ impl Runtime {
         let id = self.shared.begin_owned(options, false)?;
         let scope = Scope::new(self, id);
         let result = catch_unwind(AssertUnwindSafe(|| body(&scope)));
+        self.shared.close_scope(id);
         let policy = root_deadline(options.deadline);
         if !matches!(&result, Ok(Ok(_))) || policy.is_err() {
             scope.cancel();
+        }
+        #[cfg(test)]
+        {
+            let hook = crate::signal::lock(&self.shared.scope_drain_hook).take();
+            if let Some(hook) = hook {
+                hook();
+            }
         }
         let drained = self.shared.wait(id, None);
         let mut failures = self.shared.unobserved(id);

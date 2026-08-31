@@ -42,6 +42,7 @@ impl fmt::Display for Error {
                 formatter.write_str("this application runtime already has an active root scope")
             }
             Self::RuntimeStopped => formatter.write_str("runtime has stopped accepting work"),
+            Self::ScopeClosed => formatter.write_str("scope has closed child admission"),
             Self::ScopeFailed(failure) => failure.fmt(formatter),
             Self::ShutdownFailed(_) => {
                 formatter.write_str("runtime shutdown retained component failures")

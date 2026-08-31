@@ -114,6 +114,8 @@ pub enum Error {
     },
     /// A scope was entered while another scope was active on the runtime.
     RootScopeActive,
+    /// The scope or supervisor has closed transferable child admission.
+    ScopeClosed,
     /// The runtime no longer accepts work.
     RuntimeStopped,
     /// A structured scope retained body, cleanup, policy or child failures.

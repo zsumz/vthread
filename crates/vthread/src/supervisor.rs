@@ -5,6 +5,10 @@ use crate::{
 };
 use std::{marker::PhantomData, rc::Rc, time::Instant};
 
+#[path = "supervisor_timeout.rs"]
+mod supervisor_timeout;
+pub use supervisor_timeout::SupervisorTimeout;
+
 /// Cumulative outcomes observed after reclaiming the owned work.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ShutdownReport {
@@ -28,7 +32,7 @@ pub enum SupervisorShutdownOutcome {
     /// This supervisor's child stacks were reclaimed; native services remain runtime-owned.
     Complete(ShutdownReport),
     /// The supervisor still owns its unfinished work and may be waited on again.
-    TimedOut(Box<crate::RuntimeSnapshot>),
+    TimedOut(SupervisorTimeout),
 }
 
 /// An ordinary-OS-caller owner for intentionally long-lived tasks.
@@ -39,7 +43,7 @@ pub enum SupervisorShutdownOutcome {
 ///
 /// ```compile_fail
 /// fn require_send<T: Send>() {}
-/// require_send::<vthread::Supervisor<'static>>();
+/// require_send::<vthread::lifecycle::Supervisor<'static>>();
 /// ```
 #[must_use = "the supervisor owns child reclamation; dropping it can block"]
 pub struct Supervisor<'runtime> {
@@ -47,13 +51,19 @@ pub struct Supervisor<'runtime> {
     scope: Option<u64>,
     id: crate::diagnostics::ScopeId,
     cancellation: CancellationToken,
+    spawner: crate::Spawner,
     completed: Option<ShutdownReport>,
     owner: PhantomData<Rc<()>>,
 }
 
 impl Runtime {
     /// Starts an explicit supervisor alongside the normal lexical scope.
-    pub fn supervisor(&self, options: ScopeOptions) -> Result<Supervisor<'_>> {
+    pub fn supervisor(&self) -> Result<Supervisor<'_>> {
+        self.supervisor_with(ScopeOptions::default())
+    }
+
+    /// Starts a supervisor with an inherited deadline for its children.
+    pub fn supervisor_with(&self, options: ScopeOptions) -> Result<Supervisor<'_>> {
         if context::current().is_some() {
             return Err(Error::InsideVThread);
         }
@@ -71,6 +81,7 @@ impl Runtime {
             scope: Some(scope),
             id: crate::diagnostics::ScopeId::new(scope),
             cancellation,
+            spawner: crate::Spawner::new(&self.shared, scope),
             completed: None,
             owner: PhantomData,
         })
@@ -79,8 +90,7 @@ impl Runtime {
 
 impl Supervisor<'_> {
     /// Stable runtime-local identity, retained after supervised work is reclaimed.
-    /// Match this against [`crate::diagnostics::TaskSnapshot::scope`] to identify
-    /// this supervisor's tasks in a runtime-wide timeout snapshot.
+    /// Timeout diagnostics expose this supervisor's tasks directly.
     pub fn id(&self) -> crate::diagnostics::ScopeId {
         self.id
     }
@@ -91,8 +101,22 @@ impl Supervisor<'_> {
         name: impl Into<String>,
         entry: impl FnOnce() -> T + Send + 'static,
     ) -> Result<JoinHandle<T>> {
-        self.runtime
-            .spawn(self.scope.ok_or(Error::RuntimeStopped)?, name.into(), entry)
+        self.spawner.spawn(name, entry)
+    }
+
+    /// Admits a child with a deadline no later than its owner and spawning task.
+    pub fn spawn_with<T: Send + 'static>(
+        &self,
+        options: crate::SpawnOptions,
+        name: impl Into<String>,
+        entry: impl FnOnce() -> T + Send + 'static,
+    ) -> Result<JoinHandle<T>> {
+        self.spawner.spawn_with(options, name, entry)
+    }
+
+    /// Returns an admission capability; it never keeps this supervisor open.
+    pub fn spawner(&self) -> crate::Spawner {
+        self.spawner.clone()
     }
 
     /// Returns the cancellation token inherited by supervised work.
@@ -124,12 +148,12 @@ impl Supervisor<'_> {
 
     /// Waits until a monotonic deadline, retaining ownership on timeout for retry.
     /// Dropping this owner after a timeout still blocks until its children are reclaimed.
-    /// Timeout snapshots include all runtime tasks; filter `snapshot.tasks()` using
-    /// `task.scope() == self.id()` to select this supervisor's tasks.
+    /// Timeout diagnostics select this supervisor's tasks and retain the runtime snapshot.
     pub fn shutdown_until(&mut self, deadline: Instant) -> Result<SupervisorShutdownOutcome> {
         match self.close(Some(deadline))? {
             Some(report) => Ok(SupervisorShutdownOutcome::Complete(report)),
-            None => Ok(SupervisorShutdownOutcome::TimedOut(Box::new(
+            None => Ok(SupervisorShutdownOutcome::TimedOut(SupervisorTimeout::new(
+                self.id,
                 self.runtime.snapshot(),
             ))),
         }

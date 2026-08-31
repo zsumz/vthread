@@ -18,9 +18,9 @@ fn scope_records_and_tasks_have_independent_uses_of_the_same_bound() {
         .stack_cache_capacity(0)
         .build()
         .unwrap();
-    let supervisor = runtime.supervisor(ScopeOptions::default()).unwrap();
+    let supervisor = runtime.supervisor_with(ScopeOptions::default()).unwrap();
     assert!(matches!(
-        runtime.supervisor(ScopeOptions::default()),
+        runtime.supervisor_with(ScopeOptions::default()),
         Err(crate::Error::Capacity {
             resource: crate::error::CapacityResource::Scopes,
             limit: 1
@@ -47,7 +47,7 @@ fn nested_local_groups_reuse_owned_scope_records_but_children_consume_task_capac
         .stack_cache_capacity(0)
         .build()
         .unwrap();
-    let supervisor = runtime.supervisor(ScopeOptions::default()).unwrap();
+    let supervisor = runtime.supervisor_with(ScopeOptions::default()).unwrap();
     runtime
         .run_scope(|scope| {
             let shared = std::sync::Arc::clone(&runtime.shared);
@@ -79,4 +79,34 @@ fn nested_local_groups_reuse_owned_scope_records_but_children_consume_task_capac
         })
         .unwrap();
     supervisor.shutdown().unwrap();
+}
+
+#[test]
+fn an_explicit_owned_scope_budget_is_independent_of_task_capacity() {
+    let runtime = crate::Runtime::builder()
+        .max_vthreads(2)
+        .max_owned_scopes(1)
+        .stack_cache_capacity(0)
+        .build()
+        .unwrap();
+    let supervisor = runtime.supervisor().unwrap();
+    assert!(matches!(
+        runtime.supervisor(),
+        Err(crate::Error::Capacity {
+            resource: crate::error::CapacityResource::Scopes,
+            limit: 1
+        })
+    ));
+    let mut left = supervisor.spawn("one", || 1).unwrap();
+    let mut right = supervisor.spawn("two", || 2).unwrap();
+    assert!(matches!(
+        supervisor.spawn("excess", || ()),
+        Err(crate::Error::Capacity {
+            resource: crate::error::CapacityResource::Tasks,
+            limit: 2
+        })
+    ));
+    assert_eq!(left.join().unwrap() + right.join().unwrap(), 3);
+    supervisor.shutdown().unwrap();
+    runtime.run_scope(|_| Ok(())).unwrap();
 }

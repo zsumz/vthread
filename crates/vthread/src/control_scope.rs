@@ -4,6 +4,7 @@ use super::Shared;
 use crate::{Error, Result, ScopeOptions, TaskFailure, options::TaskOptions, signal::lock};
 
 pub(super) struct ScopeState {
+    pub(super) admitting: bool,
     pub(super) activity: u64,
     pub(super) options: TaskOptions,
     pub(super) supervised: bool,
@@ -53,10 +54,10 @@ impl Shared {
         if !supervised && state.active_scope.is_some() {
             return Err(Error::RootScopeActive);
         }
-        if state.scopes.len() >= self.config.max_vthreads() {
+        if state.scopes.len() >= self.config.max_owned_scopes() {
             return Err(Error::Capacity {
                 resource: crate::error::CapacityResource::Scopes,
-                limit: self.config.max_vthreads(),
+                limit: self.config.max_owned_scopes(),
             });
         }
         let id = state.next_scope;
@@ -70,8 +71,12 @@ impl Shared {
         state.scopes.insert(
             id,
             ScopeState {
+                admitting: true,
                 activity: 0,
-                options: TaskOptions::root(options, self.config.max_vthreads()),
+                options: TaskOptions {
+                    cancellation: self.cancellation.child_token(),
+                    deadline: options.deadline,
+                },
                 supervised,
                 aborting: None,
                 completed: 0,
@@ -97,6 +102,7 @@ impl Shared {
                 return;
             };
             scope.aborting = Some(reason);
+            scope.admitting = false;
             scope.options.cancellation.clone()
         };
         for inbox in &self.inboxes {
@@ -104,6 +110,14 @@ impl Shared {
         }
         cancellation.cancel();
         self.changed.notify();
+    }
+
+    pub(crate) fn close_scope(&self, scope: u64) {
+        // The same lock reserves tasks, so every admission is either counted before
+        // this transition or rejected. Local children remain owned by active parents.
+        if let Some(scope) = lock(&self.state).scopes.get_mut(&scope) {
+            scope.admitting = false;
+        }
     }
 
     pub(crate) fn finish_scope(&self, scope: u64) {

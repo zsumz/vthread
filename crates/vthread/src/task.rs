@@ -148,7 +148,7 @@ pub struct TaskSnapshot {
     pub(crate) inherited_deadline: Option<Instant>,
     /// Owning root scope identity.
     pub(crate) scope: u64,
-    /// Parent virtual thread for a borrowed local child.
+    /// Same-runtime spawning task, for transferable or borrowed children.
     pub(crate) parent: Option<TaskId>,
     /// Whether cancellation was requested by this task or an ancestor.
     pub(crate) cancellation_requested: bool,

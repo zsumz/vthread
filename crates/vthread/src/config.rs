@@ -15,6 +15,7 @@ pub struct RuntimeConfig {
     blocking_threads: usize,
     blocking_capacity: usize,
     max_vthreads: usize,
+    max_owned_scopes: usize,
     stack_size: usize,
     stack_cache_capacity: usize,
     carriers: usize,
@@ -55,12 +56,14 @@ impl RuntimeConfig {
     pub fn stall_policy(self) -> StallPolicy {
         self.stall_policy
     }
-    /// Maximum live tasks plus retained completions; also the independent limit on
-    /// active owned scope records (roots and supervisors). Local groups reuse their
-    /// enclosing owned scope; their children consume task capacity. Each count uses
-    /// this same limit; owned scope exhaustion reports `CapacityResource::Scopes`.
+    /// Maximum live tasks plus retained completions.
     pub fn max_vthreads(self) -> usize {
         self.max_vthreads
+    }
+
+    /// Maximum active owned scopes (roots and supervisors). Local groups reuse an owner.
+    pub fn max_owned_scopes(self) -> usize {
+        self.max_owned_scopes
     }
 
     /// Reserved stack capacity requested for each virtual thread.
@@ -81,6 +84,7 @@ impl Default for RuntimeConfig {
             blocking_threads: 2,
             blocking_capacity: 256,
             max_vthreads: DEFAULT_MAX_VTHREADS,
+            max_owned_scopes: DEFAULT_MAX_VTHREADS,
             stack_size: DEFAULT_STACK_SIZE,
             stack_cache_capacity: DEFAULT_STACK_CACHE,
             carriers: 1,
@@ -105,6 +109,7 @@ impl Default for RuntimeConfig {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RuntimeBuilder {
     config: RuntimeConfig,
+    max_owned_scopes: Option<usize>,
 }
 
 impl RuntimeBuilder {
@@ -147,11 +152,16 @@ impl RuntimeBuilder {
         self
     }
     /// Bounds live tasks and unobserved completions; joined records may be evicted.
-    /// Also independently bounds active owned scope records (roots and supervisors).
-    /// Local groups reuse their enclosing owned scope; their children consume task
-    /// capacity. Owned scope saturation reports `CapacityResource::Scopes`.
+    /// The owned-scope limit follows this final value unless explicitly overridden.
     pub fn max_vthreads(mut self, limit: usize) -> Self {
         self.config.max_vthreads = limit;
+        self
+    }
+
+    /// Bounds roots and supervisors independently; must be positive.
+    /// When omitted, this follows the final `max_vthreads`, regardless of builder order.
+    pub fn max_owned_scopes(mut self, limit: usize) -> Self {
+        self.max_owned_scopes = Some(limit);
         self
     }
 
@@ -172,7 +182,8 @@ impl RuntimeBuilder {
     /// Use a process-level startup watchdog where bounded service startup is required.
     /// Explicitly rolls back partial initialization. Returns the construction error
     /// directly if cleanup succeeds, or [`Error::ConstructionFailed`] with both causes.
-    pub fn build(self) -> Result<Runtime> {
+    pub fn build(mut self) -> Result<Runtime> {
+        self.config.max_owned_scopes = self.max_owned_scopes.unwrap_or(self.config.max_vthreads);
         if self.config.io_capacity == 0 {
             return Err(Error::invalid_configuration(
                 crate::error::ConfigurationField::IoCapacity,
@@ -211,6 +222,12 @@ impl RuntimeBuilder {
         if self.config.max_vthreads == 0 {
             return Err(Error::invalid_configuration(
                 crate::error::ConfigurationField::MaxVthreads,
+                "must be greater than zero",
+            ));
+        }
+        if self.config.max_owned_scopes == 0 {
+            return Err(Error::invalid_configuration(
+                crate::error::ConfigurationField::MaxOwnedScopes,
                 "must be greater than zero",
             ));
         }

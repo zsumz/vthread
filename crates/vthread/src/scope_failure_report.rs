@@ -39,6 +39,8 @@ pub enum FailureKind {
     Capacity,
     /// A root scope was already active.
     RootScopeActive,
+    /// Admission was closed by a structured owner.
+    ScopeClosed,
     /// The runtime stopped accepting work.
     RuntimeStopped,
     /// A nested scope report exceeded the retained primary-path depth.

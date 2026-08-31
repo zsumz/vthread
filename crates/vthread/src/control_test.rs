@@ -11,7 +11,7 @@ fn scope_admission_is_exclusive_and_shutdown_is_terminal() {
     shared.request_stop();
     assert!(matches!(
         shared.submit(scope, "late".into(), || ()),
-        Err(Error::RuntimeStopped)
+        Err(Error::ScopeClosed)
     ));
     assert!(matches!(shared.begin_scope(), Err(Error::RuntimeStopped)));
 }

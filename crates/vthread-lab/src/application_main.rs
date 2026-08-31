@@ -25,7 +25,7 @@ fn main() -> Result<()> {
         .stack_cache_capacity(config.workers + 4)
         .io_capacity(config.workers + 8)
         .build()?;
-    let owner = runtime.supervisor(ScopeOptions::default())?;
+    let owner = runtime.supervisor_with(ScopeOptions::default())?;
     let service = server::start(&owner, config.workers, config.queue, config.timeout)?;
     writeln!(
         std::io::stdout(),

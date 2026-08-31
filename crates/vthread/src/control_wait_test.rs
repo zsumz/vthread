@@ -63,7 +63,9 @@ fn unrelated_supervisor_activity_cannot_hide_a_stalled_root_scope() {
         .stall_policy(crate::StallPolicy::AbortAfter(Duration::from_millis(10)))
         .build()
         .unwrap();
-    let supervisor = runtime.supervisor(crate::ScopeOptions::default()).unwrap();
+    let supervisor = runtime
+        .supervisor_with(crate::ScopeOptions::default())
+        .unwrap();
     let stop = Arc::new(AtomicBool::new(false));
     let worker_stop = Arc::clone(&stop);
     let mut busy = supervisor

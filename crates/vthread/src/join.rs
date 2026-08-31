@@ -48,6 +48,16 @@ impl<T> JoinHandle<T> {
         self.id
     }
 
+    /// Returns this child's token; cancelling it affects descendants, not its siblings.
+    pub fn cancellation_token(&self) -> crate::CancellationToken {
+        lock(&self.record).options.cancellation.clone()
+    }
+
+    /// Requests cooperative child cancellation without consuming its result handle.
+    pub fn cancel(&self) {
+        self.cancellation_token().cancel();
+    }
+
     /// Returns whether the task has reached a terminal state.
     pub fn is_finished(&self) -> bool {
         lock(&self.record).status.is_terminal()

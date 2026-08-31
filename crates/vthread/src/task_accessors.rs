@@ -25,7 +25,7 @@ impl crate::TaskSnapshot {
     pub fn scope(&self) -> crate::diagnostics::ScopeId {
         crate::diagnostics::ScopeId::new(self.scope)
     }
-    /// Parent virtual thread for a borrowed local child.
+    /// Same-runtime spawning task, for a transferable or borrowed child.
     pub fn parent(&self) -> Option<crate::TaskId> {
         self.parent
     }

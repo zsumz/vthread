@@ -8,9 +8,7 @@ mod runtime_lifecycle;
 mod runtime_scope;
 pub use runtime_lifecycle::ShutdownOutcome;
 
-use crate::{
-    JoinHandle, Result, RuntimeBuilder, RuntimeConfig, RuntimeSnapshot, context, control::Shared,
-};
+use crate::{Result, RuntimeBuilder, RuntimeConfig, RuntimeSnapshot, context, control::Shared};
 use std::{fmt, sync::Arc};
 
 /// An application lifecycle owner with one active root scope and persistent affine carriers.
@@ -62,14 +60,15 @@ impl Runtime {
         self.shared.snapshot()
     }
 
-    pub(crate) fn spawn<T: Send + 'static, F: FnOnce() -> T + Send + 'static>(
+    #[cfg(test)]
+    pub(crate) fn spawn<T: Send + 'static>(
         &self,
         scope: u64,
         name: String,
-        entry: F,
-    ) -> Result<JoinHandle<T>> {
+        entry: impl FnOnce() -> T + Send + 'static,
+    ) -> Result<crate::JoinHandle<T>> {
         let spawned = self.shared.submit(scope, name, entry)?;
-        Ok(JoinHandle::new(
+        Ok(crate::JoinHandle::new(
             Arc::clone(&self.shared),
             spawned.id,
             spawned.name,

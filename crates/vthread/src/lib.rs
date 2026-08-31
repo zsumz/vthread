@@ -71,6 +71,7 @@ mod scope_failure;
 mod scope_failure_report;
 mod services;
 mod signal;
+mod spawner;
 mod stall_policy;
 mod supervisor;
 pub mod sync;
@@ -101,7 +102,7 @@ pub use local_scope::{
     LocalScope, local_scope, local_scope_with_deadline, try_local_scope,
     try_local_scope_with_deadline,
 };
-pub use options::ScopeOptions;
+pub use options::{ScopeOptions, SpawnOptions};
 pub(crate) use parking::{ParkOutcome, Parker, park_pair};
 #[cfg(test)]
 use parking::{UnparkResult, Unparker};
@@ -111,6 +112,7 @@ use runtime::ShutdownOutcome;
 pub use scope::Scope;
 pub(crate) use scope_failure::ScopeFailure;
 pub(crate) use services::ServiceSnapshot;
+pub use spawner::Spawner;
 pub use stall_policy::StallPolicy;
 pub(crate) use supervisor::ShutdownReport;
 #[cfg(test)]
@@ -181,3 +183,7 @@ mod multicarrier_test;
 #[cfg(test)]
 #[path = "shutdown_test.rs"]
 mod shutdown_test;
+
+#[cfg(test)]
+#[path = "child_control_test.rs"]
+mod child_control_test;

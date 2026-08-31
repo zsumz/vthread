@@ -3,7 +3,7 @@ fn framed_service_rejects_bad_input_and_still_accepts_healthy_clients() {
     use std::io::{Read, Write};
     let runtime = vthread::Runtime::new().unwrap();
     let owner = runtime
-        .supervisor(vthread::ScopeOptions::default())
+        .supervisor_with(vthread::ScopeOptions::default())
         .unwrap();
     let service = super::start(&owner, 2, 2, std::time::Duration::from_secs(2)).unwrap();
     let mut bad = std::net::TcpStream::connect(service.address).unwrap();
@@ -105,7 +105,7 @@ fn a_panicking_service_worker_is_not_a_clean_shutdown() {
 fn join_result(body: impl FnOnce() -> vthread::Result<()> + Send + 'static) -> vthread::Result<()> {
     let runtime = vthread::Runtime::new().unwrap();
     let owner = runtime
-        .supervisor(vthread::ScopeOptions::default())
+        .supervisor_with(vthread::ScopeOptions::default())
         .unwrap();
     let task = owner.spawn("service-outcome", body).unwrap();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);

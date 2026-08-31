@@ -25,6 +25,14 @@ impl<T> LocalJoinHandle<'_, T> {
     pub fn task_id(&self) -> crate::TaskId {
         lock(&self.record).id
     }
+    /// Returns this child's token; its parent and siblings are unaffected by cancellation.
+    pub fn cancellation_token(&self) -> crate::CancellationToken {
+        lock(&self.record).options.cancellation.clone()
+    }
+    /// Requests cooperative cancellation while preserving child ownership and its result.
+    pub fn cancel(&self) {
+        self.cancellation_token().cancel();
+    }
     /// Whether the owner has reclaimed the child stack.
     pub fn is_finished(&self) -> bool {
         lock(&self.record).completion.done()

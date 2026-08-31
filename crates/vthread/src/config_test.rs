@@ -36,9 +36,35 @@ fn defaults_are_bounded_and_practical() {
     let runtime = Runtime::new().expect("build runtime");
     let config = runtime.config();
     assert_eq!(config.max_vthreads(), 65_536);
+    assert_eq!(config.max_owned_scopes(), 65_536);
     assert_eq!(config.stack_size(), 1024 * 1024);
     assert_eq!(config.stack_cache_capacity(), 64);
     assert_eq!(config.stall_policy(), crate::StallPolicy::Disabled);
+}
+
+#[test]
+fn owned_scope_default_follows_final_task_limit_and_explicit_override_is_order_independent() {
+    for builder in [
+        Runtime::builder().max_vthreads(9).max_vthreads(4),
+        Runtime::builder().max_owned_scopes(2).max_vthreads(4),
+        Runtime::builder().max_vthreads(4).max_owned_scopes(2),
+    ] {
+        let expected = if builder.max_owned_scopes.is_none() {
+            4
+        } else {
+            2
+        };
+        let runtime = builder.stack_cache_capacity(0).build().unwrap();
+        assert_eq!(runtime.config().max_vthreads(), 4);
+        assert_eq!(runtime.config().max_owned_scopes(), expected);
+    }
+    assert!(matches!(
+        Runtime::builder().max_owned_scopes(0).build(),
+        Err(Error::InvalidConfiguration {
+            field: crate::error::ConfigurationField::MaxOwnedScopes,
+            ..
+        })
+    ));
 }
 
 #[test]

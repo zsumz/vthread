@@ -21,7 +21,9 @@ fn an_interrupted_cross_runtime_join_retains_its_handle_and_result() {
         time::{Duration, Instant},
     };
     let target_runtime = Runtime::new().unwrap();
-    let owner = target_runtime.supervisor(ScopeOptions::default()).unwrap();
+    let owner = target_runtime
+        .supervisor_with(ScopeOptions::default())
+        .unwrap();
     let (release, gate) = mpsc::sync_channel(1);
     let mut target = owner
         .spawn("target", move || {
@@ -59,7 +61,9 @@ fn completed_wait_remains_immediate_after_its_observed_record_is_evicted() {
         .stack_cache_capacity(2)
         .build()
         .unwrap();
-    let owner = runtime.supervisor(crate::ScopeOptions::default()).unwrap();
+    let owner = runtime
+        .supervisor_with(crate::ScopeOptions::default())
+        .unwrap();
     let mut completed = owner.spawn("completed", || 42).unwrap();
     assert_eq!(completed.join().unwrap(), 42);
     let (park, wake) = crate::park_pair();

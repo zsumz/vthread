@@ -38,6 +38,8 @@ pub enum ConfigurationField {
     StallPolicy,
     /// Runtime task-record capacity.
     MaxVthreads,
+    /// Active root and supervisor records.
+    MaxOwnedScopes,
     /// Affine carrier count.
     Carriers,
     /// Unstarted work queue capacity per carrier.
@@ -68,6 +70,7 @@ impl fmt::Display for ConfigurationField {
             Self::BlockingCapacity => "blocking_capacity",
             Self::StallPolicy => "stall_policy",
             Self::MaxVthreads => "max_vthreads",
+            Self::MaxOwnedScopes => "max_owned_scopes",
             Self::Carriers => "carriers",
             Self::CarrierQueueCapacity => "carrier_queue_capacity",
             Self::StackSize => "stack_size",

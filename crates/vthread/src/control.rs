@@ -34,6 +34,7 @@ pub(crate) struct Shared {
     pub(crate) carrier_fault: std::sync::atomic::AtomicUsize,
     pub(crate) services: OnceLock<crate::services::Services>,
     pub(crate) config: RuntimeConfig,
+    pub(crate) cancellation: crate::CancellationToken,
     pub(crate) inboxes: Vec<Arc<Inbox>>,
     pub(crate) changed: Signal,
     pub(crate) failures: Mutex<crate::ThreadFailures>,
@@ -46,6 +47,8 @@ pub(crate) struct Shared {
     pub(crate) coordinator_exit_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     #[cfg(test)]
     pub(crate) carrier_exit_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    #[cfg(test)]
+    pub(crate) scope_drain_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     #[cfg(test)]
     snapshot_observe_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
@@ -82,6 +85,7 @@ impl Shared {
             carrier_fault: std::sync::atomic::AtomicUsize::new(0),
             services: OnceLock::new(),
             config,
+            cancellation: crate::CancellationToken::root(config.max_vthreads()),
             changed: Signal::default(),
             failures: Mutex::new(crate::ThreadFailures::default()),
             last_scope_failure: Mutex::new(None),
@@ -91,6 +95,8 @@ impl Shared {
             coordinator_exit_hook: Mutex::new(None),
             #[cfg(test)]
             carrier_exit_hook: Mutex::new(None),
+            #[cfg(test)]
+            scope_drain_hook: Mutex::new(None),
             #[cfg(test)]
             snapshot_observe_hook: Mutex::new(None),
             inboxes: (0..config.carriers())

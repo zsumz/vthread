@@ -235,7 +235,9 @@ fn final_runtime_owner_on_a_carrier_is_drained_after_its_destructor_returns() {
     let remote = Arc::clone(&runtime);
     let (release, gate) = mpsc::sync_channel(1);
     let (started, entered) = mpsc::sync_channel(1);
-    let supervisor = runtime.supervisor(crate::ScopeOptions::default()).unwrap();
+    let supervisor = runtime
+        .supervisor_with(crate::ScopeOptions::default())
+        .unwrap();
     let mut task = supervisor
         .spawn("last-carrier-owner", move || {
             started.send(()).unwrap();

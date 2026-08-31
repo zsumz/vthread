@@ -18,6 +18,8 @@ struct Domain {
 struct Node {
     cancelled: AtomicBool,
     parent: Option<CancellationToken>,
+    // Only an owned scope token (a direct child of the runtime root), never a task.
+    scope: Option<CancellationToken>,
     domain: Arc<Domain>,
 }
 
@@ -30,6 +32,7 @@ impl CancellationToken {
         Self(Arc::new(Node {
             cancelled: AtomicBool::new(false),
             parent: None,
+            scope: None,
             domain: Arc::new(Domain {
                 capacity,
                 waits: Mutex::new(BTreeMap::new()),
@@ -42,6 +45,17 @@ impl CancellationToken {
         Self(Arc::new(Node {
             cancelled: AtomicBool::new(false),
             parent: Some(self.clone()),
+            scope: None,
+            domain: Arc::clone(&self.0.domain),
+        }))
+    }
+
+    pub(crate) fn child_for_scope(&self, scope: &Self) -> Self {
+        assert!(Arc::ptr_eq(&self.0.domain, &scope.0.domain));
+        Self(Arc::new(Node {
+            cancelled: AtomicBool::new(false),
+            parent: Some(self.clone()),
+            scope: Some(scope.clone()),
             domain: Arc::clone(&self.0.domain),
         }))
     }
@@ -66,6 +80,9 @@ impl CancellationToken {
         let mut node = Some(self);
         while let Some(token) = node {
             if token.0.cancelled.load(Ordering::Acquire) {
+                return true;
+            }
+            if token.0.scope.as_ref().is_some_and(Self::is_cancelled) {
                 return true;
             }
             node = token.0.parent.as_ref();

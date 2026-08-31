@@ -3,7 +3,7 @@ use crate::{Error, Runtime, ScopeOptions, TaskFailure, park_pair, support_test::
 #[test]
 fn supervised_work_survives_lexical_scopes_and_is_reclaimed_explicitly() {
     let runtime = Runtime::builder().carriers(2).build().unwrap();
-    let supervisor = runtime.supervisor(ScopeOptions::default()).unwrap();
+    let supervisor = runtime.supervisor_with(ScopeOptions::default()).unwrap();
     let (parker, _waker) = park_pair();
     let mut child = supervisor.spawn("service", move || parker.park()).unwrap();
     until(|| runtime.snapshot().parked == 1);
@@ -29,7 +29,7 @@ fn supervised_work_survives_lexical_scopes_and_is_reclaimed_explicitly() {
 #[test]
 fn dropping_a_supervisor_never_detaches_its_children() {
     let runtime = Runtime::new().unwrap();
-    let supervisor = runtime.supervisor(ScopeOptions::default()).unwrap();
+    let supervisor = runtime.supervisor_with(ScopeOptions::default()).unwrap();
     let (parker, _waker) = park_pair();
     let task = supervisor.spawn("owned", move || parker.park()).unwrap();
     until(|| runtime.snapshot().parked == 1);
@@ -46,7 +46,7 @@ fn supervisor_shutdown_is_visible_to_cooperative_checkpoint_loops() {
         time::{Duration, Instant},
     };
     let runtime = Runtime::new().unwrap();
-    let supervisor = runtime.supervisor(ScopeOptions::default()).unwrap();
+    let supervisor = runtime.supervisor_with(ScopeOptions::default()).unwrap();
     let (tx, rx) = mpsc::sync_channel(1);
     let mut child = supervisor
         .spawn("cooperative", move || {
@@ -72,9 +72,13 @@ fn timed_shutdown_retains_supervised_work_until_retry_completes() {
         time::{Duration, Instant},
     };
     let runtime = crate::Runtime::builder().carriers(2).build().unwrap();
-    let mut supervisor = runtime.supervisor(crate::ScopeOptions::default()).unwrap();
+    let mut supervisor = runtime
+        .supervisor_with(crate::ScopeOptions::default())
+        .unwrap();
     let id = supervisor.id();
-    let other = runtime.supervisor(crate::ScopeOptions::default()).unwrap();
+    let other = runtime
+        .supervisor_with(crate::ScopeOptions::default())
+        .unwrap();
     assert_ne!(id, other.id());
     let (parked, _waker) = park_pair();
     let other_child = other
@@ -98,15 +102,13 @@ fn timed_shutdown_retains_supervised_work_until_retry_completes() {
     let crate::SupervisorShutdownOutcome::TimedOut(snapshot) = observed else {
         panic!("supervisor should retain the uncooperative task");
     };
-    let owned: Vec<_> = snapshot
-        .tasks()
-        .iter()
-        .filter(|task| task.scope() == id)
-        .collect();
+    assert_eq!(snapshot.supervisor_id(), id);
+    let owned: Vec<_> = snapshot.tasks().collect();
     assert_eq!(owned.len(), 1);
     assert_eq!(owned[0].name(), "uncooperative");
     assert!(
         snapshot
+            .runtime_snapshot()
             .tasks()
             .iter()
             .any(|task| task.scope() == other.id())
@@ -114,7 +116,7 @@ fn timed_shutdown_retains_supervised_work_until_retry_completes() {
     assert!(still_owned);
     assert!(matches!(
         supervisor.spawn("rejected", || ()),
-        Err(crate::Error::RuntimeStopped)
+        Err(crate::Error::ScopeClosed)
     ));
     let finished = supervisor
         .shutdown_until(Instant::now() + Duration::from_secs(5))

@@ -89,3 +89,33 @@ fn generic_body_error_keeps_the_deadline_failure_after_callback_overrun() {
     assert_eq!(runtime.snapshot().active(), 0);
     runtime.run_scope(|_| Ok(())).unwrap();
 }
+#[test]
+fn returning_root_closes_remote_admission_before_drain() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    let runtime = crate::Runtime::new().unwrap();
+    let rejected = Arc::new(AtomicBool::new(false));
+    runtime
+        .run_scope(|scope| {
+            let mut child = scope.spawn("scope identity", || ())?;
+            child.join()?;
+            let id = runtime.snapshot().tasks()[0].scope;
+            let shared = Arc::clone(&runtime.shared);
+            let observed = Arc::clone(&rejected);
+            *crate::signal::lock(&runtime.shared.scope_drain_hook) = Some(Box::new(move || {
+                observed.store(
+                    shared.submit(id, "too late".into(), || ()).is_err(),
+                    Ordering::SeqCst,
+                );
+            }));
+            Ok(())
+        })
+        .unwrap();
+    assert!(
+        rejected.load(Ordering::SeqCst),
+        "a root accepted new work after its callback returned"
+    );
+    assert_eq!(runtime.snapshot().active(), 0);
+}
