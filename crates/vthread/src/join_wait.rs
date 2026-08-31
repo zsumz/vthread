@@ -48,9 +48,7 @@ pub(crate) fn wait_for(
     while !completion.done() {
         parker.park()?;
     }
-    if !shielded {
-        execution.data.check()?;
-    }
+    // Completion commits this wait; later policy belongs to the next boundary.
     Ok(())
 }
 

@@ -56,6 +56,8 @@ impl<T> JoinHandle<T> {
     /// Waits without consuming observation ownership. Cancellation/deadlines are retryable.
     /// A completed handle returns immediately, even after its result was consumed or
     /// its diagnostic record was evicted, without checking the caller's cancellation.
+    /// While parked, the selected completion/cancellation/deadline winner is final;
+    /// policy arriving after completion is observed at the next cooperative boundary.
     pub fn wait(&mut self) -> Result<()> {
         if self.is_finished() {
             return Ok(());
@@ -128,3 +130,7 @@ impl<T> fmt::Debug for JoinHandle<T> {
 #[cfg(test)]
 #[path = "join_test.rs"]
 mod join_test;
+
+#[cfg(test)]
+#[path = "join_commit_test.rs"]
+mod join_commit_test;

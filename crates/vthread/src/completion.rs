@@ -12,9 +12,14 @@ struct State {
     waiters: BTreeMap<u64, WaitCell>,
 }
 
+#[cfg(test)]
+type CompletionHook = Box<dyn FnOnce(usize) + Send>;
+
 pub(crate) struct Completion {
     capacity: usize,
     state: Mutex<State>,
+    #[cfg(test)]
+    pub(crate) after_notify: Mutex<Option<CompletionHook>>,
 }
 
 impl Completion {
@@ -22,6 +27,8 @@ impl Completion {
         Self {
             capacity,
             state: Mutex::default(),
+            #[cfg(test)]
+            after_notify: Mutex::new(None),
         }
     }
     pub(crate) fn done(&self) -> bool {
@@ -33,8 +40,21 @@ impl Completion {
             state.done = true;
             std::mem::take(&mut state.waiters)
         };
+        #[cfg(test)]
+        let mut selected = 0;
         for wait in waiters.into_values() {
-            wait.notify();
+            let _notification = wait.notify();
+            #[cfg(test)]
+            {
+                selected += usize::from(_notification == crate::wait::NotifyResult::Woke);
+            }
+        }
+        #[cfg(test)]
+        {
+            let hook = lock(&self.after_notify).take();
+            if let Some(hook) = hook {
+                hook(selected);
+            }
         }
     }
 

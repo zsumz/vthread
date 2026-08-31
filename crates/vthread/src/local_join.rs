@@ -33,6 +33,8 @@ impl<T> LocalJoinHandle<'_, T> {
     /// Completed children succeed immediately and idempotently, even after result
     /// consumption or later caller cancellation/deadline expiry. Policy governs only
     /// waiting for an incomplete child.
+    /// While parked, completion selecting first commits the wait; later policy is
+    /// observed at the next cooperative boundary. Policy selecting first interrupts it.
     pub fn wait(&mut self) -> Result<()> {
         if self.is_finished() {
             return Ok(());

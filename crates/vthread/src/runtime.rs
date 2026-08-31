@@ -37,6 +37,8 @@ impl Runtime {
     }
 
     /// Creates a runtime with default configuration.
+    /// Native/OS initialization may block indefinitely; bounded service startup needs
+    /// a process-level watchdog. The readiness handshake has no wall-clock timeout.
     /// Partial initialization is explicitly shut down. If both construction and cleanup
     /// fail, [`crate::Error::ConstructionFailed`] retains both causes.
     pub fn new() -> Result<Self> {

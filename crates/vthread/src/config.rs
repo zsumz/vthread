@@ -56,8 +56,9 @@ impl RuntimeConfig {
         self.stall_policy
     }
     /// Maximum live tasks plus retained completions; also the independent limit on
-    /// active scope records (roots, supervisors and local groups). Each count uses this
-    /// same limit; scope exhaustion reports `CapacityResource::Scopes`.
+    /// active owned scope records (roots and supervisors). Local groups reuse their
+    /// enclosing owned scope; their children consume task capacity. Each count uses
+    /// this same limit; owned scope exhaustion reports `CapacityResource::Scopes`.
     pub fn max_vthreads(self) -> usize {
         self.max_vthreads
     }
@@ -146,8 +147,9 @@ impl RuntimeBuilder {
         self
     }
     /// Bounds live tasks and unobserved completions; joined records may be evicted.
-    /// Also independently bounds active scope records, including supervisors and local
-    /// groups. Scope saturation reports `CapacityResource::Scopes` with this limit.
+    /// Also independently bounds active owned scope records (roots and supervisors).
+    /// Local groups reuse their enclosing owned scope; their children consume task
+    /// capacity. Owned scope saturation reports `CapacityResource::Scopes`.
     pub fn max_vthreads(mut self, limit: usize) -> Self {
         self.config.max_vthreads = limit;
         self
@@ -166,6 +168,8 @@ impl RuntimeBuilder {
     }
 
     /// Validates the configuration and constructs a runtime.
+    /// Native/OS initialization, including readiness startup, has no elapsed-time bound.
+    /// Use a process-level startup watchdog where bounded service startup is required.
     /// Explicitly rolls back partial initialization. Returns the construction error
     /// directly if cleanup succeeds, or [`Error::ConstructionFailed`] with both causes.
     pub fn build(self) -> Result<Runtime> {
