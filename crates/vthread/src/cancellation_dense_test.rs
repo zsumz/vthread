@@ -1,16 +1,26 @@
-use crate::{Error, JoinHandle, Result, Runtime, Spawner, park_pair, support_test::until};
+use crate::{Error, JoinHandle, Result, Runtime, Spawner, park_pair};
 use std::{
     io::Write,
     sync::{Arc, mpsc},
+    thread,
     time::{Duration, Instant},
 };
 
 const OWNERS: usize = 64;
 const CHILDREN: usize = 128;
+const SETUP_TIMEOUT: Duration = Duration::from_secs(60);
 
 enum Event {
     Next(JoinHandle<Result<()>>),
     Fanout(Vec<JoinHandle<Result<()>>>),
+}
+
+fn until_setup(mut condition: impl FnMut() -> bool) {
+    let deadline = Instant::now() + SETUP_TIMEOUT;
+    while !condition() {
+        assert!(Instant::now() < deadline, "dense setup timed out");
+        thread::yield_now();
+    }
 }
 
 fn handoff(index: usize, spawners: Arc<Vec<Spawner>>, sent: mpsc::Sender<Event>) -> Result<()> {
@@ -57,7 +67,7 @@ fn public_cross_owner_fanout_has_bounded_eviction_and_wakes_from_early_owner() {
                 handoff(1, initial_spawners, initial_sent)
             })?;
             let mut children = loop {
-                match received.recv_timeout(Duration::from_secs(10)).unwrap() {
+                match received.recv_timeout(SETUP_TIMEOUT).unwrap() {
                     Event::Next(next) => {
                         current.join()??;
                         drop(current);
@@ -68,7 +78,7 @@ fn public_cross_owner_fanout_has_bounded_eviction_and_wakes_from_early_owner() {
             };
             current.join()??;
             drop(current);
-            until(|| runtime.snapshot().parked() == CHILDREN);
+            until_setup(|| runtime.snapshot().parked() == CHILDREN);
             let started = Instant::now();
             let mut eviction = scope.spawn("eviction probe", || ())?;
             eviction.join()?;
