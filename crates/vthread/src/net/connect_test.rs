@@ -7,8 +7,8 @@ fn refused_connect_returns_the_socket_error_instead_of_successful_readiness() {
     drop(listener);
     Runtime::new()
         .unwrap()
-        .scope(|scope| {
-            let task = scope.spawn("refused", move || TcpStream::connect(address))?;
+        .run_scope(|scope| {
+            let mut task = scope.spawn("refused", move || TcpStream::connect(address))?;
             assert!(matches!(task.join()?, Err(Error::Io(_))));
             Ok(())
         })

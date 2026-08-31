@@ -20,6 +20,10 @@ fn a_failed_carrier_join_cannot_report_successful_shutdown() {
     assert_eq!(failure.component(), crate::ThreadComponent::Carrier);
     assert_eq!(failure.name(), "vthread-carrier-0");
     assert_eq!(failure.phase(), crate::FailurePhase::Join);
+    assert_eq!(
+        failure.shutdown_phase(),
+        crate::ShutdownPhase::JoiningCarriers
+    );
     assert_eq!(failure.panic().message(), "carrier exit failed");
     assert!(failure.cleanup_complete());
     runtime.request_shutdown();
@@ -39,7 +43,7 @@ fn dropping_an_unrelated_runtime_does_not_block_a_carrier() {
         .shared
         .begin_owned(ScopeOptions::default(), true)
         .unwrap();
-    let job = inner
+    let mut job = inner
         .spawn(owner, "held carrier".into(), move || {
             gate.recv_timeout(Duration::from_secs(5)).unwrap();
         })
@@ -47,9 +51,9 @@ fn dropping_an_unrelated_runtime_does_not_block_a_carrier() {
     let shared = Arc::clone(&inner.shared);
     crate::support_test::until(|| shared.snapshot().stats.mounts > 0);
     outer
-        .scope(|scope| {
+        .run_scope(|scope| {
             let (done, receive) = mpsc::sync_channel(1);
-            let dropper = scope.spawn("drop unrelated", move || {
+            let mut dropper = scope.spawn("drop unrelated", move || {
                 drop(inner);
                 done.send(()).unwrap();
             })?;
@@ -127,7 +131,7 @@ fn reciprocal_final_owner_drops_complete_without_join_cycles() {
             .begin_owned(ScopeOptions::default(), true)
             .unwrap();
         let ready = Arc::clone(&barrier);
-        runtime
+        let _ = runtime
             .spawn(owner, "reciprocal drop".into(), move || {
                 ready.wait();
                 drop(other);

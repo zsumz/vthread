@@ -18,7 +18,7 @@ fn report_only_keeps_children_owned_until_an_external_wake() {
         wake.unpark();
     });
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             assert_eq!(
                 scope
                     .spawn("legitimate wait", move || parker.park())?

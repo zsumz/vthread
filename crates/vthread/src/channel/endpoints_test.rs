@@ -21,13 +21,13 @@ fn last_sender_and_explicit_close_allow_buffer_drain() {
 fn disconnect_wakes_blocked_senders_and_receivers() {
     Runtime::new()
         .unwrap()
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("parent", || {
                     let (sender, receiver) = bounded(1, 1).unwrap();
                     sender.try_send(1).unwrap();
                     local_scope(|local| {
-                        let child = local.spawn("send", || sender.send(2))?;
+                        let mut child = local.spawn("send", || sender.send(2))?;
                         while sender.waiting() == 0 {
                             yield_now()?;
                         }
@@ -40,7 +40,7 @@ fn disconnect_wakes_blocked_senders_and_receivers() {
                     .unwrap();
                     let (sender, receiver) = bounded::<u8>(1, 1).unwrap();
                     local_scope(|local| {
-                        let child = local.spawn("receive", || receiver.recv())?;
+                        let mut child = local.spawn("receive", || receiver.recv())?;
                         while receiver.waiting() == 0 {
                             yield_now()?;
                         }

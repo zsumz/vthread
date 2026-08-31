@@ -67,7 +67,8 @@ impl<'a, T> Ticket<'a, T> {
         }
         let queue = state.queue(self.direction);
         if queue.len() == self.core.wait_capacity {
-            return Err(Error::WaitQueueFull {
+            return Err(Error::Capacity {
+                resource: crate::error::CapacityResource::Waiters,
                 limit: self.core.wait_capacity,
             });
         }

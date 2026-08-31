@@ -12,17 +12,26 @@ pub struct UdpSocket {
 impl UdpSocket {
     /// Binds a numeric address without DNS resolution.
     pub fn bind(address: SocketAddr) -> Result<Self> {
-        let inner = std::net::UdpSocket::bind(address)?;
-        inner.set_nonblocking(true)?;
+        let inner = std::net::UdpSocket::bind(address)
+            .map_err(|error| crate::Error::io("UDP bind", address, error))?;
+        io::checked(
+            "set nonblocking",
+            inner.as_fd(),
+            inner.set_nonblocking(true),
+        )?;
         Ok(Self { inner })
     }
     /// Returns the local socket address.
     pub fn local_addr(&self) -> Result<SocketAddr> {
-        Ok(self.inner.local_addr()?)
+        io::checked("local address", self.inner.as_fd(), self.inner.local_addr())
     }
     /// Sets the default numeric peer without establishing a reliable connection.
     pub fn connect(&self, address: SocketAddr) -> Result<()> {
-        Ok(self.inner.connect(address)?)
+        io::checked(
+            "UDP connect",
+            self.inner.as_fd(),
+            self.inner.connect(address),
+        )
     }
     /// Receives one datagram and its source, parking when no data is available.
     pub fn recv_from(&self, buffer: &mut [u8]) -> Result<(usize, SocketAddr)> {

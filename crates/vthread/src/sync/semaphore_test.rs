@@ -6,18 +6,19 @@ use std::cell::RefCell;
 fn cancelling_a_selected_waiter_returns_its_permit_to_the_next_waiter() {
     Runtime::new()
         .unwrap()
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("parent", || {
                     let semaphore = Semaphore::new(1, 2).unwrap();
                     let permit = semaphore.try_acquire().unwrap();
                     let token = RefCell::new(None);
                     local_scope(|local| {
-                        let first = local.spawn("cancelled", || {
+                        let mut first = local.spawn("cancelled", || {
                             *token.borrow_mut() = Some(crate::cancellation_token().unwrap());
                             semaphore.acquire().map(drop)
                         })?;
-                        let second = local.spawn("successor", || semaphore.acquire().map(drop))?;
+                        let mut second =
+                            local.spawn("successor", || semaphore.acquire().map(drop))?;
                         while semaphore.waiting() != 2 {
                             yield_now()?;
                         }
@@ -40,13 +41,14 @@ fn cancelling_a_selected_waiter_returns_its_permit_to_the_next_waiter() {
 fn close_fails_waiters_and_held_permits_cannot_reopen_it() {
     Runtime::new()
         .unwrap()
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("parent", || {
                     let semaphore = Semaphore::new(1, 1).unwrap();
                     let permit = semaphore.try_acquire().unwrap();
                     local_scope(|local| {
-                        let waiter = local.spawn("waiting", || semaphore.acquire().map(drop))?;
+                        let mut waiter =
+                            local.spawn("waiting", || semaphore.acquire().map(drop))?;
                         while semaphore.waiting() == 0 {
                             yield_now()?;
                         }
@@ -68,19 +70,22 @@ fn close_fails_waiters_and_held_permits_cannot_reopen_it() {
 fn waiter_overflow_is_explicit_and_nonblocking_callers_do_not_barge() {
     Runtime::new()
         .unwrap()
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("parent", || {
                     let semaphore = Semaphore::new(1, 1).unwrap();
                     let permit = semaphore.try_acquire().unwrap();
                     local_scope(|local| {
-                        let waiter = local.spawn("first", || semaphore.acquire().map(drop))?;
+                        let mut waiter = local.spawn("first", || semaphore.acquire().map(drop))?;
                         while semaphore.waiting() == 0 {
                             yield_now()?;
                         }
                         assert!(matches!(
                             semaphore.acquire(),
-                            Err(Error::WaitQueueFull { limit: 1 })
+                            Err(Error::Capacity {
+                                resource: crate::error::CapacityResource::Waiters,
+                                limit: 1
+                            })
                         ));
                         drop(permit);
                         assert!(matches!(semaphore.try_acquire(), Err(Error::WouldBlock)));
@@ -104,7 +109,7 @@ fn multiple_permits_bound_concurrent_holders_across_carriers() {
     let semaphore = Arc::new(Semaphore::new(3, 16).unwrap());
     let holders = Arc::new(AtomicUsize::new(0));
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let mut tasks = Vec::new();
             for _ in 0..16 {
                 let semaphore = Arc::clone(&semaphore);
@@ -118,7 +123,7 @@ fn multiple_permits_bound_concurrent_holders_across_carriers() {
                     }
                 })?);
             }
-            for task in tasks {
+            for mut task in tasks {
                 task.join()?;
             }
             Ok(())

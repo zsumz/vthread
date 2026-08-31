@@ -62,7 +62,9 @@ impl ShutdownDriver {
 }
 
 /// Result of a deadline-based runtime shutdown wait.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+#[must_use = "Inspect timeout diagnostics and retain the owner until shutdown completes"]
 pub enum ShutdownOutcome {
     /// Every carrier, service and coordinator has been joined, including OS TLS cleanup.
     Complete(ShutdownReport),
@@ -102,11 +104,12 @@ impl Runtime {
     ///
     /// ```
     /// use std::time::{Duration, Instant};
-    /// use vthread::{Runtime, ShutdownOutcome};
+    /// use vthread::{Runtime, lifecycle::ShutdownOutcome};
     /// let runtime = Runtime::new()?;
     /// match runtime.shutdown_until(Instant::now() + Duration::from_secs(1))? {
-    ///     ShutdownOutcome::Complete(report) => assert_eq!(report.failed_carriers, 0),
-    ///     ShutdownOutcome::TimedOut(snapshot) => assert!(!snapshot.accepting),
+    ///     ShutdownOutcome::Complete(report) => assert_eq!(report.failed_carriers(), 0),
+    ///     ShutdownOutcome::TimedOut(snapshot) => assert!(!snapshot.accepting()),
+    ///     _ => runtime.shutdown().map(|_| ())?,
     /// }
     /// # Ok::<(), vthread::Error>(())
     /// ```

@@ -23,7 +23,10 @@ impl LocalCarrier {
     }
     pub(crate) fn check_capacity(&self) -> Result<()> {
         if self.starts.borrow().len() >= self.capacity {
-            Err(Error::CarrierQueueFull)
+            Err(Error::Capacity {
+                resource: crate::error::CapacityResource::CarrierQueue,
+                limit: self.capacity,
+            })
         } else {
             Ok(())
         }

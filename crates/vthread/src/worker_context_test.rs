@@ -34,8 +34,8 @@ fn nested_payload_panics_fail_the_owner_on_task_native_and_task_local_paths() {
     for path in 0..3 {
         let runtime = crate::Runtime::new().unwrap();
         runtime
-            .scope(|scope| {
-                let child = scope.spawn("hostile payload", move || match path {
+            .run_scope(|scope| {
+                let mut child = scope.spawn("hostile payload", move || match path {
                     0 => std::panic::panic_any(Primary),
                     1 => {
                         let _ = crate::blocking::run(|| std::panic::panic_any(Primary));

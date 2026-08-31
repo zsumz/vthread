@@ -76,7 +76,8 @@ impl Gate {
             return Err(Error::Closed);
         }
         if state.entries.len() == self.capacity {
-            return Err(Error::WaitQueueFull {
+            return Err(Error::Capacity {
+                resource: crate::error::CapacityResource::Waiters,
                 limit: self.capacity,
             });
         }
@@ -181,7 +182,10 @@ impl Ticket<'_> {
                 .entries
                 .iter()
                 .position(|entry| entry.wait.identity() == self.parker.wait.identity())
-                .ok_or(Error::Invariant("missing synchronization ticket"))?;
+                .ok_or(Error::fault(
+                    crate::error::FaultComponent::Scheduler,
+                    "missing synchronization ticket",
+                ))?;
             if state.entries[index].granted.is_some() {
                 state.entries.remove(index);
                 return Ok(());

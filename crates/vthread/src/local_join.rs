@@ -12,10 +12,12 @@ use std::{cell::RefCell, marker::PhantomData, rc::Rc};
 /// fn require_send<T: Send>() {}
 /// require_send::<vthread::LocalJoinHandle<'static, usize>>();
 /// ```
+#[must_use = "observe the result or explicitly drop it; the local scope still owns the child"]
 pub struct LocalJoinHandle<'scope, T> {
     pub(crate) record: SharedTaskRecord,
     pub(crate) cell: Rc<RefCell<JoinCell<T>>>,
     pub(crate) lifetime: PhantomData<&'scope mut &'scope ()>,
+    pub(crate) taken: bool,
 }
 
 impl<T> LocalJoinHandle<'_, T> {
@@ -27,9 +29,31 @@ impl<T> LocalJoinHandle<'_, T> {
     pub fn is_finished(&self) -> bool {
         lock(&self.record).completion.done()
     }
-    /// Parks the caller until the child stack is reclaimed, then returns its result.
-    pub fn join(self) -> Result<T> {
+    /// Parks until reclamation without consuming observation ownership on interruption.
+    pub fn wait(&mut self) -> Result<()> {
         join_wait::wait_for(&self.record, SuspensionReason::Join(self.task_id()), false)?;
+        Ok(())
+    }
+
+    /// Waits and takes the result once; cancellation/deadlines leave the handle intact.
+    pub fn join(&mut self) -> Result<T> {
+        if self.taken {
+            return Err(Error::ResultAlreadyTaken);
+        }
+        self.wait()?;
+        self.take_result()
+    }
+
+    /// Takes an already reclaimed child's result without a suspension boundary.
+    /// Returns WouldBlock while unfinished, or ResultAlreadyTaken after consumption.
+    pub fn take_result(&mut self) -> Result<T> {
+        if self.taken {
+            return Err(Error::ResultAlreadyTaken);
+        }
+        if !self.is_finished() {
+            return Err(Error::WouldBlock);
+        }
+        self.taken = true;
         let mut record = lock(&self.record);
         record.outcome_observed = true;
         if let Some(reason) = record.failure {
@@ -52,7 +76,10 @@ impl<T> LocalJoinHandle<'_, T> {
             .borrow_mut()
             .outcome
             .take()
-            .ok_or(Error::Invariant("local child has no outcome"))?
+            .ok_or(Error::fault(
+                crate::error::FaultComponent::Scheduler,
+                "local child has no outcome",
+            ))?
             .map_err(|panic| Error::task_panicked(id, name, panic))
     }
 }

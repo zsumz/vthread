@@ -13,7 +13,7 @@ fn recursive_initialization_is_rejected_before_reentering_the_initializer() {
     });
     let runtime = crate::Runtime::new().unwrap();
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let rejected = scope
                 .spawn("recursive key", || KEY.with(|value| *value))?
                 .join()??;
@@ -40,7 +40,7 @@ fn panicking_initialization_releases_its_reservation_for_retry() {
         .build()
         .unwrap();
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("retry initialization", || {
                     assert!(std::panic::catch_unwind(|| KEY.with(|_| ())).is_err());
@@ -74,7 +74,7 @@ fn task_local_destructors_keep_task_identity_and_finish_before_join() {
     static KEY: crate::TaskLocal<Value> = crate::TaskLocal::new(|| Value);
     let runtime = crate::Runtime::new().unwrap();
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("context owner", || KEY.with(|_| ()))?
                 .join()??;
@@ -90,7 +90,10 @@ fn reentrant_initialization_cannot_exceed_task_local_capacity() {
     static OUTER: crate::TaskLocal<usize> = crate::TaskLocal::new(|| {
         assert!(matches!(
             INNER.with(|value| *value),
-            Err(Error::TaskLocalCapacity)
+            Err(Error::Capacity {
+                resource: crate::error::CapacityResource::TaskLocals,
+                ..
+            })
         ));
         7
     });
@@ -99,13 +102,16 @@ fn reentrant_initialization_cannot_exceed_task_local_capacity() {
         .build()
         .unwrap();
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("bounded context", || {
                     assert_eq!(OUTER.with(|value| *value).unwrap(), 7);
                     assert!(matches!(
                         INNER.with(|value| *value),
-                        Err(Error::TaskLocalCapacity)
+                        Err(Error::Capacity {
+                            resource: crate::error::CapacityResource::TaskLocals,
+                            ..
+                        })
                     ));
                 })?
                 .join()
@@ -119,14 +125,14 @@ fn task_local_values_survive_suspension_and_are_not_inherited_by_children() {
     static KEY: crate::TaskLocal<Cell<usize>> = crate::TaskLocal::new(|| Cell::new(0));
     let runtime = crate::Runtime::new().unwrap();
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("parent", || {
                     KEY.with(|parent| {
                         parent.set(42);
                         crate::local_scope(|local| {
                             for index in 1..=2 {
-                                local.spawn("isolated", move || {
+                                let _ = local.spawn("isolated", move || {
                                     KEY.with(|value| {
                                         assert_eq!(value.get(), 0);
                                         value.set(index);
@@ -159,9 +165,13 @@ fn joins_report_panics_from_task_local_destruction() {
     }
     static KEY: crate::TaskLocal<BadDrop> = crate::TaskLocal::new(|| BadDrop);
     let runtime = crate::Runtime::new().unwrap();
-    let result = runtime.scope(|scope| scope.spawn("late panic", || KEY.with(|_| ()))?.join()?);
-    assert!(matches!(result, Err(Error::TaskPanicked { .. })));
+    let result =
+        runtime.run_scope(|scope| scope.spawn("late panic", || KEY.with(|_| ()))?.join()?);
+    assert!(matches!(
+        result.as_ref().map_err(crate::Error::primary),
+        Err(Error::TaskPanicked { .. })
+    ));
     runtime
-        .scope(|scope| scope.spawn("survived", || ())?.join())
+        .run_scope(|scope| scope.spawn("survived", || ())?.join())
         .unwrap();
 }

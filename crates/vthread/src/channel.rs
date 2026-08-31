@@ -10,9 +10,9 @@
 //! use vthread::{Runtime, channel::bounded};
 //! let runtime = Runtime::new()?;
 //! let (sender, receiver) = bounded(1, 4)?;
-//! runtime.scope(|scope| {
-//!     let consumer = scope.spawn("consumer", move || receiver.recv())?;
-//!     scope.spawn("producer", move || sender.send(42).map_err(|e| e.error))?.join()??;
+//! runtime.run_scope(|scope| {
+//!     let mut consumer = scope.spawn("consumer", move || receiver.recv())?;
+//!     scope.spawn("producer", move || sender.send(42).map_err(|e| e.into_parts().0))?.join()??;
 //!     assert_eq!(consumer.join()??, 42);
 //!     Ok(())
 //! })?;
@@ -48,9 +48,23 @@ pub struct Receiver<T> {
 /// A failed send retains ownership of the original input.
 pub struct SendError<T> {
     /// Why the value could not be sent.
-    pub error: Error,
+    pub(crate) error: Error,
     /// The unsent value.
-    pub value: T,
+    pub(crate) value: T,
+}
+impl<T> SendError<T> {
+    /// Borrows the failure while retaining the unsent value.
+    pub fn error(&self) -> &Error {
+        &self.error
+    }
+    /// Recovers the original unsent value.
+    pub fn into_inner(self) -> T {
+        self.value
+    }
+    /// Recovers both the error and original unsent value.
+    pub fn into_parts(self) -> (Error, T) {
+        (self.error, self.value)
+    }
 }
 impl<T> fmt::Debug for SendError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

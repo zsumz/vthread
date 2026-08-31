@@ -25,7 +25,8 @@ pub fn sleep_until(deadline: Instant) -> Result<()> {
     match parker.park_until(deadline)? {
         ParkOutcome::TimedOut => Ok(()),
         ParkOutcome::Cancelled => Err(Error::Cancelled),
-        _ => Err(Error::Invariant(
+        _ => Err(Error::fault(
+            crate::error::FaultComponent::Scheduler,
             "private sleep parker woke without timeout",
         )),
     }

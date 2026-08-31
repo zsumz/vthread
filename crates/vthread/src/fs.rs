@@ -12,7 +12,8 @@ use std::{io::Read, path::Path};
 pub fn read(path: impl AsRef<Path>, limit: usize) -> Result<Vec<u8>> {
     let path = path.as_ref().to_owned();
     blocking::run_for(SuspensionReason::FileIo, move || {
-        let mut file = std::fs::File::open(path)?;
+        let mut file = std::fs::File::open(&path)
+            .map_err(|error| Error::io("open for read", path.display(), error))?;
         let mut data = Vec::new();
         let mut scratch = [0; 8192];
         loop {
@@ -40,7 +41,7 @@ pub fn read(path: impl AsRef<Path>, limit: usize) -> Result<Vec<u8>> {
                     data.extend_from_slice(&scratch[..count]);
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(error) => return Err(error.into()),
+                Err(error) => return Err(Error::io("read", path.display(), error)),
             }
         }
         Ok(data)
@@ -50,16 +51,18 @@ pub fn read(path: impl AsRef<Path>, limit: usize) -> Result<Vec<u8>> {
 /// Writes owned bytes on a worker. Cancellation does not roll back side effects.
 pub fn write(path: impl AsRef<Path>, data: Vec<u8>) -> Result<()> {
     let path = path.as_ref().to_owned();
-    blocking::run_for(SuspensionReason::FileIo, move || std::fs::write(path, data))??;
+    blocking::run_for(SuspensionReason::FileIo, move || {
+        std::fs::write(&path, data).map_err(|error| Error::io("write", path.display(), error))
+    })??;
     Ok(())
 }
 
 /// Reads filesystem metadata on a worker.
 pub fn metadata(path: impl AsRef<Path>) -> Result<std::fs::Metadata> {
     let path = path.as_ref().to_owned();
-    Ok(blocking::run_for(SuspensionReason::FileIo, move || {
-        std::fs::metadata(path)
-    })??)
+    blocking::run_for(SuspensionReason::FileIo, move || {
+        std::fs::metadata(&path).map_err(|error| Error::io("metadata", path.display(), error))
+    })?
 }
 
 #[cfg(test)]

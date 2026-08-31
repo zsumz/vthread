@@ -10,17 +10,23 @@ fn saturation_rejects_and_cancellation_removes_queued_work() {
         .unwrap();
     let (release, receive) = mpsc::sync_channel(1);
     runtime
-        .scope(|scope| {
-            let first = scope.spawn("running", move || {
+        .run_scope(|scope| {
+            let mut first = scope.spawn("running", move || {
                 blocking::run(move || receive.recv_timeout(Duration::from_secs(5)).unwrap())
             })?;
             until(|| runtime.snapshot().services.blocking_running == 1);
-            let queued = scope.spawn("queued", || {
+            let mut queued = scope.spawn("queued", || {
                 blocking::run(|| panic!("cancelled queued job ran"))
             })?;
             until(|| runtime.snapshot().services.blocking_queued == 1);
-            let rejected = scope.spawn("rejected", || blocking::run(|| 3))?;
-            assert!(matches!(rejected.join()?, Err(Error::BlockingCapacity)));
+            let mut rejected = scope.spawn("rejected", || blocking::run(|| 3))?;
+            assert!(matches!(
+                rejected.join()?,
+                Err(Error::Capacity {
+                    resource: crate::error::CapacityResource::NativeJobs,
+                    ..
+                })
+            ));
             scope.cancel();
             assert!(matches!(queued.join()?, Err(Error::Cancelled)));
             assert!(matches!(first.join()?, Err(Error::Cancelled)));
@@ -44,8 +50,8 @@ fn late_result_destructor_panic_does_not_kill_the_worker() {
     let runtime = Runtime::builder().blocking_threads(1).build().unwrap();
     let (release, receive) = mpsc::sync_channel(1);
     runtime
-        .scope(|scope| {
-            let job = scope.spawn("abandon", move || {
+        .run_scope(|scope| {
+            let mut job = scope.spawn("abandon", move || {
                 blocking::run(move || {
                     receive.recv_timeout(Duration::from_secs(5)).unwrap();
                     PanicDrop
@@ -61,7 +67,7 @@ fn late_result_destructor_panic_does_not_kill_the_worker() {
     until(|| runtime.snapshot().services.blocking_running == 0);
     assert_eq!(runtime.snapshot().services.blocking_panics, 1);
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             assert_eq!(scope.spawn("reuse", || blocking::run(|| 7))?.join()??, 7);
             Ok(())
         })
@@ -79,10 +85,10 @@ fn a_panicking_panic_payload_does_not_leave_its_caller_parked() {
         }
     }
     let runtime = Runtime::builder().blocking_threads(1).build().unwrap();
-    let result = runtime.scope_with(
+    let result = runtime.run_scope_with(
         ScopeOptions::default().deadline(Instant::now() + Duration::from_millis(100)),
         |scope| {
-            let job = scope.spawn("panic-payload", || {
+            let mut job = scope.spawn("panic-payload", || {
                 blocking::run(|| std::panic::panic_any(Payload))
             })?;
             let _ = job.join();
@@ -126,13 +132,13 @@ fn shutdown_discards_queued_captures_outside_runtime_metadata_locks() {
     let drops = Arc::new(AtomicUsize::new(0));
     let (release, receive) = mpsc::sync_channel(1);
     runtime
-        .scope(|scope| {
-            let first = scope.spawn("running", move || {
+        .run_scope(|scope| {
+            let mut first = scope.spawn("running", move || {
                 blocking::run(move || receive.recv_timeout(Duration::from_secs(5)).unwrap())
             })?;
             until(|| runtime.snapshot().services.blocking_running == 1);
             let captured = Capture(Arc::downgrade(&runtime), Arc::clone(&drops));
-            let queued = scope.spawn("queued", move || {
+            let mut queued = scope.spawn("queued", move || {
                 blocking::run(move || {
                     let _captured = captured;
                     panic!("shutdown queued work must not execute");

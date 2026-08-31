@@ -2,13 +2,13 @@
 //!
 //! ```
 //! use std::{rc::Rc, thread, time::Duration};
-//! use vthread::{ParkOutcome, Runtime, park_pair};
+//! use vthread::{Runtime, parking::{ParkOutcome, park_pair}};
 //!
 //! fn main() -> vthread::Result<()> {
 //!     let runtime = Runtime::builder().carriers(2).build()?;
-//!     runtime.scope(|scope| {
+//!     runtime.run_scope(|scope| {
 //!         let (parker, unparker) = park_pair();
-//!         let waiter = scope.spawn("waiter", move || {
+//!         let mut waiter = scope.spawn("waiter", move || {
 //!             let owner = thread::current().id();
 //!             let local = Rc::new(42);
 //!             let outcome = parker.park_timeout(Duration::from_secs(5))?;
@@ -26,6 +26,13 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+#[cfg(not(unix))]
+const _: () = {
+    compile_error!(
+        "vthread requires a supported Unix target (Linux or macOS)"
+    );
+};
+
 pub mod blocking;
 mod cancellation;
 mod carrier;
@@ -34,30 +41,37 @@ mod completion;
 mod config;
 mod context;
 mod control;
-mod diagnostics;
+mod diagnostic_text;
+pub mod diagnostics;
+mod diagnostics_accessors;
 mod dump;
-mod error;
+pub mod error;
 pub mod fs;
+mod identity;
 mod inbox;
 mod join;
 mod join_wait;
 mod kernel;
+pub mod lifecycle;
 mod lifecycle_owner;
 mod local_carrier;
 mod local_join;
 mod local_scope;
+mod metrics_accessors;
 pub mod net;
 mod options;
-mod parking;
+pub mod parking;
 mod readiness;
 mod runtime;
 mod scope;
+mod scope_failure;
 mod services;
 mod signal;
 mod stall_policy;
 mod supervisor;
 pub mod sync;
 mod task;
+mod task_accessors;
 mod task_body;
 mod task_context;
 mod task_fiber;
@@ -71,26 +85,34 @@ mod worker_context;
 pub use cancellation::CancellationToken;
 pub use config::{RuntimeBuilder, RuntimeConfig};
 pub use context::{cancellation_token, checkpoint, deadline};
-pub use diagnostics::{
+pub(crate) use diagnostics::{
     CarrierSnapshot, CarrierStatus, RuntimeSnapshot, RuntimeStats, ShutdownPhase, StackSnapshot,
     StallSnapshot,
 };
-pub use error::{Error, PanicReport, Result};
+pub(crate) use error::PanicReport;
+pub use error::{Error, Result};
 pub use join::JoinHandle;
 pub use local_join::LocalJoinHandle;
 pub use local_scope::{LocalScope, local_scope, local_scope_with_deadline};
 pub use options::ScopeOptions;
-pub use parking::{ParkOutcome, Parker, UnparkResult, Unparker, park_pair};
-pub use runtime::{Runtime, ShutdownOutcome};
+pub(crate) use parking::{ParkOutcome, Parker, park_pair};
+#[cfg(test)]
+use parking::{UnparkResult, Unparker};
+pub use runtime::Runtime;
+#[cfg(test)]
+use runtime::ShutdownOutcome;
 pub use scope::Scope;
-pub use services::ServiceSnapshot;
+pub(crate) use scope_failure::ScopeFailure;
+pub(crate) use services::ServiceSnapshot;
 pub use stall_policy::StallPolicy;
-pub use supervisor::{ShutdownReport, Supervisor, SupervisorShutdownOutcome};
-pub use task::{
+pub(crate) use supervisor::ShutdownReport;
+#[cfg(test)]
+use supervisor::SupervisorShutdownOutcome;
+pub(crate) use task::{
     CarrierId, SuspensionReason, TaskFailure, TaskId, TaskSnapshot, TaskStatus, WakeReason,
 };
 pub use task_context::TaskLocal;
-pub use thread_failure::{FailurePhase, ThreadComponent, ThreadFailure, ThreadFailures};
+pub(crate) use thread_failure::{FailurePhase, ThreadComponent, ThreadFailure, ThreadFailures};
 pub use time::{sleep, sleep_until};
 
 /// Cooperatively yields the current virtual thread to the carrier scheduler.
@@ -105,7 +127,7 @@ pub fn run<R>(body: impl FnOnce(&Scope<'_>) -> Result<R>) -> Result<R> {
     if context::current().is_some() {
         return Err(Error::InsideVThread);
     }
-    Runtime::new()?.scope(body)
+    Runtime::new()?.run_scope(body)
 }
 
 #[cfg(test)]

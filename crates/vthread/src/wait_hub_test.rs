@@ -18,7 +18,10 @@ fn capacity_is_reserved_before_parking_and_released_on_rollback() {
     };
     assert!(matches!(
         second.begin(TaskId::new(2), &hub, None),
-        Err(Error::AtCapacity { limit: 1 })
+        Err(Error::Capacity {
+            resource: crate::error::CapacityResource::Waiters,
+            limit: 1
+        })
     ));
     first.rollback(request.token());
     assert!(second.begin(TaskId::new(2), &hub, None).is_ok());

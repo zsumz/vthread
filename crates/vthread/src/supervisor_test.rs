@@ -5,10 +5,10 @@ fn supervised_work_survives_lexical_scopes_and_is_reclaimed_explicitly() {
     let runtime = Runtime::builder().carriers(2).build().unwrap();
     let supervisor = runtime.supervisor(ScopeOptions::default()).unwrap();
     let (parker, _waker) = park_pair();
-    let child = supervisor.spawn("service", move || parker.park()).unwrap();
+    let mut child = supervisor.spawn("service", move || parker.park()).unwrap();
     until(|| runtime.snapshot().parked == 1);
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             assert_eq!(scope.spawn("request", || 42)?.join()?, 42);
             Ok(())
         })
@@ -48,7 +48,7 @@ fn supervisor_shutdown_is_visible_to_cooperative_checkpoint_loops() {
     let runtime = Runtime::new().unwrap();
     let supervisor = runtime.supervisor(ScopeOptions::default()).unwrap();
     let (tx, rx) = mpsc::sync_channel(1);
-    let child = supervisor
+    let mut child = supervisor
         .spawn("cooperative", move || {
             tx.send(()).unwrap();
             let bound = Instant::now() + Duration::from_secs(5);
@@ -75,7 +75,7 @@ fn timed_shutdown_retains_supervised_work_until_retry_completes() {
     let mut supervisor = runtime.supervisor(crate::ScopeOptions::default()).unwrap();
     let (release, gate) = mpsc::sync_channel(1);
     let (started, entered) = mpsc::sync_channel(1);
-    let child = supervisor
+    let mut child = supervisor
         .spawn("uncooperative", move || {
             started.send(()).unwrap();
             gate.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -103,7 +103,15 @@ fn timed_shutdown_retains_supervised_work_until_retry_completes() {
         finished,
         crate::SupervisorShutdownOutcome::Complete(_)
     ));
-    assert_eq!(finished, supervisor.shutdown_until(Instant::now()).unwrap());
+    let crate::SupervisorShutdownOutcome::Complete(report) = finished else {
+        panic!("completed owner");
+    };
+    let crate::SupervisorShutdownOutcome::Complete(repeated) =
+        supervisor.shutdown_until(Instant::now()).unwrap()
+    else {
+        panic!("owner regressed");
+    };
+    assert_eq!(report, repeated);
     assert!(child.is_finished());
     assert!(supervisor.cancellation_token().is_cancelled());
     let _ = child.join();

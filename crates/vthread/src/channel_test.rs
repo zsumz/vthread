@@ -9,7 +9,7 @@ fn mpmc_delivers_each_value_once_on_one_and_four_carriers() {
         let (sender, receiver) = bounded(3, 8).unwrap();
         let output = Arc::new(Mutex::new(Vec::new()));
         runtime
-            .scope(|scope| {
+            .run_scope(|scope| {
                 let mut tasks = Vec::new();
                 for _ in 0..4 {
                     let receiver = receiver.clone();
@@ -36,7 +36,7 @@ fn mpmc_delivers_each_value_once_on_one_and_four_carriers() {
                 }
                 drop(sender);
                 drop(receiver);
-                for task in tasks {
+                for mut task in tasks {
                     task.join()?;
                 }
                 Ok(())

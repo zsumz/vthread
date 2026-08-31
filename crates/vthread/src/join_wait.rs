@@ -29,7 +29,7 @@ pub(crate) fn wait_for(
         execution.data.check()?;
     }
     if mounted.task_id() == lock(record).id && Arc::ptr_eq(&execution.record, record) {
-        return Err(Error::Invariant("task cannot join itself"));
+        return Err(Error::JoinSelf);
     }
     let completion = Arc::clone(&lock(record).completion);
     let data = Rc::clone(&execution.data);

@@ -56,7 +56,8 @@ impl Reactor {
             .spawn(move || {
                 crate::worker_context::attach(runtime.clone(), crate::ThreadComponent::Readiness);
                 driver::start(capacity, ready, runtime);
-            })?;
+            })
+            .map_err(|error| Error::thread_start(crate::ThreadComponent::Readiness, error))?;
         match receive.recv() {
             Ok(Ok(inner)) => Ok(Self {
                 inner,
@@ -66,7 +67,10 @@ impl Reactor {
                 crate::thread_failure::join(worker, &owner, crate::ThreadComponent::Readiness);
                 Err(match result {
                     Ok(Err(error)) => error,
-                    _ => Error::Invariant("readiness initialization failed"),
+                    _ => Error::fault(
+                        crate::error::FaultComponent::Readiness,
+                        "readiness initialization failed",
+                    ),
                 })
             }
         }
@@ -87,18 +91,24 @@ impl Reactor {
                 return Err(Error::RuntimeStopped);
             }
             if state.entries.len() == self.inner.capacity {
-                return Err(Error::WaitQueueFull {
+                return Err(Error::Capacity {
+                    resource: crate::error::CapacityResource::Readiness,
                     limit: self.inner.capacity,
                 });
             }
             let key = state.next;
-            state.next = key
-                .checked_add(1)
-                .ok_or(Error::Invariant("readiness identity exhausted"))?;
+            state.next = key.checked_add(1).ok_or(Error::fault(
+                crate::error::FaultComponent::Readiness,
+                "readiness identity exhausted",
+            ))?;
             state.entries.insert(
                 key,
                 Entry {
-                    fd: fd.try_clone_to_owned()?,
+                    fd: crate::net::io::checked(
+                        "duplicate readiness descriptor",
+                        fd,
+                        fd.try_clone_to_owned(),
+                    )?,
                     interest,
                     token,
                     wake,
@@ -195,7 +205,7 @@ impl Inner {
     }
 }
 fn io_error(error: impl std::error::Error + Send + Sync + 'static) -> Error {
-    Error::Io(std::io::Error::other(error))
+    Error::io("readiness backend", "zio", std::io::Error::other(error))
 }
 
 #[cfg(test)]

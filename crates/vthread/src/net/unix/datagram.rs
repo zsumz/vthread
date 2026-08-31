@@ -14,15 +14,26 @@ pub struct UnixDatagram {
 impl UnixDatagram {
     /// Binds a filesystem path; the caller remains responsible for unlinking.
     pub fn bind(path: impl AsRef<Path>) -> Result<Self> {
-        let inner = std::os::unix::net::UnixDatagram::bind(path)?;
-        inner.set_nonblocking(true)?;
+        let inner = std::os::unix::net::UnixDatagram::bind(path.as_ref()).map_err(|error| {
+            crate::Error::io("UnixDatagram bind", path.as_ref().display(), error)
+        })?;
+        io::checked(
+            "set nonblocking",
+            inner.as_fd(),
+            inner.set_nonblocking(true),
+        )?;
         Ok(Self { inner })
     }
     /// Creates an anonymous connected datagram pair.
     pub fn pair() -> Result<(Self, Self)> {
-        let (left, right) = std::os::unix::net::UnixDatagram::pair()?;
-        left.set_nonblocking(true)?;
-        right.set_nonblocking(true)?;
+        let (left, right) = std::os::unix::net::UnixDatagram::pair()
+            .map_err(|error| crate::Error::io("UnixDatagram pair", "anonymous endpoints", error))?;
+        io::checked("set nonblocking", left.as_fd(), left.set_nonblocking(true))?;
+        io::checked(
+            "set nonblocking",
+            right.as_fd(),
+            right.set_nonblocking(true),
+        )?;
         Ok((Self { inner: left }, Self { inner: right }))
     }
     /// Receives from the connected peer.

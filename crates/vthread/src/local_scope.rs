@@ -15,7 +15,7 @@ use crate::{
 use std::{
     cell::RefCell,
     marker::PhantomData,
-    panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
+    panic::{AssertUnwindSafe, catch_unwind},
     rc::Rc,
     sync::Arc,
     time::Instant,
@@ -102,6 +102,7 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
             record,
             cell,
             lifetime: PhantomData,
+            taken: false,
         })
     }
 
@@ -118,29 +119,31 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
         self.options.deadline
     }
 
-    fn drain(&self) -> Result<()> {
+    fn drain(&self) -> crate::ScopeFailure {
         let records = self.records.borrow().clone();
-        let mut failure = None;
+        let mut failure = crate::ScopeFailure::default();
         for record in records {
             if let Err(error) = join_wait::wait_for(&record, SuspensionReason::ScopeDrain, true) {
-                failure.get_or_insert(error);
+                failure.cleanup_failed(error);
             }
             let mut record = lock(&record);
             if !record.outcome_observed {
                 if let Some(reason) = record.failure {
-                    failure.get_or_insert(Error::TaskAborted {
+                    failure.child_failed(Error::TaskAborted {
                         task: record.id,
                         reason,
                     });
                 } else if let Some(panic) = &record.panic {
-                    failure.get_or_insert_with(|| {
-                        Error::task_panicked(record.id, record.name.to_string(), panic.clone())
-                    });
+                    failure.child_failed(Error::task_panicked(
+                        record.id,
+                        record.name.to_string(),
+                        panic.clone(),
+                    ));
                 }
             }
             record.outcome_observed = true;
         }
-        failure.map_or(Ok(()), Err)
+        failure
     }
 }
 
@@ -155,9 +158,9 @@ impl Drop for LocalScope<'_, '_> {
 }
 
 /// Runs borrowed work on the current carrier, reclaiming all children before returning.
-/// Cleanup cancellation preserves a body error or already-expired deadline. An unobserved
-/// child failure found while draining takes precedence; otherwise policy is checked again
-/// after successful draining, so a deadline or cancellation during the drain still applies.
+/// ScopeFailure preserves the body, inherited policy, cleanup and representative child
+/// failure with additional counts. Representative order matches run_scope: body, policy,
+/// cleanup, then child. A body panic is rethrown unchanged after retaining scope diagnostics.
 ///
 /// ```compile_fail
 /// vthread::local_scope(|scope| Ok(scope.spawn("escape", || 1)?));
@@ -211,17 +214,15 @@ fn run_local<'env, R>(
         if !matches!(&outcome, Ok(Ok(_))) || policy.is_err() {
             scope.cancel();
         }
-        let drained = scope.drain();
+        let failures = scope.drain();
+        let policy = if matches!(&outcome, Ok(Ok(_))) {
+            policy.and_then(|()| scope.options.check())
+        } else {
+            policy
+        };
         match outcome {
-            Err(payload) => resume_unwind(payload),
-            Ok(result) => {
-                drained?;
-                // Preserve the reason for cleanup before its cancellation changes policy.
-                let value = result?;
-                policy?;
-                scope.options.check()?;
-                Ok(value)
-            }
+            Err(payload) => failures.unwind(payload, policy, &scope.execution.shared),
+            Ok(result) => failures.finish(result, policy, &scope.execution.shared),
         }
     })
 }

@@ -5,9 +5,9 @@ use std::{sync::mpsc, thread, time::Duration};
 fn native_work_releases_the_single_carrier_and_isolates_panics() {
     let runtime = Runtime::new().unwrap();
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let (send, receive) = mpsc::sync_channel(1);
-            let waiter = scope.spawn("native", move || {
+            let mut waiter = scope.spawn("native", move || {
                 let carrier = thread::current().id();
                 let worker = blocking::run(move || {
                     receive.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -21,7 +21,7 @@ fn native_work_releases_the_single_carrier_and_isolates_panics() {
                 .spawn("progress", move || send.send(()).unwrap())?
                 .join()?;
             waiter.join()??;
-            let panic = scope.spawn("panic", || blocking::run(|| panic!("native panic")))?;
+            let mut panic = scope.spawn("panic", || blocking::run(|| panic!("native panic")))?;
             assert!(matches!(panic.join()?, Err(Error::BlockingPanicked(_))));
             assert_eq!(scope.spawn("reuse", || blocking::run(|| 42))?.join()??, 42);
             Ok(())
@@ -46,9 +46,9 @@ fn cancelling_a_running_call_returns_before_its_late_result_is_destroyed() {
     let drops = Arc::new(AtomicUsize::new(0));
     let (send, receive) = mpsc::sync_channel(1);
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let tracked = Arc::clone(&drops);
-            let caller = scope.spawn("cancel", move || {
+            let mut caller = scope.spawn("cancel", move || {
                 blocking::run(move || {
                     receive.recv_timeout(Duration::from_secs(5)).unwrap();
                     Value(tracked)

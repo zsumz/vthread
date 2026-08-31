@@ -5,8 +5,8 @@ fn unix_datagrams_wait_without_losing_packet_boundaries() {
     let runtime = Runtime::new().unwrap();
     let (receiver, sender) = UnixDatagram::pair().unwrap();
     runtime
-        .scope(|scope| {
-            let read = scope.spawn("read", move || {
+        .run_scope(|scope| {
+            let mut read = scope.spawn("read", move || {
                 let mut buffer = [0; 4];
                 assert_eq!(receiver.recv(&mut buffer)?, 4);
                 assert_eq!(buffer, *b"data");

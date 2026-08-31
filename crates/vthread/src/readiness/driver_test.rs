@@ -8,9 +8,9 @@ fn cancelled_readiness_releases_descriptor_registrations_before_reuse() {
     let reader = Arc::new(reader);
     for _ in 0..32 {
         runtime
-            .scope(|scope| {
+            .run_scope(|scope| {
                 let socket = Arc::clone(&reader);
-                let child = scope.spawn("read", move || socket.read(&mut [0; 1]))?;
+                let mut child = scope.spawn("read", move || socket.read(&mut [0; 1]))?;
                 until(|| runtime.snapshot().services.readiness_waits == 1);
                 scope.cancel();
                 assert!(matches!(child.join()?, Err(Error::Cancelled)));
@@ -20,9 +20,9 @@ fn cancelled_readiness_releases_descriptor_registrations_before_reuse() {
         until(|| runtime.snapshot().services.readiness_registered == 0);
     }
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let socket = Arc::clone(&reader);
-            let child = scope.spawn("shutdown", move || socket.read(&mut [0; 1]))?;
+            let mut child = scope.spawn("shutdown", move || socket.read(&mut [0; 1]))?;
             until(|| runtime.snapshot().services.readiness_waits == 1);
             runtime.shutdown()?;
             assert!(matches!(child.join(), Err(Error::TaskAborted { .. })));
@@ -38,8 +38,8 @@ fn driver_fault_unblocks_tasks_releases_descriptors_and_reports_the_cause() {
     let runtime = Runtime::new().unwrap();
     let (reader, _writer) = UnixStream::pair().unwrap();
     runtime
-        .scope(|scope| {
-            let child = scope.spawn("driver-fault", move || reader.read(&mut [0; 1]))?;
+        .run_scope(|scope| {
+            let mut child = scope.spawn("driver-fault", move || reader.read(&mut [0; 1]))?;
             until(|| runtime.snapshot().services.readiness_waits == 1);
             let inner = &runtime.shared.services.get().unwrap().reactor.inner;
             inner

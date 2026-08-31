@@ -139,10 +139,10 @@ impl WaitCell {
             return Ok(WaitBegin::Immediate(WakeCause::TimedOut));
         }
 
-        let generation = state
-            .generation
-            .checked_add(1)
-            .ok_or(Error::Invariant("wait generation space exhausted"))?;
+        let generation = state.generation.checked_add(1).ok_or(Error::fault(
+            crate::error::FaultComponent::Scheduler,
+            "wait generation space exhausted",
+        ))?;
         state.generation = generation;
         let token = ParkToken::new(state.id, generation);
         state.active = Some(ActiveWait {
@@ -161,17 +161,20 @@ impl WaitCell {
 
     pub(crate) fn finish(&self, token: ParkToken) -> Result<WakeCause> {
         let mut state = lock(&self.state);
-        let active = state
-            .active
-            .as_ref()
-            .ok_or(Error::Invariant("resumed parker has no active wait"))?;
+        let active = state.active.as_ref().ok_or(Error::fault(
+            crate::error::FaultComponent::Scheduler,
+            "resumed parker has no active wait",
+        ))?;
         if active.token != token {
-            return Err(Error::Invariant("resumed parker generation changed"));
+            return Err(Error::fault(
+                crate::error::FaultComponent::Scheduler,
+                "resumed parker generation changed",
+            ));
         }
-        let cause = state
-            .selected
-            .take()
-            .ok_or(Error::Invariant("resumed parker has no selected wake"))?;
+        let cause = state.selected.take().ok_or(Error::fault(
+            crate::error::FaultComponent::Scheduler,
+            "resumed parker has no selected wake",
+        ))?;
         state.active = None;
         Ok(cause)
     }

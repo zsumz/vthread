@@ -29,13 +29,13 @@ fn inherited_cancellation_wakes_children_and_drains_borrowed_stacks() {
     let runtime = Runtime::new().unwrap();
     let drops = Arc::new(AtomicUsize::new(0));
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let tracked = Arc::clone(&drops);
-            let parent = scope.spawn("parent", move || {
+            let mut parent = scope.spawn("parent", move || {
                 local_scope(|local| {
                     for _ in 0..2 {
                         let guard = Guard(Arc::clone(&tracked));
-                        local.spawn("child", move || {
+                        let _ = local.spawn("child", move || {
                             let _guard = guard;
                             let (parker, _waker) = park_pair();
                             parker.park()
@@ -44,11 +44,14 @@ fn inherited_cancellation_wakes_children_and_drains_borrowed_stacks() {
                     Ok(())
                 })
             })?;
-            until(|| scope.snapshot().parked == 3);
+            until(|| scope.runtime_snapshot().parked == 3);
             scope.cancel();
-            assert!(matches!(parent.join()?, Err(Error::Cancelled)));
+            assert!(matches!(
+                parent.join()?.as_ref().map_err(crate::Error::primary),
+                Err(Error::Cancelled)
+            ));
             assert_eq!(drops.load(Ordering::SeqCst), 2);
-            assert_eq!(scope.snapshot().active, 0);
+            assert_eq!(scope.runtime_snapshot().active, 0);
             Ok(())
         })
         .unwrap();
@@ -60,12 +63,15 @@ fn inherited_deadline_interrupts_a_long_sleep() {
     use std::time::{Duration, Instant};
     let runtime = Runtime::new().unwrap();
     let deadline = Instant::now() + Duration::from_millis(30);
-    let outcome = runtime.scope_with(ScopeOptions::default().deadline(deadline), |scope| {
+    let outcome = runtime.run_scope_with(ScopeOptions::default().deadline(deadline), |scope| {
         scope
             .spawn("deadline", || crate::sleep(Duration::from_secs(5)))?
             .join()?
     });
-    assert!(matches!(outcome, Err(Error::DeadlineExceeded)));
+    assert!(matches!(
+        outcome.as_ref().map_err(crate::Error::primary),
+        Err(Error::DeadlineExceeded)
+    ));
     assert_eq!(runtime.snapshot().active, 0);
 }
 
@@ -76,14 +82,14 @@ fn cancellation_racing_registration_does_not_lose_the_request() {
     let runtime = Runtime::new().unwrap();
     for _ in 0..64 {
         runtime
-            .scope(|scope| {
+            .run_scope(|scope| {
                 let (tx, rx) = mpsc::sync_channel(1);
                 let token = scope.cancellation_token();
                 let remote = thread::spawn(move || {
                     rx.recv_timeout(Duration::from_secs(5)).unwrap();
                     token.cancel();
                 });
-                let child = scope.spawn("race", move || {
+                let mut child = scope.spawn("race", move || {
                     let (parker, _waker) = park_pair();
                     tx.send(()).unwrap();
                     parker.park_timeout(Duration::from_secs(5))

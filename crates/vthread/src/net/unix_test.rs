@@ -13,10 +13,10 @@ fn stream_backpressure_parks_the_writer_without_stopping_the_reader() {
         .set_send_buffer_size(4096)
         .unwrap();
     runtime
-        .scope(|scope| {
-            let send = scope.spawn("write", move || writer.write_all(&vec![7; 1024 * 1024]))?;
+        .run_scope(|scope| {
+            let mut send = scope.spawn("write", move || writer.write_all(&vec![7; 1024 * 1024]))?;
             until(|| runtime.snapshot().services.readiness_waits == 1);
-            let receive = scope.spawn("read", move || {
+            let mut receive = scope.spawn("read", move || {
                 let mut buffer = vec![0; 1024 * 1024];
                 reader.read_exact(&mut buffer)?;
                 assert!(buffer.iter().all(|byte| *byte == 7));
@@ -36,10 +36,10 @@ fn unix_path_connect_is_delegated_and_accept_is_readiness_driven() {
     let listener = UnixListener::bind(&path).unwrap();
     let runtime = Runtime::new().unwrap();
     runtime
-        .scope(|scope| {
-            let server = scope.spawn("accept", move || listener.accept().map(|pair| pair.0))?;
+        .run_scope(|scope| {
+            let mut server = scope.spawn("accept", move || listener.accept().map(|pair| pair.0))?;
             let path = path.clone();
-            let client = scope.spawn("connect", move || UnixStream::connect(path))?;
+            let mut client = scope.spawn("connect", move || UnixStream::connect(path))?;
             let server = server.join()??;
             let client = client.join()??;
             client.shutdown(Shutdown::Write)?;
@@ -58,9 +58,9 @@ fn closing_a_shared_read_direction_wakes_its_parked_reader() {
     let (reader, _writer) = UnixStream::pair().unwrap();
     let reader = Arc::new(reader);
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let socket = Arc::clone(&reader);
-            let task = scope.spawn("read", move || socket.read(&mut [0; 1]))?;
+            let mut task = scope.spawn("read", move || socket.read(&mut [0; 1]))?;
             until(|| runtime.snapshot().services.readiness_waits == 1);
             reader.shutdown(Shutdown::Read)?;
             assert_eq!(task.join()??, 0);
@@ -75,7 +75,7 @@ fn competing_readers_recheck_readiness_and_each_consume_one_byte() {
     let (reader, writer) = UnixStream::pair().unwrap();
     let reader = Arc::new(reader);
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let mut reads = Vec::new();
             for _ in 0..2 {
                 let reader = Arc::clone(&reader);
@@ -90,7 +90,7 @@ fn competing_readers_recheck_readiness_and_each_consume_one_byte() {
                 .spawn("writer", move || writer.write_all(b"ab"))?
                 .join()??;
             let mut values = Vec::new();
-            for read in reads {
+            for mut read in reads {
                 values.push(read.join()??);
             }
             values.sort_unstable();

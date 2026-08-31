@@ -66,7 +66,7 @@ pub(crate) fn start(scope: &Scope<'_>, iteration: u64, previous: Option<Pair>) -
 }
 
 impl Exchange {
-    pub(crate) fn finish(self) -> Result<Pair> {
+    pub(crate) fn finish(mut self) -> Result<Pair> {
         Ok(Pair {
             server: self.server.join()??,
             client: self.client.join()??,

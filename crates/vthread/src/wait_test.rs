@@ -47,10 +47,7 @@ fn duplicate_registration_does_not_replace_the_original_wait() {
     let duplicate = hub
         .register(token, Weak::new())
         .expect_err("duplicate token must be rejected");
-    assert!(matches!(
-        duplicate,
-        Error::Invariant("wait token registered twice")
-    ));
+    assert!(matches!(duplicate, Error::Fault(_)));
 
     let registration = hub.take_registration(token).expect("original registration");
     assert!(

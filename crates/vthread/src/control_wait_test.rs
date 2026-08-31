@@ -46,7 +46,10 @@ fn a_pending_wake_for_another_scope_does_not_mask_a_stall() {
     let result = shared.wait(scope, None);
     watchdog.join().unwrap();
     shared.complete(&other, Some(TaskFailure::SupervisorStopped));
-    assert!(matches!(result, Err(Error::RuntimeStalled { active: 1 })));
+    assert!(matches!(
+        result.as_ref().map_err(crate::Error::primary),
+        Err(Error::RuntimeStalled { active: 1 })
+    ));
 }
 
 #[test]
@@ -63,7 +66,7 @@ fn unrelated_supervisor_activity_cannot_hide_a_stalled_root_scope() {
     let supervisor = runtime.supervisor(crate::ScopeOptions::default()).unwrap();
     let stop = Arc::new(AtomicBool::new(false));
     let worker_stop = Arc::clone(&stop);
-    let busy = supervisor
+    let mut busy = supervisor
         .spawn("unrelated", move || {
             while !worker_stop.load(Ordering::Acquire) {
                 crate::yield_now().unwrap();
@@ -75,15 +78,18 @@ fn unrelated_supervisor_activity_cannot_hide_a_stalled_root_scope() {
         std::thread::park_timeout(Duration::from_millis(200));
         wake.unpark();
     });
-    let result = runtime.scope(|scope| {
-        scope.spawn("ownerless", move || parker.park())?;
+    let result = runtime.run_scope(|scope| {
+        let _ = scope.spawn("ownerless", move || parker.park())?;
         Ok(())
     });
     stop.store(true, Ordering::Release);
     busy.join().unwrap();
     supervisor.shutdown().unwrap();
     watchdog.join().unwrap();
-    assert!(matches!(result, Err(Error::RuntimeStalled { active: 1 })));
+    assert!(matches!(
+        result.as_ref().map_err(crate::Error::primary),
+        Err(Error::RuntimeStalled { active: 1 })
+    ));
     let stall = runtime.snapshot().last_stall.unwrap();
     assert_eq!(stall.tasks.len(), 1);
     assert_eq!(stall.tasks[0].name, "ownerless");
@@ -98,15 +104,18 @@ fn a_terminal_sibling_does_not_hide_an_indefinitely_parked_child() {
         .expect("runtime");
     let (parker, _unparker) = park_pair();
     let error = runtime
-        .scope(|scope| {
-            scope.spawn("parked", move || parker.park())?;
+        .run_scope(|scope| {
+            let _ = scope.spawn("parked", move || parker.park())?;
             scope.spawn("terminal", || 42)?.join()?;
             Ok(())
         })
         .expect_err("parked child must be reclaimed");
-    assert!(matches!(error, Error::RuntimeStalled { active: 1 }));
+    assert!(matches!(
+        error.primary(),
+        Error::RuntimeStalled { active: 1 }
+    ));
     assert_eq!(runtime.snapshot().active, 0);
     runtime
-        .scope(|scope| scope.spawn("reused", || ())?.join())
+        .run_scope(|scope| scope.spawn("reused", || ())?.join())
         .expect("reusable");
 }

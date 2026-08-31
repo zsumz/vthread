@@ -83,6 +83,9 @@ impl Pool {
                         crate::ThreadComponent::NativeWorker,
                     );
                     worker::run(inner, owner);
+                })
+                .map_err(|error| {
+                    Error::thread_start(crate::ThreadComponent::NativeWorker, error)
                 })?;
             lock(&pool.workers).push(worker);
         }
@@ -104,12 +107,16 @@ impl Pool {
             return Err(Error::RuntimeStopped);
         }
         if state.queue.len() + state.running + state.discarding >= self.inner.capacity {
-            return Err(Error::BlockingCapacity);
+            return Err(Error::Capacity {
+                resource: crate::error::CapacityResource::NativeJobs,
+                limit: self.inner.capacity,
+            });
         }
         let id = state.next;
-        state.next = id
-            .checked_add(1)
-            .ok_or(Error::Invariant("blocking identity exhausted"))?;
+        state.next = id.checked_add(1).ok_or(Error::fault(
+            crate::error::FaultComponent::Native,
+            "blocking identity exhausted",
+        ))?;
         state.queue.push_back(Job {
             id,
             token,

@@ -1,9 +1,28 @@
 //! Runtime and stack-pool diagnostics.
+//!
+//! Diagnostic records are observations with private fields, not scheduler inputs.
+//! ```compile_fail
+//! let snapshot = vthread::diagnostics::RuntimeSnapshot { active: 0 };
+//! ```
+//! Extensible diagnostic enums require a fallback arm downstream.
+//! ```compile_fail
+//! use vthread::diagnostics::CarrierStatus;
+//! fn exhaustive(status: CarrierStatus) { match status {
+//!     CarrierStatus::Idle | CarrierStatus::Running | CarrierStatus::Stopped | CarrierStatus::Failed => ()
+//! } }
+//! ```
 
-use crate::{CarrierId, TaskSnapshot};
+pub use crate::dump::DumpReport;
+pub use crate::identity::{RuntimeId, ScopeId};
+pub use crate::services::ServiceSnapshot;
+pub use crate::task::{
+    CarrierId, SuspensionReason, TaskFailure, TaskId, TaskSnapshot, TaskStatus, WakeReason,
+};
+pub use crate::thread_failure::{FailurePhase, ThreadComponent, ThreadFailure, ThreadFailures};
 
 /// Furthest shutdown stage reached; stages never move backward between concurrent callers.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
 pub enum ShutdownPhase {
     /// No shutdown request has been made (admission may still close on carrier failure).
     #[default]
@@ -26,63 +45,63 @@ pub enum ShutdownPhase {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StallSnapshot {
     /// Explicit policy that caused this observation; reporting alone never cancels work.
-    pub policy: crate::StallPolicy,
+    pub(crate) policy: crate::StallPolicy,
     /// Root scope selected for recovery.
-    pub scope: u64,
+    pub(crate) scope: u64,
     /// Monotonic detection time.
-    pub detected_at: std::time::Instant,
+    pub(crate) detected_at: std::time::Instant,
     /// Observed quiescent interval before recovery.
-    pub quiescent_for: std::time::Duration,
+    pub(crate) quiescent_for: std::time::Duration,
     /// Live tasks before abort, bounded by the configured task admission limit.
-    pub tasks: Vec<TaskSnapshot>,
+    pub(crate) tasks: Vec<TaskSnapshot>,
 }
 
 /// Cumulative scheduler counters.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RuntimeStats {
     /// Tasks accepted by the runtime.
-    pub spawned: u64,
+    pub(crate) admitted: u64,
     /// Tasks that returned normally.
-    pub completed: u64,
+    pub(crate) completed: u64,
     /// Tasks that panicked.
-    pub panicked: u64,
+    pub(crate) panicked: u64,
     /// Total stack mounts.
-    pub mounts: u64,
+    pub(crate) mounts: u64,
     /// Total cooperative yields.
-    pub yields: u64,
+    pub(crate) yields: u64,
     /// Total modeled park operations.
-    pub parks: u64,
+    pub(crate) parks: u64,
     /// Parked generations made runnable again.
-    pub wakes: u64,
+    pub(crate) wakes: u64,
     /// Wake selections caused by monotonic deadlines.
-    pub timeouts: u64,
+    pub(crate) timeouts: u64,
     /// Wake selections caused by explicit cancellation.
-    pub cancelled: u64,
+    pub(crate) cancelled: u64,
     /// Wake selections caused by permanent close.
-    pub closed: u64,
+    pub(crate) closed: u64,
     /// Carrier sleeps while waiting for the next timer.
-    pub timer_sleeps: u64,
+    pub(crate) timer_sleeps: u64,
     /// Wake notices ignored after their generation was no longer parked.
-    pub stale_wakes: u64,
+    pub(crate) stale_wakes: u64,
     /// Tasks discarded while recovering a stalled scope.
-    pub aborted: u64,
+    pub(crate) aborted: u64,
     /// Spawn attempts rejected at capacity.
-    pub rejected: u64,
+    pub(crate) rejected: u64,
 }
 
 /// Bounded stack-cache counters.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct StackSnapshot {
     /// Stacks currently retained.
-    pub cached: usize,
+    pub(crate) cached: usize,
     /// Fresh stack mappings created.
-    pub allocated: u64,
+    pub(crate) allocated: u64,
     /// Cached stacks reused.
-    pub reused: u64,
+    pub(crate) reused: u64,
     /// Completed stacks retained.
-    pub retained: u64,
+    pub(crate) retained: u64,
     /// Completed stacks discarded at the cache limit.
-    pub discarded: u64,
+    pub(crate) discarded: u64,
 }
 
 impl From<vthread_stack::StackPoolSnapshot> for StackSnapshot {
@@ -99,6 +118,7 @@ impl From<vthread_stack::StackPoolSnapshot> for StackSnapshot {
 
 /// Health of one persistent carrier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CarrierStatus {
     /// Waiting for start packets, wakes, or timers.
     Idle,
@@ -114,25 +134,25 @@ pub enum CarrierStatus {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CarrierSnapshot {
     /// Stable runtime-local identity.
-    pub id: CarrierId,
+    pub(crate) id: CarrierId,
     /// Current carrier health.
-    pub status: CarrierStatus,
+    pub(crate) status: CarrierStatus,
     /// Tasks with retained stacks or unstarted admission.
-    pub active: usize,
+    pub(crate) active: usize,
     /// Local runnable stacks.
-    pub runnable: usize,
+    pub(crate) runnable: usize,
     /// Local parked stacks.
-    pub parked: usize,
+    pub(crate) parked: usize,
     /// Active monotonic timers.
-    pub timers: usize,
+    pub(crate) timers: usize,
     /// Unstarted packets waiting in the bounded inbox.
-    pub pending_starts: usize,
+    pub(crate) pending_starts: usize,
     /// Selected wake notices waiting in reserved slots.
-    pub pending_wakes: usize,
+    pub(crate) pending_wakes: usize,
     /// Cumulative carrier counters.
-    pub stats: RuntimeStats,
+    pub(crate) stats: RuntimeStats,
     /// Carrier-local stack cache.
-    pub stacks: StackSnapshot,
+    pub(crate) stacks: StackSnapshot,
 }
 
 impl CarrierSnapshot {
@@ -153,39 +173,42 @@ impl CarrierSnapshot {
 }
 
 /// Point-in-time runtime state.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct RuntimeSnapshot {
+    pub(crate) runtime_id: RuntimeId,
+    /// Most recent failed scope, retained after task records are removed.
+    pub(crate) last_scope_failure: Option<std::sync::Arc<crate::ScopeFailure>>,
     /// Bounded terminal component failures, retained through shutdown.
-    pub failures: crate::ThreadFailures,
+    pub(crate) failures: crate::ThreadFailures,
     /// Current shutdown progress, including waits beyond task and native-job completion.
-    pub shutdown_phase: ShutdownPhase,
+    pub(crate) shutdown_phase: ShutdownPhase,
     /// Whether new root scopes and task admissions are accepted (subject to capacity).
-    pub accepting: bool,
+    pub(crate) accepting: bool,
     /// Most recent stalled scope; only one bounded report is retained per runtime.
-    pub last_stall: Option<StallSnapshot>,
+    pub(crate) last_stall: Option<StallSnapshot>,
     /// Readiness registration and delegated native-work bounds and activity.
-    pub services: crate::ServiceSnapshot,
+    pub(crate) services: crate::ServiceSnapshot,
     /// Per-carrier health and ownership counters.
-    pub carriers: Vec<CarrierSnapshot>,
+    pub(crate) carriers: Vec<CarrierSnapshot>,
     /// Number of live tasks.
-    pub active: usize,
+    pub(crate) active: usize,
     /// Number of tasks waiting in the run queue.
-    pub runnable: usize,
+    pub(crate) runnable: usize,
     /// Number of tasks parked on wait generations.
-    pub parked: usize,
+    pub(crate) parked: usize,
     /// Number of active monotonic timers.
-    pub timers: usize,
+    pub(crate) timers: usize,
     /// Cumulative scheduler counters.
-    pub stats: RuntimeStats,
+    pub(crate) stats: RuntimeStats,
     /// Stack-cache counters.
-    pub stacks: StackSnapshot,
+    pub(crate) stacks: StackSnapshot,
     /// Task records retained by the active scope.
-    pub tasks: Vec<TaskSnapshot>,
+    pub(crate) tasks: Vec<TaskSnapshot>,
 }
 
 impl RuntimeStats {
     pub(crate) fn add(&mut self, other: Self) {
-        self.spawned += other.spawned;
+        self.admitted += other.admitted;
         self.completed += other.completed;
         self.panicked += other.panicked;
         self.mounts += other.mounts;
@@ -215,3 +238,29 @@ impl StackSnapshot {
 #[cfg(test)]
 #[path = "diagnostics_test.rs"]
 mod diagnostics_test;
+
+impl RuntimeSnapshot {
+    pub(crate) fn empty(runtime_id: RuntimeId) -> Self {
+        Self {
+            runtime_id,
+            last_scope_failure: None,
+            failures: Default::default(),
+            shutdown_phase: ShutdownPhase::NotRequested,
+            accepting: false,
+            last_stall: None,
+            services: Default::default(),
+            carriers: Vec::new(),
+            active: 0,
+            runnable: 0,
+            parked: 0,
+            timers: 0,
+            stats: Default::default(),
+            stacks: Default::default(),
+            tasks: Vec::new(),
+        }
+    }
+    /// Process-unique runtime identity. Pair task, scope and carrier IDs with this value.
+    pub fn runtime_id(&self) -> RuntimeId {
+        self.runtime_id
+    }
+}

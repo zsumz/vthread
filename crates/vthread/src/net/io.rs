@@ -1,7 +1,18 @@
 //! Retry advisory readiness with fresh, exact-generation registrations.
 
 use crate::{Error, Parker, Result, SuspensionReason, context, sync::wait::Wait, wait::WaitCell};
-use std::{io, os::fd::BorrowedFd};
+use std::{
+    io,
+    os::fd::{AsRawFd, BorrowedFd},
+};
+
+pub(crate) fn checked<T>(
+    operation: &'static str,
+    fd: BorrowedFd<'_>,
+    result: io::Result<T>,
+) -> Result<T> {
+    result.map_err(|error| Error::io(operation, format_args!("fd={}", fd.as_raw_fd()), error))
+}
 
 pub(super) fn operation<T>(
     fd: BorrowedFd<'_>,
@@ -16,7 +27,18 @@ pub(super) fn operation<T>(
             Ok(value) => return Ok(value),
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => wait(fd, interest)?,
-            Err(error) => return Err(error.into()),
+            Err(error) => {
+                return Err(Error::io(
+                    match reason {
+                        SuspensionReason::IoRead => "socket read",
+                        SuspensionReason::IoWrite => "socket write",
+                        SuspensionReason::IoAccept => "socket accept",
+                        _ => "socket operation",
+                    },
+                    format_args!("fd={}", fd.as_raw_fd()),
+                    error,
+                ));
+            }
         }
     }
 }
@@ -45,7 +67,11 @@ pub(super) fn read_exact(
     while !buffer.is_empty() {
         let count = read(buffer)?;
         if count == 0 {
-            return Err(io::Error::from(io::ErrorKind::UnexpectedEof).into());
+            return Err(Error::io(
+                "socket read_exact",
+                "stream EOF",
+                io::Error::from(io::ErrorKind::UnexpectedEof),
+            ));
         }
         buffer = &mut buffer[count..];
     }
@@ -60,7 +86,11 @@ pub(super) fn write_all(
     while !buffer.is_empty() {
         let count = write(buffer)?;
         if count == 0 {
-            return Err(io::Error::from(io::ErrorKind::WriteZero).into());
+            return Err(Error::io(
+                "socket write_all",
+                "stream made no progress",
+                io::Error::from(io::ErrorKind::WriteZero),
+            ));
         }
         buffer = &buffer[count..];
     }

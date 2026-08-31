@@ -44,7 +44,8 @@ impl Completion {
             wait.notify();
         } else {
             if state.waiters.len() >= self.capacity {
-                return Err(Error::AtCapacity {
+                return Err(Error::Capacity {
+                    resource: crate::error::CapacityResource::Waiters,
                     limit: self.capacity,
                 });
             }

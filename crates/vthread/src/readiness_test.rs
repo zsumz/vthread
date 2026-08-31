@@ -36,7 +36,10 @@ fn registration_is_bounded_and_remote_readiness_selects_the_exact_generation() {
             token,
             cell.registration()
         ),
-        Err(Error::WaitQueueFull { limit: 1 })
+        Err(Error::Capacity {
+            resource: crate::error::CapacityResource::Readiness,
+            limit: 1
+        })
     ));
     writer.write_all(b"ready").unwrap();
     until(|| hub.pending() == 1);
@@ -99,15 +102,15 @@ fn shutdown_closes_native_cleanup_ownership_before_waking_carriers() {
     let (release, gate) = mpsc::sync_channel(1);
     let (dropped, owner) = mpsc::sync_channel(1);
     runtime
-        .scope(|scope| {
-            let running = scope.spawn("running", move || {
+        .run_scope(|scope| {
+            let mut running = scope.spawn("running", move || {
                 crate::blocking::run(move || {
                     gate.recv_timeout(Duration::from_secs(5)).unwrap();
                 })
             })?;
             until(|| runtime.snapshot().services.blocking_running == 1);
             let capture = Capture(dropped);
-            let queued = scope.spawn("queued", move || {
+            let mut queued = scope.spawn("queued", move || {
                 crate::blocking::run(move || {
                     let _capture = capture;
                     panic!("a stopped queued body must not execute");

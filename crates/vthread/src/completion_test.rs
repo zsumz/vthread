@@ -8,7 +8,10 @@ fn subscriptions_are_bounded_and_unregister_on_drop() {
     let first = completion.subscribe(&WaitCell::new()).unwrap();
     assert!(matches!(
         completion.subscribe(&WaitCell::new()),
-        Err(Error::AtCapacity { .. })
+        Err(Error::Capacity {
+            resource: crate::error::CapacityResource::Waiters,
+            ..
+        })
     ));
     drop(first);
     let _second = completion.subscribe(&WaitCell::new()).unwrap();

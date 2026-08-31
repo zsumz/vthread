@@ -9,20 +9,21 @@ use std::{marker::PhantomData, rc::Rc, time::Instant};
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ShutdownReport {
     /// Bounded terminal component failures; an empty list is required for success.
-    pub failures: crate::ThreadFailures,
+    pub(crate) failures: crate::ThreadFailures,
     /// Tasks whose functions returned, including user-returned Result errors.
-    pub completed: u64,
+    pub(crate) completed: u64,
     /// Tasks that panicked.
-    pub panicked: u64,
+    pub(crate) panicked: u64,
     /// Stacks or start packets reclaimed without normal completion.
-    pub aborted: u64,
+    pub(crate) aborted: u64,
     /// Carrier failures observed by the runtime.
-    pub failed_carriers: usize,
+    pub(crate) failed_carriers: usize,
 }
 
 /// Deadline-bounded observation of supervised child reclamation, not runtime shutdown.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
+#[must_use = "Inspect timeout diagnostics and retain the owner until shutdown completes"]
 pub enum SupervisorShutdownOutcome {
     /// This supervisor's child stacks were reclaimed; native services remain runtime-owned.
     Complete(ShutdownReport),
@@ -97,8 +98,10 @@ impl Supervisor<'_> {
 
     /// Stops this supervisor's work and waits for stack reclamation at runtime boundaries.
     pub fn shutdown(mut self) -> Result<ShutdownReport> {
-        self.close(None)?
-            .ok_or(Error::Invariant("unbounded supervisor wait timed out"))
+        self.close(None)?.ok_or(Error::fault(
+            crate::error::FaultComponent::Lifecycle,
+            "unbounded supervisor wait timed out",
+        ))
     }
 
     /// Closes child admission and requests reclamation without waiting for user work.
@@ -146,3 +149,26 @@ impl Drop for Supervisor<'_> {
 #[cfg(test)]
 #[path = "supervisor_test.rs"]
 mod supervisor_test;
+
+impl ShutdownReport {
+    /// Bounded terminal component failures; an empty list is required for success.
+    pub fn failures(&self) -> &crate::ThreadFailures {
+        &self.failures
+    }
+    /// Tasks whose functions returned, including user-returned Result errors.
+    pub fn completed(&self) -> u64 {
+        self.completed
+    }
+    /// Tasks that panicked.
+    pub fn panicked(&self) -> u64 {
+        self.panicked
+    }
+    /// Stacks or start packets reclaimed without normal completion.
+    pub fn aborted(&self) -> u64 {
+        self.aborted
+    }
+    /// Carrier failures observed by the runtime.
+    pub fn failed_carriers(&self) -> usize {
+        self.failed_carriers
+    }
+}

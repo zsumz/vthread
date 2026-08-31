@@ -9,6 +9,8 @@ use std::{sync::Weak, thread};
 pub enum ThreadComponent {
     /// Affine stack carrier.
     Carrier,
+    /// Process-wide bounded lifecycle join owner.
+    LifecycleOwner,
     /// Explicit native blocking worker.
     NativeWorker,
     /// zio readiness driver.
@@ -35,6 +37,7 @@ pub struct ThreadFailure {
     component: ThreadComponent,
     name: String,
     phase: FailurePhase,
+    pub(crate) shutdown_phase: crate::ShutdownPhase,
     panic: PanicReport,
     cleanup_complete: bool,
 }
@@ -54,6 +57,7 @@ impl ThreadFailure {
             component,
             name: name[..end].to_owned(),
             phase,
+            shutdown_phase: crate::ShutdownPhase::NotRequested,
             cleanup_complete: phase == FailurePhase::Join && !panic.cleanup_panicked(),
             panic,
         }
@@ -69,6 +73,10 @@ impl ThreadFailure {
     /// Failure observation boundary.
     pub fn phase(&self) -> FailurePhase {
         self.phase
+    }
+    /// Runtime shutdown stage when this failure was recorded.
+    pub fn shutdown_phase(&self) -> crate::ShutdownPhase {
+        self.shutdown_phase
     }
     /// Bounded captured panic text and disposal status.
     pub fn panic(&self) -> &PanicReport {

@@ -28,14 +28,15 @@ fn deadlines_remove_waiters_and_return_selected_resources() {
     let semaphore = Arc::new(Semaphore::new(1, 1).unwrap());
     let permit = semaphore.try_acquire().unwrap();
     let options = ScopeOptions::default().deadline(Instant::now() + Duration::from_millis(20));
-    runtime
-        .scope_with(options, |scope| {
+    let error = runtime
+        .run_scope_with(options, |scope| {
             let shared = Arc::clone(&semaphore);
-            let waiter = scope.spawn("deadline", move || shared.acquire().map(drop))?;
+            let mut waiter = scope.spawn("deadline", move || shared.acquire().map(drop))?;
             assert!(matches!(waiter.join()?, Err(Error::DeadlineExceeded)));
             Ok(())
         })
-        .unwrap();
+        .unwrap_err();
+    assert!(matches!(error.primary(), Error::DeadlineExceeded));
     assert_eq!(semaphore.waiting(), 0);
     drop(permit);
     assert_eq!(semaphore.available_permits(), 1);
@@ -47,17 +48,17 @@ fn forced_shutdown_drops_held_guards_and_wait_tickets() {
     let mutex = Arc::new(Mutex::new(0, 2).unwrap());
     let notify = Arc::new(Notify::new(1).unwrap());
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let shared = Arc::clone(&mutex);
             let event = Arc::clone(&notify);
-            let owner = scope.spawn("owner", move || {
+            let mut owner = scope.spawn("owner", move || {
                 let mut guard = shared.lock().unwrap();
                 *guard = 42;
                 event.notified()
             })?;
             until(|| notify.waiting() == 1);
             let shared = Arc::clone(&mutex);
-            let waiter = scope.spawn("waiter", move || shared.lock().map(drop))?;
+            let mut waiter = scope.spawn("waiter", move || shared.lock().map(drop))?;
             until(|| mutex.waiting() == 1);
             runtime.shutdown()?;
             assert!(matches!(owner.join(), Err(Error::TaskAborted { .. })));
@@ -79,16 +80,16 @@ fn shutdown_after_selection_returns_the_reserved_permit_without_resuming_waiter(
     let started = Arc::new(AtomicBool::new(false));
     let release = Arc::new(AtomicBool::new(false));
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let shared = Arc::clone(&semaphore);
-            let waiter = scope.spawn("selected", move || {
+            let mut waiter = scope.spawn("selected", move || {
                 let _permit = shared.acquire().unwrap();
                 panic!("selected waiter must be reclaimed before resumption");
             })?;
             until(|| semaphore.waiting() == 1);
             let entered = Arc::clone(&started);
             let released = Arc::clone(&release);
-            let blocker = scope.spawn("test-interleaving", move || {
+            let mut blocker = scope.spawn("test-interleaving", move || {
                 entered.store(true, Ordering::SeqCst);
                 // Deliberately pin this test carrier to control the select/stop ordering.
                 until(|| released.load(Ordering::SeqCst));
@@ -113,11 +114,11 @@ fn task_dumps_identify_every_synchronization_boundary() {
     fn check(reason: SuspensionReason, body: impl FnOnce() -> crate::Result<()> + Send + 'static) {
         let runtime = Runtime::new().unwrap();
         runtime
-            .scope(|scope| {
-                let task = scope.spawn("diagnostic-wait", body)?;
+            .run_scope(|scope| {
+                let mut task = scope.spawn("diagnostic-wait", body)?;
                 until(|| {
                     scope
-                        .snapshot()
+                        .runtime_snapshot()
                         .tasks
                         .iter()
                         .any(|task| task.status == TaskStatus::Suspended(reason))

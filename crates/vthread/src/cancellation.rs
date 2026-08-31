@@ -80,7 +80,8 @@ impl CancellationToken {
     ) -> Result<Subscription> {
         let mut waits = lock(&self.0.domain.waits);
         if waits.len() >= self.0.domain.capacity {
-            return Err(Error::AtCapacity {
+            return Err(Error::Capacity {
+                resource: crate::error::CapacityResource::CancellationSubscriptions,
                 limit: self.0.domain.capacity,
             });
         }

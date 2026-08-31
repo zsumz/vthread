@@ -16,12 +16,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "{{\"schema\":1,\"workload\":\"mixed-soak\",\"connection_strategy\":\"persistent-pair\",\"carriers\":{carriers},\"tasks\":{tasks},\"iterations\":{},\"elapsed_ns\":{},\"spawned\":{},\"completed\":{},\"parks\":{},\"wakes\":{},\"stack_allocated\":{},\"stack_reused\":{}}}",
         report.iterations,
         report.elapsed.as_nanos(),
-        report.stats.spawned,
-        report.stats.completed,
-        report.stats.parks,
-        report.stats.wakes,
-        report.stacks.allocated,
-        report.stacks.reused
+        report.stats.admitted(),
+        report.stats.completed(),
+        report.stats.parks(),
+        report.stats.wakes(),
+        report.stacks.allocated(),
+        report.stacks.reused()
     )?;
     Ok(())
 }

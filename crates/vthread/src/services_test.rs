@@ -42,7 +42,7 @@ fn owned_native_progress_is_not_misclassified_as_a_stalled_scope() {
         thread::park_timeout(Duration::from_millis(50));
     });
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("native", move || {
                     blocking::run(move || {
@@ -61,9 +61,9 @@ fn owned_native_progress_is_not_misclassified_as_a_stalled_scope() {
 fn a_native_worker_cannot_shut_down_the_runtime_that_owns_it() {
     let runtime = Arc::new(Runtime::builder().blocking_threads(1).build().unwrap());
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let shared = Arc::clone(&runtime);
-            let task = scope.spawn("worker-shutdown", move || {
+            let mut task = scope.spawn("worker-shutdown", move || {
                 blocking::run(move || shared.shutdown())
             })?;
             assert!(matches!(
@@ -75,7 +75,7 @@ fn a_native_worker_cannot_shut_down_the_runtime_that_owns_it() {
         .unwrap();
     assert_eq!(runtime.snapshot().active, 0);
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             assert_eq!(scope.spawn("reuse", || blocking::run(|| 42))?.join()??, 42);
             Ok(())
         })

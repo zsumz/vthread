@@ -21,7 +21,7 @@ fn shutdown_reclaims_parked_children_before_join_returns_and_rejects_admission()
     let runtime = Arc::new(Runtime::builder().carriers(2).build().expect("runtime"));
     let drops = Arc::new(AtomicUsize::new(0));
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let mut children = Vec::new();
             for _ in 0..2 {
                 let (parker, _unparker) = park_pair();
@@ -31,7 +31,7 @@ fn shutdown_reclaims_parked_children_before_join_returns_and_rejects_admission()
                     parker.park().expect("park");
                 })?);
             }
-            until(|| scope.snapshot().parked == 2);
+            until(|| scope.runtime_snapshot().parked == 2);
             let remote = Arc::clone(&runtime);
             thread::spawn(move || remote.shutdown())
                 .join()
@@ -41,7 +41,7 @@ fn shutdown_reclaims_parked_children_before_join_returns_and_rejects_admission()
                 scope.spawn("late", || ()),
                 Err(Error::RuntimeStopped)
             ));
-            for child in children {
+            for mut child in children {
                 assert!(matches!(
                     child.join(),
                     Err(Error::TaskAborted {
@@ -50,12 +50,12 @@ fn shutdown_reclaims_parked_children_before_join_returns_and_rejects_admission()
                     })
                 ));
             }
-            assert_eq!(scope.snapshot().active, 0);
+            assert_eq!(scope.runtime_snapshot().active, 0);
             Ok(())
         })
         .expect("observed failures");
     assert!(matches!(
-        runtime.scope(|_| Ok(())),
+        runtime.run_scope(|_| Ok(())),
         Err(Error::RuntimeStopped)
     ));
     assert!(
@@ -73,7 +73,7 @@ fn racing_shutdown_and_spawn_drop_every_capture_once() {
     let runtime = Arc::new(Runtime::builder().carriers(2).build().expect("runtime"));
     let drops = Arc::new(AtomicUsize::new(0));
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let remote = Arc::clone(&runtime);
             let stopper = thread::spawn(move || remote.shutdown());
             let mut accepted = Vec::new();
@@ -86,7 +86,7 @@ fn racing_shutdown_and_spawn_drop_every_capture_once() {
                 }
             }
             stopper.join().expect("stopper")?;
-            for child in accepted {
+            for mut child in accepted {
                 assert!(matches!(
                     child.join(),
                     Ok(())
@@ -97,7 +97,7 @@ fn racing_shutdown_and_spawn_drop_every_capture_once() {
                 ));
             }
             assert_eq!(drops.load(Ordering::SeqCst), 128);
-            assert_eq!(scope.snapshot().active, 0);
+            assert_eq!(scope.runtime_snapshot().active, 0);
             Ok(())
         })
         .expect("scope");
@@ -107,12 +107,12 @@ fn racing_shutdown_and_spawn_drop_every_capture_once() {
 fn blocking_runtime_operations_are_rejected_inside_a_virtual_thread() {
     let runtime = Arc::new(Runtime::new().expect("runtime"));
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let nested = Arc::clone(&runtime);
             scope
                 .spawn("nested", move || {
                     assert!(matches!(
-                        nested.scope(|_| Ok(())),
+                        nested.run_scope(|_| Ok(())),
                         Err(Error::InsideVThread)
                     ));
                     assert!(matches!(nested.shutdown(), Err(Error::InsideVThread)));
@@ -130,7 +130,10 @@ fn forced_stack_cleanup_keeps_runtime_calls_inside_the_virtual_thread_boundary()
     }
     impl Drop for CleanupProbe {
         fn drop(&mut self) {
-            if matches!(self.runtime.scope(|_| Ok(())), Err(Error::InsideVThread)) {
+            if matches!(
+                self.runtime.run_scope(|_| Ok(())),
+                Err(Error::InsideVThread)
+            ) {
                 self.rejected.fetch_add(1, Ordering::SeqCst);
             }
         }
@@ -138,17 +141,17 @@ fn forced_stack_cleanup_keeps_runtime_calls_inside_the_virtual_thread_boundary()
     let runtime = Arc::new(Runtime::new().expect("runtime"));
     let rejected = Arc::new(AtomicUsize::new(0));
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let probe = CleanupProbe {
                 runtime: Arc::clone(&runtime),
                 rejected: Arc::clone(&rejected),
             };
             let (parker, _unparker) = park_pair();
-            let child = scope.spawn("cleanup boundary", move || {
+            let mut child = scope.spawn("cleanup boundary", move || {
                 let _probe = probe;
                 parker.park().expect("park");
             })?;
-            until(|| scope.snapshot().parked == 1);
+            until(|| scope.runtime_snapshot().parked == 1);
             runtime.shutdown()?;
             assert!(matches!(child.join(), Err(Error::TaskAborted { .. })));
             assert_eq!(rejected.load(Ordering::SeqCst), 1);

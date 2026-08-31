@@ -27,8 +27,14 @@ pub struct UnixStream {
 impl UnixListener {
     /// Binds a filesystem socket path. The caller owns subsequent unlinking.
     pub fn bind(path: impl AsRef<Path>) -> Result<Self> {
-        let inner = std::os::unix::net::UnixListener::bind(path)?;
-        inner.set_nonblocking(true)?;
+        let inner = std::os::unix::net::UnixListener::bind(path.as_ref()).map_err(|error| {
+            crate::Error::io("UnixListener bind", path.as_ref().display(), error)
+        })?;
+        io::checked(
+            "set nonblocking",
+            inner.as_fd(),
+            inner.set_nonblocking(true),
+        )?;
         Ok(Self { inner })
     }
     /// Accepts a connection using virtual read readiness.
@@ -39,7 +45,11 @@ impl UnixListener {
             SuspensionReason::IoAccept,
             || self.inner.accept(),
         )?;
-        inner.set_nonblocking(true)?;
+        io::checked(
+            "set nonblocking",
+            inner.as_fd(),
+            inner.set_nonblocking(true),
+        )?;
         Ok((UnixStream { inner }, address))
     }
 }
@@ -49,16 +59,26 @@ impl UnixStream {
     pub fn connect(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().to_owned();
         blocking::run_for(SuspensionReason::IoConnect, move || {
-            let inner = std::os::unix::net::UnixStream::connect(path)?;
-            inner.set_nonblocking(true)?;
+            let inner = std::os::unix::net::UnixStream::connect(&path)
+                .map_err(|error| crate::Error::io("UnixStream connect", path.display(), error))?;
+            io::checked(
+                "set nonblocking",
+                inner.as_fd(),
+                inner.set_nonblocking(true),
+            )?;
             Ok(Self { inner })
         })?
     }
     /// Creates an anonymous connected pair without waiting for another endpoint.
     pub fn pair() -> Result<(Self, Self)> {
-        let (left, right) = std::os::unix::net::UnixStream::pair()?;
-        left.set_nonblocking(true)?;
-        right.set_nonblocking(true)?;
+        let (left, right) = std::os::unix::net::UnixStream::pair()
+            .map_err(|error| crate::Error::io("UnixStream pair", "anonymous endpoints", error))?;
+        io::checked("set nonblocking", left.as_fd(), left.set_nonblocking(true))?;
+        io::checked(
+            "set nonblocking",
+            right.as_fd(),
+            right.set_nonblocking(true),
+        )?;
         Ok((Self { inner: left }, Self { inner: right }))
     }
     /// Receives bytes or parks for read readiness; zero means EOF.
@@ -89,7 +109,11 @@ impl UnixStream {
     }
     /// Shuts down the specified directions.
     pub fn shutdown(&self, how: Shutdown) -> Result<()> {
-        Ok(self.inner.shutdown(how)?)
+        io::checked(
+            "socket shutdown",
+            self.inner.as_fd(),
+            self.inner.shutdown(how),
+        )
     }
 }
 

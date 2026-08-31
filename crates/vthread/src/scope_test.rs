@@ -6,8 +6,8 @@ use crate::{Error, Runtime};
 fn local_tasks_can_hold_non_send_values() {
     let runtime = Runtime::new().expect("build runtime");
     runtime
-        .scope(|scope| {
-            let task = scope.spawn("local", || {
+        .run_scope(|scope| {
+            let mut task = scope.spawn("local", || {
                 let task_value = Rc::new(41);
                 crate::yield_now().expect("mounted");
                 *task_value + 1
@@ -22,15 +22,15 @@ fn local_tasks_can_hold_non_send_values() {
 fn unobserved_child_panic_fails_scope_exit() {
     let runtime = Runtime::new().expect("build runtime");
     let error = runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let _dropped = scope.spawn("forgotten", || panic!("unobserved"))?;
             Ok(())
         })
         .expect_err("unobserved panic must fail scope");
 
     assert!(matches!(
-        error,
-        Error::TaskPanicked { ref name, .. } if name == "forgotten"
+        error.primary(),
+        Error::TaskPanicked { name, .. } if name == "forgotten"
     ));
 }
 
@@ -38,11 +38,11 @@ fn unobserved_child_panic_fails_scope_exit() {
 fn nested_scopes_are_rejected() {
     let runtime = Runtime::new().expect("build runtime");
     runtime
-        .scope(|_| {
+        .run_scope(|_| {
             let error = runtime
-                .scope(|_| Ok(()))
+                .run_scope(|_| Ok(()))
                 .expect_err("nested scope must fail");
-            assert!(matches!(error, Error::NestedScope));
+            assert!(matches!(error.primary(), Error::RootScopeActive));
             Ok(())
         })
         .expect("outer scope succeeds");

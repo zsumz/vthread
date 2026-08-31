@@ -6,7 +6,7 @@ fn activated_connections_release_their_counts() {
     let address = listener.local_addr().unwrap();
     let peer = std::net::TcpStream::connect(address).unwrap();
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let socket = scope.spawn("accept", move || listener.accept())?.join()??.0;
             let mut connection = super::Connection::new(socket, state.clone());
             assert_eq!(super::change(&state, |s| s.pending), 1);

@@ -9,23 +9,24 @@ fn socket_deadline_cleans_registration_and_preserves_unread_data() {
     let runtime = Runtime::new().unwrap();
     let (reader, writer) = UnixStream::pair().unwrap();
     let reader = Arc::new(reader);
-    runtime
-        .scope_with(
+    let error = runtime
+        .run_scope_with(
             ScopeOptions::default().deadline(Instant::now() + Duration::from_millis(30)),
             |scope| {
                 let reader = Arc::clone(&reader);
-                let task = scope.spawn("timeout", move || reader.read(&mut [0; 1]))?;
+                let mut task = scope.spawn("timeout", move || reader.read(&mut [0; 1]))?;
                 assert!(matches!(task.join()?, Err(Error::DeadlineExceeded)));
                 Ok(())
             },
         )
-        .unwrap();
+        .unwrap_err();
+    assert!(matches!(error.primary(), Error::DeadlineExceeded));
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("write", move || writer.write_all(b"x"))?
                 .join()??;
-            let task = scope.spawn("read-again", move || {
+            let mut task = scope.spawn("read-again", move || {
                 let mut byte = [0; 1];
                 reader.read_exact(&mut byte)?;
                 Ok::<_, Error>(byte)
@@ -43,15 +44,18 @@ fn readiness_capacity_rejects_excess_waits_without_poisoning_the_socket() {
     let (reader, _writer) = UnixStream::pair().unwrap();
     let reader = Arc::new(reader);
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let socket = Arc::clone(&reader);
-            let first = scope.spawn("first", move || socket.read(&mut [0; 1]))?;
+            let mut first = scope.spawn("first", move || socket.read(&mut [0; 1]))?;
             until(|| runtime.snapshot().services.readiness_waits == 1);
             let socket = Arc::clone(&reader);
-            let second = scope.spawn("excess", move || socket.read(&mut [0; 1]))?;
+            let mut second = scope.spawn("excess", move || socket.read(&mut [0; 1]))?;
             assert!(matches!(
                 second.join()?,
-                Err(Error::WaitQueueFull { limit: 1 })
+                Err(Error::Capacity {
+                    resource: crate::error::CapacityResource::Readiness,
+                    limit: 1
+                })
             ));
             scope.cancel();
             assert!(matches!(first.join()?, Err(Error::Cancelled)));
@@ -66,7 +70,7 @@ fn read_exact_reports_short_eof_without_discarding_the_received_prefix() {
     use std::net::Shutdown;
     let runtime = Runtime::new().unwrap();
     let (reader, writer) = UnixStream::pair().unwrap();
-    runtime.scope(|scope| {
+    runtime.run_scope(|scope| {
         scope.spawn("write", move || {
             writer.write_all(b"ab")?;
             writer.shutdown(Shutdown::Write)

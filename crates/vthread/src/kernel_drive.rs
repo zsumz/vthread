@@ -79,7 +79,10 @@ impl Kernel {
                 continue;
             };
             if lock(&parked.task.record).id != notice.task {
-                return Err(Error::Invariant("wake notice task does not own wait token"));
+                return Err(Error::fault(
+                    crate::error::FaultComponent::Scheduler,
+                    "wake notice task does not own wait token",
+                ));
             }
             let parked = self.parked.remove(&notice.token).expect("validated park");
             self.timers.cancel(notice.token);
@@ -108,13 +111,19 @@ impl Kernel {
     fn park_task(&mut self, request: ParkRequest) -> Result<()> {
         let token = request.token();
         if self.parked.contains_key(&token) {
-            return Err(Error::Invariant("wait token parked twice"));
+            return Err(Error::fault(
+                crate::error::FaultComponent::Scheduler,
+                "wait token parked twice",
+            ));
         }
         let registration = self.inbox.hub.take_registration(token)?;
         if let Some(deadline) = request.deadline()
             && !self.timers.schedule(token, deadline)
         {
-            return Err(Error::Invariant("wait timer scheduled twice"));
+            return Err(Error::fault(
+                crate::error::FaultComponent::Scheduler,
+                "wait timer scheduled twice",
+            ));
         }
         let task = self.in_flight.take().expect("parking task");
         self.shared.transition(&task.record, |record| {

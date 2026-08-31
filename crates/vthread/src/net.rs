@@ -11,14 +11,14 @@
 //! let listener = TcpListener::bind(([127, 0, 0, 1], 0).into())?;
 //! let address = listener.local_addr()?;
 //! let runtime = Runtime::new()?;
-//! runtime.scope(|scope| {
-//!     let server = scope.spawn("echo", move || {
+//! runtime.run_scope(|scope| {
+//!     let mut server = scope.spawn("echo", move || {
 //!         let (stream, _) = listener.accept()?;
 //!         let mut data = [0; 4];
 //!         stream.read_exact(&mut data)?;
 //!         stream.write_all(&data)
 //!     })?;
-//!     let client = scope.spawn("client", move || {
+//!     let mut client = scope.spawn("client", move || {
 //!         let stream = TcpStream::connect(address)?;
 //!         stream.write_all(b"ping")?;
 //!         let mut data = [0; 4];
@@ -34,7 +34,7 @@
 //! ```
 
 mod connect;
-mod io;
+pub(crate) mod io;
 mod tcp;
 mod udp;
 pub mod unix;
@@ -58,7 +58,8 @@ pub fn lookup_host(host: impl Into<String>, port: u16, limit: usize) -> Result<V
     let host = host.into();
     blocking::run_for(SuspensionReason::Dns, move || {
         let addresses = (host.as_str(), port)
-            .to_socket_addrs()?
+            .to_socket_addrs()
+            .map_err(|error| Error::io("resolve hostname", format_args!("{host}:{port}"), error))?
             .take(limit + 1)
             .collect::<Vec<_>>();
         if addresses.len() > limit {

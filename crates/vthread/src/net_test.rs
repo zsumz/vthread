@@ -4,7 +4,7 @@ use crate::{Error, Runtime, net};
 fn hostname_resolution_is_explicit_bounded_native_work() {
     let runtime = Runtime::new().unwrap();
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let addresses = scope
                 .spawn("resolve", || net::lookup_host("localhost", 80, 64))?
                 .join()??;

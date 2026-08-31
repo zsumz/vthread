@@ -14,16 +14,16 @@ fn round_robin_mounts_are_visible() {
     let trace = Arc::new(Mutex::new(Vec::new()));
 
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let left_trace = Arc::clone(&trace);
-            let left = scope.spawn("left", move || {
+            let mut left = scope.spawn("left", move || {
                 left_trace.lock().expect("trace").push("left:1");
                 yield_now().expect("mounted task");
                 left_trace.lock().expect("trace").push("left:2");
                 20
             })?;
             let right_trace = Arc::clone(&trace);
-            let right = scope.spawn("right", move || {
+            let mut right = scope.spawn("right", move || {
                 right_trace.lock().expect("trace").push("right:1");
                 yield_now().expect("mounted task");
                 right_trace.lock().expect("trace").push("right:2");
@@ -31,7 +31,7 @@ fn round_robin_mounts_are_visible() {
             })?;
 
             assert_eq!(left.join()? + right.join()?, 42);
-            let snapshot = scope.snapshot();
+            let snapshot = scope.runtime_snapshot();
             assert_eq!(snapshot.stats.mounts, 4);
             assert_eq!(snapshot.stats.yields, 2);
             assert!(snapshot.tasks.iter().all(|task| task.mounts == 2));
@@ -66,11 +66,11 @@ fn round_robin_mounts_are_visible() {
 fn a_task_panic_does_not_stop_the_carrier() {
     let runtime = Runtime::new().expect("build runtime");
     runtime
-        .scope(|scope| {
-            let failed = scope.spawn("failed", || panic!("boom"))?;
-            let healthy = scope.spawn("healthy", || 42)?;
+        .run_scope(|scope| {
+            let mut failed = scope.spawn("failed", || panic!("boom"))?;
+            let mut healthy = scope.spawn("healthy", || 42)?;
             let error = failed.join().expect_err("panic becomes join error");
-            assert!(matches!(error, Error::TaskPanicked { .. }));
+            assert!(matches!(error.primary(), Error::TaskPanicked { .. }));
             assert_eq!(healthy.join()?, 42);
             Ok(())
         })
@@ -91,8 +91,8 @@ fn panic_runs_stack_destructors() {
     let dropped = Arc::new(AtomicBool::new(false));
     let task_dropped = Arc::clone(&dropped);
     runtime
-        .scope(|scope| {
-            let failed = scope.spawn("failed", move || {
+        .run_scope(|scope| {
+            let mut failed = scope.spawn("failed", move || {
                 let _flag = DropFlag(task_dropped);
                 panic!("boom");
             })?;
@@ -110,7 +110,7 @@ fn completed_stacks_are_reused_by_later_tasks() {
         .build()
         .expect("build runtime");
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope.spawn("first", || ())?.join()?;
             scope.spawn("second", || ())?.join()?;
             Ok(())
@@ -132,12 +132,15 @@ fn a_stalled_parked_scope_is_cleaned_before_reuse() {
     let parker = Arc::new(parker);
     let parked_parker = Arc::clone(&parker);
     let error = runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let _parked = scope.spawn("parked", move || parked_parker.park())?;
             Ok(())
         })
         .expect_err("an unowned indefinite park must stall");
-    assert!(matches!(error, Error::RuntimeStalled { active: 1 }));
+    assert!(matches!(
+        error.primary(),
+        Error::RuntimeStalled { active: 1 }
+    ));
 
     let snapshot = runtime.snapshot();
     assert_eq!(snapshot.active, 0);
@@ -146,10 +149,10 @@ fn a_stalled_parked_scope_is_cleaned_before_reuse() {
     assert_eq!(snapshot.stats.aborted, 1);
 
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             assert_eq!(scope.spawn("reused", || 42)?.join()?, 42);
             let reused_parker = Arc::clone(&parker);
-            let parked = scope.spawn("park-again", move || {
+            let mut parked = scope.spawn("park-again", move || {
                 reused_parker.park_timeout(Duration::from_millis(1))
             })?;
             assert_eq!(parked.join()??, ParkOutcome::TimedOut);
@@ -167,7 +170,7 @@ fn an_unjoined_result_destructor_panic_does_not_kill_the_carrier() {
     }
     let runtime = crate::Runtime::new().unwrap();
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
-    let result = runtime.scope(|scope| {
+    let result = runtime.run_scope(|scope| {
         drop(scope.spawn("unjoined", move || {
             rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
             BadDrop
@@ -175,9 +178,12 @@ fn an_unjoined_result_destructor_panic_does_not_kill_the_carrier() {
         tx.send(()).unwrap();
         Ok(())
     });
-    assert!(matches!(result, Err(crate::Error::TaskPanicked { .. })));
+    assert!(matches!(
+        result.as_ref().map_err(crate::Error::primary),
+        Err(crate::Error::TaskPanicked { .. })
+    ));
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             assert_eq!(scope.spawn("still alive", || 42)?.join()?, 42);
             Ok(())
         })

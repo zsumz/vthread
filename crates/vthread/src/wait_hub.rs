@@ -43,10 +43,14 @@ impl WaitHub {
     pub(crate) fn register(&self, token: ParkToken, state: Weak<Mutex<WaitState>>) -> Result<()> {
         let mut hub = lock(&self.state);
         if hub.slots.contains_key(&token) {
-            return Err(Error::Invariant("wait token registered twice"));
+            return Err(Error::fault(
+                crate::error::FaultComponent::Scheduler,
+                "wait token registered twice",
+            ));
         }
         if hub.slots.len() >= self.capacity {
-            return Err(Error::AtCapacity {
+            return Err(Error::Capacity {
+                resource: crate::error::CapacityResource::Waiters,
                 limit: self.capacity,
             });
         }
@@ -68,10 +72,10 @@ impl WaitHub {
 
     pub(crate) fn take_registration(&self, token: ParkToken) -> Result<WaitRegistration> {
         let hub = lock(&self.state);
-        let slot = hub
-            .slots
-            .get(&token)
-            .ok_or(Error::Invariant("park request has no wait registration"))?;
+        let slot = hub.slots.get(&token).ok_or(Error::fault(
+            crate::error::FaultComponent::Scheduler,
+            "park request has no wait registration",
+        ))?;
         Ok(WaitRegistration {
             state: slot.state.clone(),
         })

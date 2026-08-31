@@ -6,14 +6,14 @@ use std::{cell::RefCell, sync::Arc};
 fn predicate_wait_releases_and_reacquires_on_one_carrier() {
     Runtime::new()
         .unwrap()
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("parent", || {
                     let mutex = Mutex::new(false, 2).unwrap();
                     let changed = Condvar::new(2).unwrap();
                     changed.notify_one(); // No stored notification.
                     local_scope(|local| {
-                        let waiter = local.spawn("predicate", || {
+                        let mut waiter = local.spawn("predicate", || {
                             let mut value = mutex.lock().unwrap();
                             while !*value {
                                 value = changed.wait(value).unwrap();
@@ -41,14 +41,14 @@ fn predicate_wait_releases_and_reacquires_on_one_carrier() {
 fn cancellation_removes_the_condition_wait_and_leaves_mutex_unlocked() {
     Runtime::new()
         .unwrap()
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("parent", || {
                     let mutex = Mutex::new(0, 1).unwrap();
                     let changed = Condvar::new(1).unwrap();
                     let token = RefCell::new(None);
                     local_scope(|local| {
-                        let waiter = local.spawn("cancelled", || {
+                        let mut waiter = local.spawn("cancelled", || {
                             *token.borrow_mut() = Some(crate::cancellation_token().unwrap());
                             changed.wait(mutex.lock().unwrap()).map(drop)
                         })?;
@@ -74,9 +74,9 @@ fn registration_and_unlock_do_not_lose_remote_notifications() {
     for _ in 0..64 {
         let pair = Arc::new((Mutex::new(false, 2).unwrap(), Condvar::new(2).unwrap()));
         runtime
-            .scope(|scope| {
+            .run_scope(|scope| {
                 let shared = Arc::clone(&pair);
-                let waiter = scope.spawn("waiter", move || {
+                let mut waiter = scope.spawn("waiter", move || {
                     let mut ready = shared.0.lock().unwrap();
                     while !*ready {
                         ready = shared.1.wait(ready).unwrap();

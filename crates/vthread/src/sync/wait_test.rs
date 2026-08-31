@@ -9,7 +9,7 @@ fn diagnostic_reason_is_nested_and_restored() {
     ));
     Runtime::new()
         .unwrap()
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("reasons", || {
                     let mounted = context::current().unwrap();

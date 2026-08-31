@@ -20,13 +20,13 @@ fn stop_request_does_not_execute_queued_user_destructors_on_its_caller() {
     let (drop_thread, dropped) = mpsc::sync_channel(1);
     let (stopped, stop_done) = mpsc::sync_channel(1);
     runtime
-        .scope(|scope| {
-            let first = scope.spawn("running", move || {
+        .run_scope(|scope| {
+            let mut first = scope.spawn("running", move || {
                 blocking::run(move || job_gate.recv_timeout(Duration::from_secs(5)).unwrap())
             })?;
             until(|| runtime.snapshot().services.blocking_running == 1);
             let capture = Capture(drop_gate, drop_thread);
-            let second = scope.spawn("queued", move || {
+            let mut second = scope.spawn("queued", move || {
                 blocking::run(move || {
                     let _capture = capture;
                     panic!("a stopped queued body must never run");
@@ -77,7 +77,7 @@ fn timed_shutdown_retains_blocked_cleanup_and_isolates_its_panic() {
     let (release_drop, drop_gate) = mpsc::sync_channel(1);
     let (drop_started, dropping) = mpsc::sync_channel(1);
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let first = scope.spawn("running", move || {
                 blocking::run(move || job_gate.recv_timeout(Duration::from_secs(5)).unwrap())
             })?;
@@ -105,7 +105,7 @@ fn timed_shutdown_retains_blocked_cleanup_and_isolates_its_panic() {
             assert!(dump.contains("blocking_discarding=1"));
             assert!(dump.contains("accepting=false"));
             runtime.shutdown()?;
-            for child in [first, second, third] {
+            for mut child in [first, second, third] {
                 let _ = child.join();
             }
             let services = runtime.snapshot().services;
@@ -121,8 +121,8 @@ fn timed_shutdown_does_not_wait_behind_a_native_worker_join() {
     let runtime = Arc::new(Runtime::new().unwrap());
     let (release, gate) = mpsc::sync_channel(1);
     runtime
-        .scope(|scope| {
-            let task = scope.spawn("native", move || {
+        .run_scope(|scope| {
+            let mut task = scope.spawn("native", move || {
                 blocking::run(move || gate.recv_timeout(Duration::from_secs(5)).unwrap())
             })?;
             until(|| runtime.snapshot().services.blocking_running == 1);

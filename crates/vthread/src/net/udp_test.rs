@@ -6,8 +6,8 @@ fn udp_preserves_datagram_boundaries_and_numeric_peer_addresses() {
     let server = UdpSocket::bind("127.0.0.1:0".parse().unwrap()).unwrap();
     let address = server.local_addr().unwrap();
     runtime
-        .scope(|scope| {
-            let receiver = scope.spawn("recv", move || {
+        .run_scope(|scope| {
+            let mut receiver = scope.spawn("recv", move || {
                 let mut buffer = [0; 8];
                 let (count, peer) = server.recv_from(&mut buffer)?;
                 assert_eq!(&buffer[..count], b"packet");

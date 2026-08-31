@@ -4,5 +4,5 @@ fn cancellation_racing_a_permit_does_not_poison_runtime_reuse() {
     for _ in 0..20 {
         super::cancel(&runtime).unwrap();
     }
-    assert_eq!(runtime.snapshot().active, 0);
+    assert_eq!(runtime.snapshot().active(), 0);
 }

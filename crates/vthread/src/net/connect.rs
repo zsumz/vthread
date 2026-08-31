@@ -5,6 +5,13 @@ use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use std::{io, net::SocketAddr, os::fd::AsFd};
 
 pub(super) fn tcp(address: SocketAddr) -> Result<std::net::TcpStream> {
+    tcp_inner(address).map_err(|error| match error {
+        crate::Error::Io(io) => crate::Error::io("TCP connect", address, io.into_io_error()),
+        other => other,
+    })
+}
+
+fn tcp_inner(address: SocketAddr) -> Result<std::net::TcpStream> {
     let _reason = Wait::enter(SuspensionReason::IoConnect)?;
     let socket = Socket::new(
         Domain::for_address(address),

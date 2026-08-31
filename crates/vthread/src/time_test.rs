@@ -11,20 +11,20 @@ fn sleeping_parks_instead_of_blocking_the_next_task() {
     let trace = Arc::new(Mutex::new(Vec::new()));
 
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let (release, wait) = std::sync::mpsc::sync_channel(1);
-            let gate = scope.spawn("admission-gate", move || {
+            let mut gate = scope.spawn("admission-gate", move || {
                 wait.recv_timeout(Duration::from_secs(5))
                     .expect("release queued tasks");
             })?;
             let sleeper_trace = Arc::clone(&trace);
-            let sleeper = scope.spawn("sleeper", move || {
+            let mut sleeper = scope.spawn("sleeper", move || {
                 sleeper_trace.lock().expect("trace").push("sleep:start");
                 sleep(Duration::from_millis(1)).expect("sleep task");
                 sleeper_trace.lock().expect("trace").push("sleep:end");
             })?;
             let worker_trace = Arc::clone(&trace);
-            let worker = scope.spawn("worker", move || {
+            let mut worker = scope.spawn("worker", move || {
                 worker_trace.lock().expect("trace").push("worker");
             })?;
 

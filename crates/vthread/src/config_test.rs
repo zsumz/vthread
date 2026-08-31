@@ -18,7 +18,7 @@ fn default_policy_preserves_delayed_external_wakes() {
         );
         wake.unpark();
     });
-    let result = runtime.scope(|scope| {
+    let result = runtime.run_scope(|scope| {
         scope
             .spawn("external wake", move || parker.park())?
             .join()?

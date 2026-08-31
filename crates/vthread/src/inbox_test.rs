@@ -12,7 +12,10 @@ fn a_full_or_stopped_ingress_rejects_without_losing_admission() {
     shared.submit(scope, "first".into(), || ()).expect("first");
     assert!(matches!(
         shared.submit(scope, "full".into(), || ()),
-        Err(Error::CarrierQueueFull)
+        Err(Error::Capacity {
+            resource: crate::error::CapacityResource::CarrierQueue,
+            ..
+        })
     ));
     assert_eq!(shared.snapshot().active, 1);
     let packet = shared.inboxes[0].pop().expect("packet remains");

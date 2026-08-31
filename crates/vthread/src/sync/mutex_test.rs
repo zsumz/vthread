@@ -6,7 +6,7 @@ use std::{sync::Arc, thread};
 fn single_carrier_contention_is_fifo_and_guards_can_yield() {
     Runtime::new()
         .unwrap()
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("parent", || {
                     let mutex = Mutex::new(Vec::new(), 4).unwrap();
@@ -28,7 +28,7 @@ fn single_carrier_contention_is_fifo_and_guards_can_yield() {
                         }
                         drop(guard);
                         assert!(matches!(mutex.try_lock(), Err(Error::WouldBlock)));
-                        for child in children {
+                        for mut child in children {
                             child.join()?;
                         }
                         Ok(())
@@ -46,7 +46,7 @@ fn multiple_carriers_exclude_each_other_and_preserve_updates() {
     let runtime = Runtime::builder().carriers(4).build().unwrap();
     let mutex = Arc::new(Mutex::new(0, 16).unwrap());
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let mut children = Vec::new();
             for _ in 0..16 {
                 let mutex = Arc::clone(&mutex);
@@ -59,7 +59,7 @@ fn multiple_carriers_exclude_each_other_and_preserve_updates() {
                     }
                 })?);
             }
-            for child in children {
+            for mut child in children {
                 child.join()?;
             }
             Ok(())
@@ -73,9 +73,9 @@ fn panic_unlocks_and_returns_the_modified_value_without_poisoning() {
     let runtime = Runtime::new().unwrap();
     let mutex = Arc::new(Mutex::new(0, 1).unwrap());
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let shared = Arc::clone(&mutex);
-            let task = scope.spawn("panic", move || {
+            let mut task = scope.spawn("panic", move || {
                 *shared.lock().unwrap() = 42;
                 let _guard = shared.lock().unwrap();
                 panic!("owner failed");
@@ -92,7 +92,7 @@ fn local_mutexes_can_protect_borrowed_non_send_values() {
     use std::{cell::Cell, rc::Rc};
     Runtime::new()
         .unwrap()
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("parent", || {
                     let value = Rc::new(Cell::new(0));

@@ -11,8 +11,8 @@ fn tcp_accept_connect_echo_and_eof_work_on_one_and_four_carriers() {
         let listener = TcpListener::bind("127.0.0.1:0".parse().unwrap()).unwrap();
         let address = listener.local_addr().unwrap();
         runtime
-            .scope(|scope| {
-                let server = scope.spawn("accept", move || {
+            .run_scope(|scope| {
+                let mut server = scope.spawn("accept", move || {
                     let (stream, _) = listener.accept()?;
                     let mut input = [0; 4];
                     stream.read_exact(&mut input)?;
@@ -20,7 +20,7 @@ fn tcp_accept_connect_echo_and_eof_work_on_one_and_four_carriers() {
                     stream.shutdown(Shutdown::Write)?;
                     Ok::<_, crate::Error>(input)
                 })?;
-                let client = scope.spawn("connect", move || {
+                let mut client = scope.spawn("connect", move || {
                     let stream = TcpStream::connect(address)?;
                     stream.set_nodelay(true)?;
                     stream.write_all(b"ping")?;
@@ -52,7 +52,7 @@ fn slow_external_io_does_not_trigger_the_ownerless_park_stall_policy() {
         stream.write_all(b"x").unwrap();
     });
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("slow-peer", move || {
                     let (stream, _) = listener.accept()?;

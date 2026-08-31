@@ -37,6 +37,7 @@ impl CarrierId {
 
 /// Why a carrier reclaimed a task without normal completion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TaskFailure {
     /// The borrowed scope exited and revoked its remaining child stacks.
     ScopeClosed,
@@ -54,6 +55,7 @@ pub enum TaskFailure {
 
 /// A reason a task voluntarily returned to its carrier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SuspensionReason {
     /// Explicit cooperative yield.
     YieldNow,
@@ -93,6 +95,7 @@ pub enum SuspensionReason {
 
 /// The winner that made one parked task runnable again.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum WakeReason {
     /// Readiness or an explicit unpark operation.
     Ready,
@@ -106,6 +109,7 @@ pub enum WakeReason {
 
 /// Current scheduler-visible task state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TaskStatus {
     /// An unstarted Send packet is waiting for its carrier.
     Queued,
@@ -133,37 +137,37 @@ impl TaskStatus {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskSnapshot {
     /// Task identity.
-    pub id: TaskId,
+    pub(crate) id: TaskId,
     /// User-supplied task name.
-    pub name: String,
+    pub(crate) name: String,
     /// Placement owner; the stack is created and always resumed on this carrier.
-    pub carrier: CarrierId,
+    pub(crate) carrier: CarrierId,
     /// Current park deadline, if any.
-    pub deadline: Option<Instant>,
+    pub(crate) deadline: Option<Instant>,
     /// Earliest inherited scope deadline.
-    pub inherited_deadline: Option<Instant>,
+    pub(crate) inherited_deadline: Option<Instant>,
     /// Owning root scope identity.
-    pub scope: u64,
+    pub(crate) scope: u64,
     /// Parent virtual thread for a borrowed local child.
-    pub parent: Option<TaskId>,
+    pub(crate) parent: Option<TaskId>,
     /// Whether cancellation was requested by this task or an ancestor.
-    pub cancellation_requested: bool,
+    pub(crate) cancellation_requested: bool,
     /// Reclamation failure, if the task was aborted.
-    pub failure: Option<TaskFailure>,
+    pub(crate) failure: Option<TaskFailure>,
     /// Current state.
-    pub status: TaskStatus,
+    pub(crate) status: TaskStatus,
     /// Number of times the task stack was mounted.
-    pub mounts: u64,
+    pub(crate) mounts: u64,
     /// Number of cooperative yields.
-    pub yields: u64,
+    pub(crate) yields: u64,
     /// Number of modeled park operations.
-    pub parks: u64,
+    pub(crate) parks: u64,
     /// Most recent typed suspension boundary, if any.
-    pub last_suspension: Option<SuspensionReason>,
+    pub(crate) last_suspension: Option<SuspensionReason>,
     /// Most recent selected wake reason, if any.
-    pub last_wake: Option<WakeReason>,
+    pub(crate) last_wake: Option<WakeReason>,
     /// Whether a join observed the outcome.
-    pub outcome_observed: bool,
+    pub(crate) outcome_observed: bool,
 }
 
 pub(crate) type SharedTaskRecord = Arc<Mutex<TaskRecord>>;

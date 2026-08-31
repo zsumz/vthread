@@ -37,7 +37,10 @@ fn main() -> Result<()> {
             "stats" => service.report(&runtime, "stats")?,
             "shutdown" => {
                 let outcome = runtime.shutdown_until(Instant::now() + Duration::from_secs(5))?;
-                assert!(matches!(outcome, vthread::ShutdownOutcome::Complete(_)));
+                assert!(matches!(
+                    outcome,
+                    vthread::lifecycle::ShutdownOutcome::Complete(_)
+                ));
                 service.report(&runtime, "stopped")?;
                 break;
             }

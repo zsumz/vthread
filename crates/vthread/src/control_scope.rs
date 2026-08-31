@@ -51,17 +51,19 @@ impl Shared {
             return Err(Error::RuntimeStopped);
         }
         if !supervised && state.active_scope.is_some() {
-            return Err(Error::NestedScope);
+            return Err(Error::RootScopeActive);
         }
         if state.scopes.len() >= self.config.max_vthreads() {
-            return Err(Error::AtCapacity {
+            return Err(Error::Capacity {
+                resource: crate::error::CapacityResource::Scopes,
                 limit: self.config.max_vthreads(),
             });
         }
         let id = state.next_scope;
-        state.next_scope = id
-            .checked_add(1)
-            .ok_or(Error::Invariant("scope id space exhausted"))?;
+        state.next_scope = id.checked_add(1).ok_or(Error::fault(
+            crate::error::FaultComponent::Lifecycle,
+            "scope id space exhausted",
+        ))?;
         if !supervised {
             state.active_scope = Some(id);
         }
@@ -118,27 +120,27 @@ impl Shared {
         }
     }
 
-    pub(crate) fn unobserved(&self, scope: u64) -> Result<()> {
+    pub(crate) fn unobserved(&self, scope: u64) -> crate::ScopeFailure {
+        let mut failures = crate::ScopeFailure::default();
         for record in lock(&self.state).records.values() {
             let record = lock(record);
             if record.scope != scope || record.outcome_observed {
                 continue;
             }
             if let Some(reason) = record.failure {
-                return Err(Error::TaskAborted {
+                failures.child_failed(Error::TaskAborted {
                     task: record.id,
                     reason,
                 });
-            }
-            if let Some(panic) = &record.panic {
-                return Err(Error::task_panicked(
+            } else if let Some(panic) = &record.panic {
+                failures.child_failed(Error::task_panicked(
                     record.id,
                     record.name.to_string(),
                     panic.clone(),
                 ));
             }
         }
-        Ok(())
+        failures
     }
 }
 

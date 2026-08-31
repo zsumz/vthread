@@ -10,14 +10,17 @@ fn unjoined_local_result_destructor_panics_are_owned_by_the_local_scope() {
     }
     let runtime = Runtime::new().unwrap();
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("parent", || {
                     let result = local_scope(|local| {
                         drop(local.spawn("unjoined", || BadDrop)?);
                         Ok(())
                     });
-                    assert!(matches!(result, Err(Error::TaskPanicked { .. })));
+                    assert!(matches!(
+                        result.as_ref().map_err(crate::Error::primary),
+                        Err(Error::TaskPanicked { .. })
+                    ));
                     crate::yield_now().unwrap();
                 })?
                 .join()

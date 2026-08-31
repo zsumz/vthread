@@ -12,6 +12,7 @@ use crate::{
 
 /// The selected winner for one parking generation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ParkOutcome {
     /// Readiness or an explicit unpark operation won.
     Ready,
@@ -25,6 +26,7 @@ pub enum ParkOutcome {
 
 /// The effect of an `Unparker::unpark` call.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum UnparkResult {
     /// An active parked task was selected for wakeup.
     Woke,

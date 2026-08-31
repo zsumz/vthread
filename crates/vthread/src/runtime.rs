@@ -10,12 +10,13 @@ use crate::{
 };
 use std::{
     fmt,
-    panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
+    panic::{AssertUnwindSafe, catch_unwind},
     sync::{Arc, Mutex},
     thread,
 };
 
-/// A bounded runtime with persistent, permanently affine carrier threads.
+/// An application lifecycle owner with one active root scope and persistent affine carriers.
+/// Explicit supervisors may coexist with that root; independent roots use separate runtimes.
 pub struct Runtime {
     config: RuntimeConfig,
     pub(crate) shared: Arc<Shared>,
@@ -55,7 +56,12 @@ impl Runtime {
                 config,
                 Arc::downgrade(&runtime.shared),
             )?)
-            .map_err(|_| Error::Invariant("runtime services initialized twice"))?;
+            .map_err(|_| {
+                Error::fault(
+                    crate::error::FaultComponent::Lifecycle,
+                    "runtime services initialized twice",
+                )
+            })?;
         for index in 0..config.carriers() {
             let shared = Arc::clone(&runtime.shared);
             let name = format!("vthread-carrier-{index}");
@@ -72,11 +78,16 @@ impl Runtime {
                         hook();
                     }
                 })
-                .map_err(Error::CarrierStart)?;
+                .map_err(|error| Error::thread_start(crate::ThreadComponent::Carrier, error))?;
             lock(&workers).push(worker);
         }
         runtime.shutdown_driver.ready(&runtime.shared);
         Ok(runtime)
+    }
+
+    /// Returns the process-unique runtime identity used by diagnostics.
+    pub fn id(&self) -> crate::diagnostics::RuntimeId {
+        self.shared.id
     }
 
     /// Returns the immutable runtime configuration.
@@ -88,12 +99,14 @@ impl Runtime {
     ///
     /// One lexical root scope may be active per runtime; supervisors may coexist.
     /// Virtual callers use local_scope for borrowed, nested ownership.
-    pub fn scope<R>(&self, body: impl FnOnce(&Scope<'_>) -> Result<R>) -> Result<R> {
-        self.scope_with(crate::ScopeOptions::default(), body)
+    pub fn run_scope<R>(&self, body: impl FnOnce(&Scope<'_>) -> Result<R>) -> Result<R> {
+        self.run_scope_with(crate::ScopeOptions::default(), body)
     }
 
-    /// Runs a structured scope with an optional inherited monotonic deadline.
-    pub fn scope_with<R>(
+    /// Runs a root with an inherited task deadline, observed before and after the callback.
+    /// The OS callback cannot be preempted. Child reclamation may exceed the deadline;
+    /// failures are retained in ScopeFailure and the latest runtime snapshot.
+    pub fn run_scope_with<R>(
         &self,
         options: crate::ScopeOptions,
         body: impl FnOnce(&Scope<'_>) -> Result<R>,
@@ -101,23 +114,27 @@ impl Runtime {
         if context::current().is_some() {
             return Err(Error::InsideVThread);
         }
+        if crate::worker_context::is_managed() {
+            return Err(Error::InsideBlockingWorker);
+        }
+        root_deadline(options.deadline)?;
         let id = self.shared.begin_owned(options, false)?;
         let scope = Scope::new(self, id);
         let result = catch_unwind(AssertUnwindSafe(|| body(&scope)));
-        if !matches!(&result, Ok(Ok(_))) {
+        let policy = root_deadline(options.deadline);
+        if !matches!(&result, Ok(Ok(_))) || policy.is_err() {
             scope.cancel();
         }
         let drained = self.shared.wait(id, None);
-        let unobserved = self.shared.unobserved(id);
+        let mut failures = self.shared.unobserved(id);
+        if let Err(error) = drained {
+            failures.cleanup_failed(error);
+        }
+        let policy = policy.and_then(|()| root_deadline(options.deadline));
         self.shared.finish_scope(id);
         match result {
-            Err(payload) => resume_unwind(payload),
-            Ok(result) => {
-                drained?;
-                let value = result?;
-                unobserved?;
-                Ok(value)
-            }
+            Err(payload) => failures.unwind(payload, policy, &self.shared),
+            Ok(result) => failures.finish(result, policy, &self.shared),
         }
     }
 
@@ -140,6 +157,14 @@ impl Runtime {
             spawned.cell,
             spawned.record,
         ))
+    }
+}
+
+fn root_deadline(deadline: Option<std::time::Instant>) -> Result<()> {
+    if deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
+        Err(Error::DeadlineExceeded)
+    } else {
+        Ok(())
     }
 }
 

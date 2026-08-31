@@ -13,7 +13,7 @@ fn carriers_run_simultaneously_and_stacks_keep_their_owner_across_remote_wakes()
     let runtime = Runtime::builder().carriers(2).build().expect("runtime");
     let (started_tx, started_rx) = mpsc::sync_channel(2);
     let owners = runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let mut jobs = Vec::new();
             let mut releases = Vec::new();
             let mut wakers = Vec::new();
@@ -55,7 +55,7 @@ fn carriers_run_simultaneously_and_stacks_keep_their_owner_across_remote_wakes()
                 "both carriers must run while the other is blocked"
             );
             let placement = scope
-                .snapshot()
+                .runtime_snapshot()
                 .tasks
                 .iter()
                 .map(|task| task.carrier)
@@ -64,7 +64,7 @@ fn carriers_run_simultaneously_and_stacks_keep_their_owner_across_remote_wakes()
             for release in releases {
                 release.send(()).expect("release");
             }
-            until(|| scope.snapshot().parked == 2);
+            until(|| scope.runtime_snapshot().parked == 2);
             for waker in wakers {
                 assert_eq!(
                     thread::spawn(move || waker.unpark())
@@ -74,10 +74,10 @@ fn carriers_run_simultaneously_and_stacks_keep_their_owner_across_remote_wakes()
                 );
             }
             let mut owners = Vec::new();
-            for job in jobs {
+            for mut job in jobs {
                 owners.push(job.join()?);
             }
-            let snapshot = scope.snapshot();
+            let snapshot = scope.runtime_snapshot();
             assert_eq!(
                 snapshot
                     .tasks
@@ -98,7 +98,7 @@ fn carriers_run_simultaneously_and_stacks_keep_their_owner_across_remote_wakes()
 
     // A later scope runs on the same persistent OS threads.
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             for _ in 0..8 {
                 let owner = scope
                     .spawn("reuse-carrier", || thread::current().id())?
@@ -115,13 +115,13 @@ fn external_unpark_interrupts_the_carriers_long_timer_wait() {
     let runtime = Runtime::new().expect("runtime");
     let (parker, unparker) = park_pair();
     runtime
-        .scope(|scope| {
-            let waiter = scope.spawn("remote", move || {
+        .run_scope(|scope| {
+            let mut waiter = scope.spawn("remote", move || {
                 let before = thread::current().id();
                 let outcome = parker.park_timeout(Duration::from_secs(5)).expect("park");
                 (before, thread::current().id(), outcome)
             })?;
-            until(|| scope.snapshot().parked == 1);
+            until(|| scope.runtime_snapshot().parked == 1);
             assert_eq!(
                 thread::spawn(move || unparker.unpark())
                     .join()
@@ -131,7 +131,7 @@ fn external_unpark_interrupts_the_carriers_long_timer_wait() {
             let (before, after, outcome) = waiter.join()?;
             assert_eq!(before, after);
             assert_eq!(outcome, ParkOutcome::Ready);
-            assert_eq!(scope.snapshot().stats.timeouts, 0);
+            assert_eq!(scope.runtime_snapshot().stats.timeouts, 0);
             Ok(())
         })
         .expect("scope");
@@ -145,9 +145,9 @@ fn stall_recovery_can_be_disabled_for_external_waits() {
         .expect("runtime");
     let (parker, unparker) = park_pair();
     runtime
-        .scope(|scope| {
-            let task = scope.spawn("external", move || parker.park())?;
-            until(|| scope.snapshot().parked == 1);
+        .run_scope(|scope| {
+            let mut task = scope.spawn("external", move || parker.park())?;
+            until(|| scope.runtime_snapshot().parked == 1);
             assert_eq!(unparker.unpark(), UnparkResult::Woke);
             assert_eq!(task.join()??, ParkOutcome::Ready);
             Ok(())
@@ -177,7 +177,7 @@ fn remote_unpark_racing_registration_never_loses_a_permit() {
         }
     });
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("registration-race", move || {
                     for _ in 0..256 {
@@ -212,7 +212,7 @@ fn repeated_generation_progress_resets_the_quiescent_scope_grace() {
         }
     });
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("progress", move || {
                     for _ in 0..64 {

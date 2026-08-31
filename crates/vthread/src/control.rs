@@ -21,11 +21,15 @@ use crate::{
 };
 
 pub(crate) struct Shared {
+    pub(crate) id: crate::identity::RuntimeId,
+    #[cfg(test)]
+    pub(crate) fail_coordinator_start: std::sync::atomic::AtomicBool,
     pub(crate) services: OnceLock<crate::services::Services>,
     pub(crate) config: RuntimeConfig,
     pub(crate) inboxes: Vec<Arc<Inbox>>,
     pub(crate) changed: Signal,
     pub(crate) failures: Mutex<crate::ThreadFailures>,
+    pub(crate) last_scope_failure: Mutex<Option<Arc<crate::ScopeFailure>>>,
     state: Mutex<State>,
     #[cfg(test)]
     pub(crate) fail_after_resume: std::sync::atomic::AtomicBool,
@@ -47,7 +51,7 @@ struct State {
     active: usize,
     loads: Vec<usize>,
     rejected: u64,
-    spawned: u64,
+    admitted: u64,
     records: BTreeMap<TaskId, SharedTaskRecord>,
     carriers: Vec<CarrierSnapshot>,
 }
@@ -55,10 +59,14 @@ struct State {
 impl Shared {
     pub(crate) fn new(config: RuntimeConfig) -> Self {
         Self {
+            id: crate::identity::RuntimeId::next(),
+            #[cfg(test)]
+            fail_coordinator_start: std::sync::atomic::AtomicBool::new(false),
             services: OnceLock::new(),
             config,
             changed: Signal::default(),
             failures: Mutex::new(crate::ThreadFailures::default()),
+            last_scope_failure: Mutex::new(None),
             #[cfg(test)]
             fail_after_resume: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
@@ -85,7 +93,7 @@ impl Shared {
                 active: 0,
                 loads: vec![0; config.carriers()],
                 rejected: 0,
-                spawned: 0,
+                admitted: 0,
                 records: BTreeMap::new(),
                 carriers: (0..config.carriers())
                     .map(|id| CarrierSnapshot::new(CarrierId(id)))
@@ -149,7 +157,8 @@ impl Shared {
         self.changed.notify();
     }
 
-    pub(crate) fn record_failure(&self, failure: crate::ThreadFailure) {
+    pub(crate) fn record_failure(&self, mut failure: crate::ThreadFailure) {
+        failure.shutdown_phase = lock(&self.state).shutdown_phase;
         lock(&self.failures).push(failure);
         self.changed.notify();
     }
@@ -209,13 +218,14 @@ impl Shared {
             accepting: state.accepting,
             last_stall: state.last_stall.clone(),
             failures: lock(&self.failures).clone(),
+            last_scope_failure: lock(&self.last_scope_failure).clone(),
             active: state.active,
             services: self
                 .services
                 .get()
                 .map(|services| services.snapshot())
                 .unwrap_or_default(),
-            ..RuntimeSnapshot::default()
+            ..RuntimeSnapshot::empty(self.id)
         };
         for (index, carrier) in state.carriers.iter().enumerate() {
             let mut carrier = carrier.clone();
@@ -229,7 +239,7 @@ impl Shared {
             snapshot.stacks.add(carrier.stacks);
             snapshot.carriers.push(carrier);
         }
-        snapshot.stats.spawned = state.spawned;
+        snapshot.stats.admitted = state.admitted;
         snapshot.stats.rejected = state.rejected;
         snapshot.tasks = state
             .records

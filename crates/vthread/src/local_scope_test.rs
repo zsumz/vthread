@@ -6,7 +6,7 @@ fn local_failure_cancellation_preserves_the_error_and_drains_siblings() {
     use crate::{Error, park_pair};
     let runtime = Runtime::new().unwrap();
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope.spawn("parent", || {
                 let dropped = Cell::new(false);
                 struct Guard<'a>(&'a Cell<bool>);
@@ -16,15 +16,15 @@ fn local_failure_cancellation_preserves_the_error_and_drains_siblings() {
                     }
                 }
                 let result = local_scope::<()>(|local| {
-                    local.spawn("sibling", || {
+                    let _ = local.spawn("sibling", || {
                         let _guard = Guard(&dropped);
                         let (park, _wake) = park_pair();
                         park.park()
                     })?;
                     yield_now()?;
-                    Err(Error::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, "bad frame")))
+                    Err(Error::from(std::io::Error::new(std::io::ErrorKind::InvalidData, "bad frame")))
                 });
-                assert!(matches!(result, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::InvalidData));
+                assert!(matches!(result.as_ref().map_err(crate::Error::primary), Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::InvalidData));
                 assert!(dropped.get());
                 assert!(!crate::cancellation_token().unwrap().is_cancelled());
                 local_scope(|local| {
@@ -42,11 +42,14 @@ fn local_deadline_remains_a_deadline_after_cleanup_cancellation() {
     use std::time::{Duration, Instant};
     let runtime = Runtime::new().unwrap();
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("parent", || {
                     let expired = local_scope_with_deadline(Instant::now(), |_| Ok(()));
-                    assert!(matches!(expired, Err(Error::DeadlineExceeded)));
+                    assert!(matches!(
+                        expired.as_ref().map_err(crate::Error::primary),
+                        Err(Error::DeadlineExceeded)
+                    ));
                     let result = local_scope_with_deadline(
                         Instant::now() + Duration::from_millis(20),
                         |local| {
@@ -55,17 +58,23 @@ fn local_deadline_remains_a_deadline_after_cleanup_cancellation() {
                                 .join()?
                         },
                     );
-                    assert!(matches!(result, Err(Error::DeadlineExceeded)));
+                    assert!(matches!(
+                        result.as_ref().map_err(crate::Error::primary),
+                        Err(Error::DeadlineExceeded)
+                    ));
                     let drained = local_scope_with_deadline(
                         Instant::now() + Duration::from_millis(20),
                         |local| {
-                            local.spawn("unjoined-deadline", || {
+                            let _ = local.spawn("unjoined-deadline", || {
                                 crate::sleep(Duration::from_secs(5))
                             })?;
                             Ok(())
                         },
                     );
-                    assert!(matches!(drained, Err(Error::DeadlineExceeded)));
+                    assert!(matches!(
+                        drained.as_ref().map_err(crate::Error::primary),
+                        Err(Error::DeadlineExceeded)
+                    ));
                     assert!(!crate::cancellation_token().unwrap().is_cancelled());
                     yield_now().unwrap();
                 })?
@@ -80,21 +89,21 @@ fn local_deadline_remains_a_deadline_after_cleanup_cancellation() {
 fn borrowed_non_send_children_and_results_stay_on_the_parent_carrier() {
     let runtime = Runtime::builder().carriers(2).build().unwrap();
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("parent", || {
                     let owner = thread::current().id();
                     let value = Rc::new(Cell::new(0));
                     let mut output = String::new();
                     local_scope(|local| {
-                        let left = local.spawn("borrowed", || {
+                        let mut left = local.spawn("borrowed", || {
                             yield_now().unwrap();
                             assert_eq!(thread::current().id(), owner);
                             value.set(42);
                             output.push_str("done");
                             Rc::clone(&value)
                         })?;
-                        let right = local.spawn("sibling", || {
+                        let mut right = local.spawn("sibling", || {
                             yield_now().unwrap();
                             thread::current().id()
                         })?;
@@ -117,19 +126,22 @@ fn nested_scopes_inherit_the_earliest_deadline_and_isolate_child_cancellation() 
     use std::time::{Duration, Instant};
     let runtime = Runtime::new().unwrap();
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("parent", || {
                     let early = Instant::now() + Duration::from_secs(5);
                     local_scope_with_deadline(early, |local| {
-                        let child = local.spawn("nested", || {
+                        let mut child = local.spawn("nested", || {
                             local_scope_with_deadline(early + Duration::from_secs(10), |nested| {
                                 assert_eq!(nested.deadline(), Some(early));
                                 nested.cancel();
                                 Ok(())
                             })
                         })?;
-                        assert!(matches!(child.join()?, Err(Error::Cancelled)));
+                        assert!(matches!(
+                            child.join()?.as_ref().map_err(crate::Error::primary),
+                            Err(Error::Cancelled)
+                        ));
                         assert!(!local.cancellation_token().is_cancelled());
                         Ok(())
                     })
@@ -157,14 +169,14 @@ fn shutdown_reclaims_nested_borrowed_children_before_the_parent_environment() {
     let runtime = Runtime::new().unwrap();
     let drops = Arc::new(AtomicUsize::new(0));
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let tracked = Arc::clone(&drops);
-            let parent = scope.spawn("parent", move || {
+            let mut parent = scope.spawn("parent", move || {
                 local_scope(|local| {
-                    local.spawn("borrowed", || {
+                    let _ = local.spawn("borrowed", || {
                         let _guard = Guard(&tracked);
                         local_scope(|nested| {
-                            nested.spawn("grandchild", || {
+                            let _ = nested.spawn("grandchild", || {
                                 let _guard = Guard(&tracked);
                                 let (parker, _waker) = park_pair();
                                 parker.park()
@@ -175,12 +187,12 @@ fn shutdown_reclaims_nested_borrowed_children_before_the_parent_environment() {
                     Ok(())
                 })
             })?;
-            until(|| scope.snapshot().parked == 3);
+            until(|| scope.runtime_snapshot().parked == 3);
             let report = runtime.shutdown()?;
             assert_eq!(report.aborted, 3);
             assert!(matches!(parent.join(), Err(Error::TaskAborted { .. })));
             assert_eq!(drops.load(Ordering::SeqCst), 2);
-            assert_eq!(scope.snapshot().active, 0);
+            assert_eq!(scope.runtime_snapshot().active, 0);
             Ok(())
         })
         .unwrap();
@@ -191,13 +203,13 @@ fn parent_panic_drains_local_children_before_borrowed_data_can_be_reused() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
     let runtime = Runtime::new().unwrap();
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("parent", || {
                     let value = Cell::new(0);
                     let outcome = catch_unwind(AssertUnwindSafe(|| {
                         local_scope::<()>(|local| {
-                            local.spawn("borrowed", || {
+                            let _ = local.spawn("borrowed", || {
                                 value.set(42);
                             })?;
                             panic!("parent body failed");

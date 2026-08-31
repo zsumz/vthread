@@ -27,10 +27,10 @@ impl WaitRegistration {
     }
 
     pub(crate) fn select_timeout(&self, token: ParkToken) -> Result<bool> {
-        let state = self
-            .state
-            .upgrade()
-            .ok_or(Error::Invariant("parked wait state was dropped"))?;
+        let state = self.state.upgrade().ok_or(Error::fault(
+            crate::error::FaultComponent::Scheduler,
+            "parked wait state was dropped",
+        ))?;
         Ok(select_generation(&state, token, WakeCause::TimedOut))
     }
 

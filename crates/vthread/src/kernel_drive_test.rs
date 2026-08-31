@@ -9,15 +9,15 @@ use crate::{ParkOutcome, Runtime, WakeReason, park_pair};
 fn timeout_updates_task_and_runtime_ledgers() {
     let runtime = Runtime::new().expect("build runtime");
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let (parker, _unparker) = park_pair();
-            let task = scope.spawn("timer", move || {
+            let mut task = scope.spawn("timer", move || {
                 parker
                     .park_timeout(Duration::from_millis(1))
                     .expect("park with timeout")
             })?;
             assert_eq!(task.join()?, ParkOutcome::TimedOut);
-            let snapshot = scope.snapshot();
+            let snapshot = scope.runtime_snapshot();
             let task = snapshot
                 .tasks
                 .iter()
@@ -40,22 +40,22 @@ fn parked_tasks_do_not_consume_mounts_until_selected() {
     let trace = Arc::new(Mutex::new(Vec::new()));
     let (parker, unparker) = park_pair();
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let waiter_trace = Arc::clone(&trace);
-            let waiter = scope.spawn("waiter", move || {
+            let mut waiter = scope.spawn("waiter", move || {
                 waiter_trace.lock().expect("trace").push("before");
                 parker.park().expect("park");
                 waiter_trace.lock().expect("trace").push("after");
             })?;
-            crate::support_test::until(|| scope.snapshot().parked == 1);
+            crate::support_test::until(|| scope.runtime_snapshot().parked == 1);
             let wake_trace = Arc::clone(&trace);
-            scope.spawn("wake", move || {
+            let _ = scope.spawn("wake", move || {
                 wake_trace.lock().expect("trace").push("wake");
                 unparker.unpark();
             })?;
             waiter.join()?;
             let waiter = scope
-                .snapshot()
+                .runtime_snapshot()
                 .tasks
                 .into_iter()
                 .find(|task| task.name == "waiter")

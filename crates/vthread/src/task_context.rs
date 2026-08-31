@@ -130,7 +130,10 @@ impl<T> TaskLocal<T> {
             Some(Value::Initializing) => return Err(Error::RecursiveTaskLocal),
             None => {
                 if execution.data.values.borrow().len() >= execution.data.capacity {
-                    return Err(Error::TaskLocalCapacity);
+                    return Err(Error::Capacity {
+                        resource: crate::error::CapacityResource::TaskLocals,
+                        limit: execution.data.capacity,
+                    });
                 }
                 execution
                     .data

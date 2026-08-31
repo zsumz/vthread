@@ -3,16 +3,47 @@
 use crate::{RuntimeSnapshot, TaskSnapshot};
 use std::fmt::{self, Write};
 
+/// Accounting for one bounded dump write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DumpReport {
+    bytes: usize,
+    truncated: bool,
+}
+impl DumpReport {
+    /// Bytes successfully written, never exceeding 64 KiB.
+    pub fn bytes(&self) -> usize {
+        self.bytes
+    }
+    /// Whether rows or text were omitted at the output budget.
+    pub fn truncated(&self) -> bool {
+        self.truncated
+    }
+}
 impl RuntimeSnapshot {
-    /// Writes a human-readable task dump without building a second in-memory copy.
+    /// Writes a human-readable task dump capped at 64 KiB, including a truncation marker.
     ///
     /// Names and error text are escaped. Carrier counters are independently published,
     /// so this is an observation, not a globally atomic scheduler trace. No stack frames
-    /// are unwound. The destination controls its own byte limit through `fmt::Write`.
-    pub fn write_dump(&self, output: &mut impl Write) -> fmt::Result {
+    /// are unwound. The returned report explicitly identifies omitted output.
+    /// The destination can reject writes with fmt::Error; no success report is returned then.
+    pub fn write_dump(&self, output: &mut impl Write) -> Result<DumpReport, fmt::Error> {
+        const MARKER: &str = "\n[dump truncated]\n";
+        let mut buffer = crate::diagnostic_text::BoundedText::new(64 * 1024 - MARKER.len());
+        let _ = self.render_dump(&mut buffer);
+        if buffer.truncated {
+            buffer.text.push_str(MARKER);
+        }
+        output.write_str(&buffer.text)?;
+        Ok(DumpReport {
+            bytes: buffer.text.len(),
+            truncated: buffer.truncated,
+        })
+    }
+    fn render_dump(&self, output: &mut impl Write) -> fmt::Result {
         writeln!(
             output,
-            "vthread dump v1 active={} runnable={} parked={} timers={} accepting={} shutdown={:?}",
+            "vthread dump v2 runtime={} active={} runnable={} parked={} timers={} accepting={} shutdown={:?}",
+            self.runtime_id,
             self.active,
             self.runnable,
             self.parked,

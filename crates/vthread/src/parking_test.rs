@@ -19,17 +19,17 @@ fn a_ready_task_wakes_one_parked_generation() {
     let (parker, unparker) = park_pair();
 
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let waiter_trace = Arc::clone(&trace);
-            let waiter = scope.spawn("waiter", move || {
+            let mut waiter = scope.spawn("waiter", move || {
                 waiter_trace.lock().expect("trace").push("park");
                 let outcome = parker.park().expect("park task");
                 waiter_trace.lock().expect("trace").push("resume");
                 outcome
             })?;
-            until(|| scope.snapshot().parked == 1);
+            until(|| scope.runtime_snapshot().parked == 1);
             let waker_trace = Arc::clone(&trace);
-            let waker = scope.spawn("waker", move || {
+            let mut waker = scope.spawn("waker", move || {
                 waker_trace.lock().expect("trace").push("wake");
                 unparker.unpark()
             })?;
@@ -50,8 +50,8 @@ fn a_preexisting_unpark_is_consumed_without_suspension() {
     assert_eq!(unparker.unpark(), UnparkResult::Stored);
 
     runtime
-        .scope(|scope| {
-            let waiter = scope.spawn("waiter", move || parker.park())?;
+        .run_scope(|scope| {
+            let mut waiter = scope.spawn("waiter", move || parker.park())?;
             assert_eq!(waiter.join()??, ParkOutcome::Ready);
             Ok(())
         })
@@ -65,8 +65,8 @@ fn an_expired_timeout_does_not_enter_the_parked_set() {
     let (parker, _unparker) = park_pair();
 
     runtime
-        .scope(|scope| {
-            let waiter = scope.spawn("waiter", move || parker.park_timeout(Duration::ZERO))?;
+        .run_scope(|scope| {
+            let mut waiter = scope.spawn("waiter", move || parker.park_timeout(Duration::ZERO))?;
             assert_eq!(waiter.join()??, ParkOutcome::TimedOut);
             Ok(())
         })
@@ -81,12 +81,12 @@ fn one_parker_rejects_two_active_consumers() {
     let parker = Arc::new(parker);
 
     runtime
-        .scope(|scope| {
+        .run_scope(|scope| {
             let first_parker = Arc::clone(&parker);
-            let first = scope.spawn("first", move || first_parker.park())?;
-            until(|| scope.snapshot().parked == 1);
+            let mut first = scope.spawn("first", move || first_parker.park())?;
+            until(|| scope.runtime_snapshot().parked == 1);
             let second_parker = Arc::clone(&parker);
-            let second = scope.spawn("second", move || second_parker.park())?;
+            let mut second = scope.spawn("second", move || second_parker.park())?;
 
             assert!(matches!(second.join()?, Err(Error::ParkerBusy)));
             assert_eq!(unparker.unpark(), UnparkResult::Woke);
@@ -103,16 +103,16 @@ fn cancellation_wins_without_closing_future_generations() {
     let canceller = unparker.clone();
 
     runtime
-        .scope(|scope| {
-            let waiter = scope.spawn("waiter", move || {
+        .run_scope(|scope| {
+            let mut waiter = scope.spawn("waiter", move || {
                 let first = parker.park().expect("first park");
                 let second = parker
                     .park_timeout(Duration::from_millis(1))
                     .expect("second park");
                 (first, second)
             })?;
-            until(|| scope.snapshot().parked == 1);
-            scope.spawn("cancel", move || {
+            until(|| scope.runtime_snapshot().parked == 1);
+            let _ = scope.spawn("cancel", move || {
                 yield_now().expect("mounted task");
                 assert!(canceller.cancel());
             })?;
@@ -131,14 +131,14 @@ fn close_wakes_and_is_terminal() {
     let closer = unparker.clone();
 
     runtime
-        .scope(|scope| {
-            let waiter = scope.spawn("waiter", move || {
+        .run_scope(|scope| {
+            let mut waiter = scope.spawn("waiter", move || {
                 let first = parker.park().expect("first park");
                 let second = parker.park().expect("closed park");
                 (first, second)
             })?;
-            until(|| scope.snapshot().parked == 1);
-            scope.spawn("close", move || {
+            until(|| scope.runtime_snapshot().parked == 1);
+            let _ = scope.spawn("close", move || {
                 assert!(closer.close());
             })?;
             assert_eq!(waiter.join()?, (ParkOutcome::Closed, ParkOutcome::Closed));

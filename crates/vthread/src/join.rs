@@ -15,12 +15,14 @@ pub(crate) struct JoinCell<T> {
 }
 
 /// A typed result handle whose completion follows carrier-side stack reclamation.
+#[must_use = "observe the result or explicitly drop it; the scope still owns the task"]
 pub struct JoinHandle<T> {
     shared: Arc<Shared>,
     id: TaskId,
     name: Arc<str>,
     cell: Arc<Mutex<JoinCell<T>>>,
     record: SharedTaskRecord,
+    taken: bool,
 }
 
 impl<T> JoinHandle<T> {
@@ -37,6 +39,7 @@ impl<T> JoinHandle<T> {
             name,
             cell,
             record,
+            taken: false,
         }
     }
 
@@ -50,8 +53,8 @@ impl<T> JoinHandle<T> {
         lock(&self.record).status.is_terminal()
     }
 
-    /// Parks a virtual caller or blocks an OS caller until stack and context reclamation.
-    pub fn join(self) -> Result<T> {
+    /// Waits without consuming observation ownership. Cancellation/deadlines are retryable.
+    pub fn wait(&mut self) -> Result<()> {
         if context::current().is_some() {
             crate::join_wait::wait_for(
                 &self.record,
@@ -62,6 +65,28 @@ impl<T> JoinHandle<T> {
             let scope = lock(&self.record).scope;
             self.shared.wait(scope, Some(self.id))?;
         }
+        Ok(())
+    }
+
+    /// Waits for reclamation and takes the result once; interruption retains the handle.
+    pub fn join(&mut self) -> Result<T> {
+        if self.taken {
+            return Err(Error::ResultAlreadyTaken);
+        }
+        self.wait()?;
+        self.take_result()
+    }
+
+    /// Takes a finished result without waiting or checking the caller's cancellation.
+    /// Returns WouldBlock while unfinished, or ResultAlreadyTaken after consumption.
+    pub fn take_result(&mut self) -> Result<T> {
+        if self.taken {
+            return Err(Error::ResultAlreadyTaken);
+        }
+        if !self.is_finished() {
+            return Err(Error::WouldBlock);
+        }
+        self.taken = true;
         let (failure, panic) = {
             let mut record = lock(&self.record);
             record.outcome_observed = true;
@@ -76,10 +101,10 @@ impl<T> JoinHandle<T> {
         if let Some(panic) = panic {
             return Err(Error::task_panicked(self.id, self.name.to_string(), panic));
         }
-        let outcome = lock(&self.cell)
-            .outcome
-            .take()
-            .ok_or(Error::Invariant("completed task has no join outcome"))?;
+        let outcome = lock(&self.cell).outcome.take().ok_or(Error::fault(
+            crate::error::FaultComponent::Scheduler,
+            "completed task has no join outcome",
+        ))?;
         outcome.map_err(|panic| Error::task_panicked(self.id, self.name.to_string(), panic))
     }
 }

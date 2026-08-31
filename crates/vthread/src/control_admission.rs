@@ -26,12 +26,17 @@ impl Shared {
         name: String,
         local: Option<(CarrierId, TaskId, TaskOptions)>,
     ) -> Result<SharedTaskRecord> {
-        let name = name.trim();
-        if name.is_empty() {
+        if name.trim().is_empty() {
             return Err(Error::invalid_configuration(
                 "task name",
                 "must not be empty",
             ));
+        }
+        if name.len() > 128 {
+            return Err(Error::LimitExceeded {
+                resource: "task name UTF-8 bytes",
+                limit: 128,
+            });
         }
         let mut state = lock(&self.state);
         let scope_state = state.scopes.get(&scope).ok_or(Error::RuntimeStopped)?;
@@ -50,7 +55,8 @@ impl Shared {
         }
         if state.records.len() >= self.config.max_vthreads() {
             state.rejected += 1;
-            return Err(Error::AtCapacity {
+            return Err(Error::Capacity {
+                resource: crate::error::CapacityResource::Tasks,
                 limit: self.config.max_vthreads(),
             });
         }
@@ -67,13 +73,16 @@ impl Shared {
         };
         let Some(owner) = owner else {
             state.rejected += 1;
-            return Err(Error::CarrierQueueFull);
+            return Err(Error::Capacity {
+                resource: crate::error::CapacityResource::CarrierQueue,
+                limit: self.config.carrier_queue_capacity(),
+            });
         };
         let id = TaskId::new(state.next_task);
-        state.next_task = state
-            .next_task
-            .checked_add(1)
-            .ok_or(Error::Invariant("task id space exhausted"))?;
+        state.next_task = state.next_task.checked_add(1).ok_or(Error::fault(
+            crate::error::FaultComponent::Scheduler,
+            "task id space exhausted",
+        ))?;
         let record = Arc::new(Mutex::new(TaskRecord {
             id,
             scope,
@@ -96,7 +105,7 @@ impl Shared {
         state.records.insert(id, Arc::clone(&record));
         state.active += 1;
         state.loads[owner] += 1;
-        state.spawned += 1;
+        state.admitted += 1;
         if let Some(scope) = state.scopes.get_mut(&scope) {
             scope.activity = scope.activity.wrapping_add(1);
         }
@@ -112,7 +121,7 @@ impl Shared {
         state.records.remove(&record.id);
         state.active -= 1;
         state.loads[record.carrier.0] -= 1;
-        state.spawned -= 1;
+        state.admitted -= 1;
         state.rejected += 1;
         if let Some(scope) = state.scopes.get_mut(&record.scope) {
             scope.activity = scope.activity.wrapping_add(1);
@@ -150,7 +159,10 @@ impl Shared {
             return Err(if self.inboxes[owner].stopped() {
                 Error::RuntimeStopped
             } else {
-                Error::CarrierQueueFull
+                Error::Capacity {
+                    resource: crate::error::CapacityResource::CarrierQueue,
+                    limit: self.config.carrier_queue_capacity(),
+                }
             });
         }
         Ok(Spawned {

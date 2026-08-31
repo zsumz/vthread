@@ -10,7 +10,10 @@ fn selected_tickets_remain_bounded_and_abandoned_permits_follow_fifo() {
     assert!(matches!(gate.try_take(), Err(Error::WouldBlock)));
     assert!(matches!(
         gate.subscribe(),
-        Err(Error::WaitQueueFull { limit: 2 })
+        Err(Error::Capacity {
+            resource: crate::error::CapacityResource::Waiters,
+            limit: 2
+        })
     ));
     drop(first);
     assert_eq!(

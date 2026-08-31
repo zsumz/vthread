@@ -29,7 +29,7 @@ impl<'runtime> Scope<'runtime> {
     /// ```compile_fail
     /// let runtime = vthread::Runtime::new().unwrap();
     /// let local = std::rc::Rc::new(42);
-    /// runtime.scope(|scope| {
+    /// runtime.run_scope(|scope| {
     ///     scope.spawn("not-transferable", move || *local)?;
     ///     Ok(())
     /// }).unwrap();
@@ -66,7 +66,7 @@ impl<'runtime> Scope<'runtime> {
     }
 
     /// Returns diagnostics for all tasks currently retained by the runtime.
-    pub fn snapshot(&self) -> RuntimeSnapshot {
+    pub fn runtime_snapshot(&self) -> RuntimeSnapshot {
         self.runtime.snapshot()
     }
 }

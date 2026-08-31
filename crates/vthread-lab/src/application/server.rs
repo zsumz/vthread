@@ -10,8 +10,8 @@ use std::{
     time::{Duration, Instant},
 };
 use vthread::{
-    Error, JoinHandle, Result, Runtime, Supervisor, SuspensionReason, TaskStatus, channel,
-    net::TcpListener,
+    Error, JoinHandle, Result, Runtime, channel, diagnostics::SuspensionReason,
+    diagnostics::TaskStatus, lifecycle::Supervisor, net::TcpListener,
 };
 
 pub(crate) struct Service {
@@ -57,11 +57,12 @@ pub(crate) fn start(
             stream.set_nodelay(true)?;
             let connection = Connection::new(stream, shared.clone());
             if let Err(rejected) = sender.try_send(connection) {
-                match rejected.error {
+                let (error, connection) = rejected.into_parts();
+                match error {
                     Error::WouldBlock => {
                         state::change(&shared, |state| state.rejected += 1);
                         // One byte fits the fresh socket's send buffer; this is still explicit I/O.
-                        let _ = rejected.value.stream.write_all(&[protocol::BUSY]);
+                        let _ = connection.stream.write_all(&[protocol::BUSY]);
                     }
                     Error::Closed => return Ok(()),
                     error => return Err(error),
@@ -77,7 +78,7 @@ pub(crate) fn start(
 }
 
 fn serve(connection: &Connection, timeout: Duration) -> Result<()> {
-    let result = (|| {
+    let result: Result<()> = (|| {
         connection.stream.write_all(&[protocol::READY])?;
         loop {
             let received = vthread::local_scope_with_deadline(Instant::now() + timeout, |scope| {
@@ -95,23 +96,24 @@ fn serve(connection: &Connection, timeout: Duration) -> Result<()> {
     })();
     match result {
         Ok(()) => Ok(()),
-        Err(Error::DeadlineExceeded) => {
+        Err(error) if matches!(error.primary(), Error::DeadlineExceeded) => {
             state::change(&connection.state, |state| state.deadlines += 1);
             Ok(())
         }
-        Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::InvalidData => {
+        Err(error) if matches!(error.primary(), Error::Io(source) if source.kind() == std::io::ErrorKind::InvalidData) =>
+        {
             state::change(&connection.state, |state| state.malformed += 1);
             Ok(())
         }
-        Err(Error::Io(error))
-            if matches!(
-                error.kind(),
+        Err(error)
+            if matches!(error.primary(), Error::Io(source) if matches!(
+                source.kind(),
                 std::io::ErrorKind::UnexpectedEof
                     | std::io::ErrorKind::BrokenPipe
                     | std::io::ErrorKind::ConnectionReset
                     | std::io::ErrorKind::ConnectionAborted
                     | std::io::ErrorKind::NotConnected
-            ) =>
+            )) =>
         {
             state::change(&connection.state, |state| state.disconnected += 1);
             Ok(())
@@ -126,12 +128,12 @@ impl Service {
         let snapshot = runtime.snapshot();
         let waits = |reason| {
             snapshot
-                .tasks
+                .tasks()
                 .iter()
-                .filter(|task| task.status == TaskStatus::Suspended(reason))
+                .filter(|task| task.status() == TaskStatus::Suspended(reason))
                 .count()
         };
-        let io = snapshot.services;
+        let io = snapshot.services();
         writeln!(
             std::io::stdout(),
             concat!(
@@ -156,31 +158,31 @@ impl Service {
             state.peak_active,
             waits(SuspensionReason::IoRead),
             waits(SuspensionReason::IoWrite),
-            snapshot.active,
-            snapshot.parked,
-            snapshot.timers,
-            io.readiness_waits,
-            io.readiness_registered,
-            io.blocking_running + io.blocking_queued + io.blocking_discarding,
-            snapshot.stats.panicked,
-            snapshot.stats.spawned,
-            snapshot.stats.completed,
-            snapshot.stats.aborted,
-            snapshot.stacks.allocated,
-            snapshot.stacks.cached,
-            snapshot.shutdown_phase
+            snapshot.active(),
+            snapshot.parked(),
+            snapshot.timers(),
+            io.readiness_waits(),
+            io.readiness_registered(),
+            io.blocking_running() + io.blocking_queued() + io.blocking_discarding(),
+            snapshot.stats().panicked(),
+            snapshot.stats().admitted(),
+            snapshot.stats().completed(),
+            snapshot.stats().aborted(),
+            snapshot.stacks().allocated(),
+            snapshot.stacks().cached(),
+            snapshot.shutdown_phase()
         )?;
         std::io::stdout().flush()?;
         Ok(())
     }
 
     pub(crate) fn join(self) -> Result<()> {
-        for task in self.tasks {
+        for mut task in self.tasks {
             // These handles are observed after runtime shutdown; interrupted I/O is expected.
             match task.join().and_then(|result| result) {
                 Ok(()) | Err(Error::Cancelled | Error::RuntimeStopped) => {}
                 Err(Error::TaskAborted {
-                    reason: vthread::TaskFailure::RuntimeStopped,
+                    reason: vthread::diagnostics::TaskFailure::RuntimeStopped,
                     ..
                 }) => {}
                 Err(error) => return Err(error),

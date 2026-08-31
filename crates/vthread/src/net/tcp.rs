@@ -23,13 +23,18 @@ pub struct TcpStream {
 impl TcpListener {
     /// Binds a numeric address without hostname resolution.
     pub fn bind(address: SocketAddr) -> Result<Self> {
-        let inner = std::net::TcpListener::bind(address)?;
-        inner.set_nonblocking(true)?;
+        let inner = std::net::TcpListener::bind(address)
+            .map_err(|error| crate::Error::io("TCP bind", address, error))?;
+        io::checked(
+            "set nonblocking",
+            inner.as_fd(),
+            inner.set_nonblocking(true),
+        )?;
         Ok(Self { inner })
     }
     /// Returns the bound address.
     pub fn local_addr(&self) -> Result<SocketAddr> {
-        Ok(self.inner.local_addr()?)
+        io::checked("local address", self.inner.as_fd(), self.inner.local_addr())
     }
     /// Accepts a connection, parking for read readiness when none is queued.
     pub fn accept(&self) -> Result<(TcpStream, SocketAddr)> {
@@ -39,7 +44,11 @@ impl TcpListener {
             SuspensionReason::IoAccept,
             || self.inner.accept(),
         )?;
-        stream.set_nonblocking(true)?;
+        io::checked(
+            "set nonblocking",
+            stream.as_fd(),
+            stream.set_nonblocking(true),
+        )?;
         Ok((TcpStream { inner: stream }, address))
     }
 }
@@ -78,19 +87,27 @@ impl TcpStream {
     }
     /// Shuts down one or both directions, waking affected readiness waits through the OS.
     pub fn shutdown(&self, how: Shutdown) -> Result<()> {
-        Ok(self.inner.shutdown(how)?)
+        io::checked(
+            "socket shutdown",
+            self.inner.as_fd(),
+            self.inner.shutdown(how),
+        )
     }
     /// Returns the local socket address.
     pub fn local_addr(&self) -> Result<SocketAddr> {
-        Ok(self.inner.local_addr()?)
+        io::checked("local address", self.inner.as_fd(), self.inner.local_addr())
     }
     /// Returns the peer socket address.
     pub fn peer_addr(&self) -> Result<SocketAddr> {
-        Ok(self.inner.peer_addr()?)
+        io::checked("peer address", self.inner.as_fd(), self.inner.peer_addr())
     }
     /// Controls TCP_NODELAY.
     pub fn set_nodelay(&self, enabled: bool) -> Result<()> {
-        Ok(self.inner.set_nodelay(enabled)?)
+        io::checked(
+            "set TCP_NODELAY",
+            self.inner.as_fd(),
+            self.inner.set_nodelay(enabled),
+        )
     }
 }
 

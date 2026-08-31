@@ -46,7 +46,10 @@ impl Permit {
     fn reserve(state: Arc<State>) -> Result<Self> {
         let mut slots = lock(&state.slots);
         if slots.occupied == CAPACITY {
-            return Err(Error::LifecycleCapacity { limit: CAPACITY });
+            return Err(Error::Capacity {
+                resource: crate::error::CapacityResource::Lifecycles,
+                limit: CAPACITY,
+            });
         }
         slots.occupied += 1;
         drop(slots);
@@ -79,7 +82,8 @@ pub(crate) fn start(shared: Arc<Shared>, body: impl FnOnce() + Send + 'static) -
         let worker = thread::Builder::new()
             .name("vthread-lifecycle-owner".into())
             .stack_size(256 * 1024)
-            .spawn(move || reap(service))?;
+            .spawn(move || reap(service))
+            .map_err(|error| Error::thread_start(crate::ThreadComponent::LifecycleOwner, error))?;
         *owner = Some(Owner {
             state,
             _worker: worker,
@@ -89,6 +93,16 @@ pub(crate) fn start(shared: Arc<Shared>, body: impl FnOnce() + Send + 'static) -
         &owner.as_ref().expect("initialized owner").state,
     ))?;
     drop(owner);
+    #[cfg(test)]
+    if shared
+        .fail_coordinator_start
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        return Err(Error::thread_start(
+            crate::ThreadComponent::Coordinator,
+            std::io::Error::other("injected coordinator spawn failure"),
+        ));
+    }
     let runtime = Arc::downgrade(&shared);
     let worker = thread::Builder::new()
         .name("vthread-shutdown".into())
@@ -96,7 +110,8 @@ pub(crate) fn start(shared: Arc<Shared>, body: impl FnOnce() + Send + 'static) -
         .spawn(move || {
             crate::worker_context::attach(runtime, crate::ThreadComponent::Coordinator);
             body();
-        })?;
+        })
+        .map_err(|error| Error::thread_start(crate::ThreadComponent::Coordinator, error))?;
     permit.install(Entry { worker, shared });
     Ok(())
 }

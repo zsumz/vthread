@@ -6,7 +6,7 @@ fn file_requests_use_owned_inputs_enforce_read_limits_and_report_errors() {
     let work_path = path.clone();
     Runtime::new()
         .unwrap()
-        .scope(|scope| {
+        .run_scope(|scope| {
             scope
                 .spawn("files", move || {
                     fs::write(&work_path, b"data".to_vec())?;
@@ -33,7 +33,7 @@ fn a_small_file_does_not_reserve_the_callers_large_limit() {
     let runtime = crate::Runtime::new().unwrap();
     for limit in [16 * 1024 * 1024, usize::MAX] {
         let data = runtime
-            .scope(|scope| {
+            .run_scope(|scope| {
                 scope
                     .spawn("small file", move || super::read("Cargo.toml", limit))?
                     .join()?
