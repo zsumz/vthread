@@ -45,16 +45,19 @@ fn cancelling_a_running_call_returns_before_its_late_result_is_destroyed() {
     let runtime = Runtime::new().unwrap();
     let drops = Arc::new(AtomicUsize::new(0));
     let (send, receive) = mpsc::sync_channel(1);
+    let (started, entered) = mpsc::sync_channel(1);
     runtime
         .run_scope(|scope| {
             let tracked = Arc::clone(&drops);
             let mut caller = scope.spawn("cancel", move || {
                 blocking::run(move || {
+                    started.send(()).unwrap();
                     receive.recv_timeout(Duration::from_secs(5)).unwrap();
                     Value(tracked)
                 })
             })?;
-            until(|| runtime.snapshot().services.blocking_running == 1);
+            entered.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert_eq!(runtime.snapshot().services.blocking_running, 1);
             scope.cancel();
             assert!(matches!(caller.join()?, Err(Error::Cancelled)));
             assert_eq!(drops.load(Ordering::SeqCst), 0);
