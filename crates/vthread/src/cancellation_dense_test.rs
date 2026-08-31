@@ -1,4 +1,4 @@
-use crate::{Error, JoinHandle, Result, Runtime, Spawner, park_pair};
+use crate::{Error, JoinHandle, Result, Runtime, Spawner, Unparker, park_pair};
 use std::{
     io::Write,
     sync::{Arc, mpsc},
@@ -11,6 +11,7 @@ const CHILDREN: usize = 128;
 const SETUP_TIMEOUT: Duration = Duration::from_secs(60);
 
 enum Event {
+    Ready(Unparker),
     Next(JoinHandle<Result<()>>),
     Fanout(Vec<JoinHandle<Result<()>>>),
 }
@@ -24,6 +25,9 @@ fn until_setup(mut condition: impl FnMut() -> bool) {
 }
 
 fn handoff(index: usize, spawners: Arc<Vec<Spawner>>, sent: mpsc::Sender<Event>) -> Result<()> {
+    let (gate, release) = park_pair();
+    sent.send(Event::Ready(release)).unwrap();
+    let _ = gate.park()?;
     if index < spawners.len() {
         let next_spawners = Arc::clone(&spawners);
         let next_sent = sent.clone();
@@ -68,6 +72,9 @@ fn public_cross_owner_fanout_has_bounded_eviction_and_wakes_from_early_owner() {
             })?;
             let mut children = loop {
                 match received.recv_timeout(SETUP_TIMEOUT).unwrap() {
+                    Event::Ready(release) => {
+                        let _ = release.unpark();
+                    }
                     Event::Next(next) => {
                         current.join()??;
                         drop(current);
