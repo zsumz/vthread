@@ -18,17 +18,17 @@ fn dropped_intermediate_tokens_do_not_retain_history() {
     for generation in 0..GENERATIONS {
         current = current.child_token();
         if generation % 64 == 0 {
-            let (nodes, edges) = current.graph_snapshot();
+            let (nodes, relays, edges) = current.graph_snapshot();
             assert!(
-                nodes <= 2 && edges <= 1,
-                "generation {generation}: {nodes} nodes, {edges} edges"
+                nodes <= 2 && relays == 0 && edges <= 1,
+                "generation {generation}: {nodes} nodes, {relays} relays, {edges} edges"
             );
         }
     }
     ancestor.cancel();
     assert!(current.is_cancelled());
     drop(current);
-    assert_eq!(ancestor.graph_snapshot(), (1, 0));
+    assert_eq!(ancestor.graph_snapshot(), (1, 0, 0));
 }
 
 type Handoff = (JoinHandle<Result<()>>, Unparker);
@@ -83,8 +83,8 @@ fn sequential_dynamic_generations_keep_cancellation_live_and_bounded() {
                 drop(current);
                 (current, wake) = received.recv_timeout(Duration::from_secs(10)).unwrap();
                 let snapshot = current.cancellation_token().graph_snapshot();
-                peak = (peak.0.max(snapshot.0), peak.1.max(snapshot.1));
-                assert!(snapshot.0 <= 8 && snapshot.1 <= 12,
+                peak = (peak.0.max(snapshot.0), peak.1.max(snapshot.2));
+                assert!(snapshot.0 <= 8 && snapshot.1 <= 1 && snapshot.2 <= 12,
                     "generation {index}: {snapshot:?}");
                 assert!(runtime.snapshot().tasks().len() <= 2);
             }

@@ -49,7 +49,7 @@ fn dropping_a_retained_deep_token_chain_does_not_recurse() {
             }
             let last = tokens.last().unwrap().clone();
             drop(tokens);
-            assert_eq!(root.graph_snapshot(), (2, 1));
+            assert_eq!(root.graph_snapshot(), (2, 0, 1));
             root.cancel();
             assert!(last.is_cancelled());
         })
@@ -68,8 +68,9 @@ fn alternating_owners_prune_history_without_losing_any_retained_canceller() {
         for generation in 0..100_000 {
             current = current.child_for_scope(&owners[generation % 2]);
             if generation % 64 == 0 {
-                let (nodes, edges) = current.graph_snapshot();
+                let (nodes, relays, edges) = current.graph_snapshot();
                 assert_eq!(nodes, 5);
+                assert_eq!(relays, 0);
                 assert!(edges <= 6);
             }
         }

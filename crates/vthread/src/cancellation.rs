@@ -124,7 +124,7 @@ impl CancellationToken {
     }
 
     #[cfg(test)]
-    fn graph_snapshot(&self) -> (usize, usize) {
+    fn graph_snapshot(&self) -> (usize, usize, usize) {
         lock(&self.0.domain.state).graph.snapshot()
     }
 }
@@ -159,3 +159,7 @@ mod cancellation_history_test;
 #[cfg(test)]
 #[path = "cancellation_race_test.rs"]
 mod cancellation_race_test;
+
+#[cfg(test)]
+#[path = "cancellation_dense_test.rs"]
+mod cancellation_dense_test;
