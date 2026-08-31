@@ -1,4 +1,27 @@
 //! Public one-permit parking and wake handles.
+//!
+//! ```
+//! use std::{rc::Rc, thread, time::Duration};
+//! use vthread::{Runtime, parking::{ParkOutcome, park_pair}};
+//!
+//! fn main() -> vthread::Result<()> {
+//!     let runtime = Runtime::builder().carriers(2).build()?;
+//!     runtime.run_scope(|scope| {
+//!         let (parker, unparker) = park_pair();
+//!         let mut waiter = scope.spawn("waiter", move || {
+//!             let owner = thread::current().id();
+//!             let local = Rc::new(42);
+//!             let outcome = parker.park_timeout(Duration::from_secs(5))?;
+//!             assert_eq!(thread::current().id(), owner);
+//!             Ok::<_, vthread::Error>((*local, outcome))
+//!         })?;
+//!         thread::spawn(move || unparker.unpark()).join().expect("remote waker");
+//!         assert_eq!(waiter.join()??, (42, ParkOutcome::Ready));
+//!         Ok(())
+//!     })?;
+//!     runtime.shutdown().map(|_| ())
+//! }
+//! ```
 
 use std::{
     fmt,
