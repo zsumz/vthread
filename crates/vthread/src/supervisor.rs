@@ -3,7 +3,7 @@
 use crate::{
     CancellationToken, Error, JoinHandle, Result, Runtime, ScopeOptions, TaskFailure, context,
 };
-use std::{marker::PhantomData, rc::Rc};
+use std::{marker::PhantomData, rc::Rc, time::Instant};
 
 /// Cumulative outcomes observed after reclaiming the owned work.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -20,18 +20,32 @@ pub struct ShutdownReport {
     pub failed_carriers: usize,
 }
 
+/// Deadline-bounded observation of supervised child reclamation, not runtime shutdown.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SupervisorShutdownOutcome {
+    /// This supervisor's child stacks were reclaimed; native services remain runtime-owned.
+    Complete(ShutdownReport),
+    /// The supervisor still owns its unfinished work and may be waited on again.
+    TimedOut(Box<crate::RuntimeSnapshot>),
+}
+
 /// An ordinary-OS-caller owner for intentionally long-lived tasks.
 ///
-/// Dropping this owner stops and reclaims its work. It is deliberately non-Send:
-/// its blocking destructor must not move into a virtual thread.
+/// Drop stops and reclaims its work and may block indefinitely on native calls, CPU loops
+/// or destructors. Use request_shutdown and shutdown_until for a bounded observation, then
+/// keep the owner until completion. It is non-Send and cannot be created on managed workers.
 ///
 /// ```compile_fail
 /// fn require_send<T: Send>() {}
 /// require_send::<vthread::Supervisor<'static>>();
 /// ```
+#[must_use = "the supervisor owns child reclamation; dropping it can block"]
 pub struct Supervisor<'runtime> {
     runtime: &'runtime Runtime,
     scope: Option<u64>,
+    cancellation: CancellationToken,
+    completed: Option<ShutdownReport>,
     owner: PhantomData<Rc<()>>,
 }
 
@@ -41,10 +55,20 @@ impl Runtime {
         if context::current().is_some() {
             return Err(Error::InsideVThread);
         }
+        if crate::worker_context::is_managed() {
+            return Err(Error::InsideBlockingWorker);
+        }
         let scope = self.shared.begin_owned(options, true)?;
+        let cancellation = self
+            .shared
+            .scope_options(scope)
+            .expect("owned scope")
+            .cancellation;
         Ok(Supervisor {
             runtime: self,
             scope: Some(scope),
+            cancellation,
+            completed: None,
             owner: PhantomData,
         })
     }
@@ -58,16 +82,12 @@ impl Supervisor<'_> {
         entry: impl FnOnce() -> T + Send + 'static,
     ) -> Result<JoinHandle<T>> {
         self.runtime
-            .spawn(self.scope.expect("live supervisor"), name.into(), entry)
+            .spawn(self.scope.ok_or(Error::RuntimeStopped)?, name.into(), entry)
     }
 
     /// Returns the cancellation token inherited by supervised work.
     pub fn cancellation_token(&self) -> CancellationToken {
-        self.runtime
-            .shared
-            .scope_options(self.scope.expect("live supervisor"))
-            .expect("owned scope")
-            .cancellation
+        self.cancellation.clone()
     }
 
     /// Requests cooperative cancellation without detaching or forcibly interrupting work.
@@ -77,27 +97,49 @@ impl Supervisor<'_> {
 
     /// Stops this supervisor's work and waits for stack reclamation at runtime boundaries.
     pub fn shutdown(mut self) -> Result<ShutdownReport> {
-        self.close()
+        self.close(None)?
+            .ok_or(Error::Invariant("unbounded supervisor wait timed out"))
     }
 
-    fn close(&mut self) -> Result<ShutdownReport> {
-        let Some(scope) = self.scope.take() else {
-            return Ok(ShutdownReport::default());
+    /// Closes child admission and requests reclamation without waiting for user work.
+    pub fn request_shutdown(&self) {
+        if let Some(scope) = self.scope {
+            self.runtime
+                .shared
+                .abort_scope(scope, TaskFailure::SupervisorStopped);
+        }
+    }
+
+    /// Waits until a monotonic deadline, retaining ownership on timeout for retry.
+    /// Dropping this owner after a timeout still blocks until its children are reclaimed.
+    pub fn shutdown_until(&mut self, deadline: Instant) -> Result<SupervisorShutdownOutcome> {
+        match self.close(Some(deadline))? {
+            Some(report) => Ok(SupervisorShutdownOutcome::Complete(report)),
+            None => Ok(SupervisorShutdownOutcome::TimedOut(Box::new(
+                self.runtime.snapshot(),
+            ))),
+        }
+    }
+
+    fn close(&mut self, deadline: Option<Instant>) -> Result<Option<ShutdownReport>> {
+        let Some(scope) = self.scope else {
+            return Ok(self.completed.clone());
         };
-        self.runtime
-            .shared
-            .abort_scope(scope, TaskFailure::SupervisorStopped);
-        let drained = self.runtime.shared.wait(scope, None);
+        self.request_shutdown();
+        if !self.runtime.shared.wait_until(scope, None, deadline)? {
+            return Ok(None);
+        }
         let report = self.runtime.shared.scope_report(scope);
         self.runtime.shared.finish_scope(scope);
-        drained?;
-        Ok(report)
+        self.scope = None;
+        self.completed = Some(report.clone());
+        Ok(Some(report))
     }
 }
 
 impl Drop for Supervisor<'_> {
     fn drop(&mut self) {
-        let _ = self.close();
+        let _ = self.close(None);
     }
 }
 

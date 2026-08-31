@@ -32,7 +32,7 @@ fn services_are_bounded_and_shutdown_joins_every_worker() {
 #[test]
 fn owned_native_progress_is_not_misclassified_as_a_stalled_scope() {
     let runtime = Runtime::builder()
-        .stall_timeout(Some(Duration::from_millis(10)))
+        .stall_policy(crate::StallPolicy::AbortAfter(Duration::from_millis(10)))
         .build()
         .unwrap();
     let started = Arc::new(AtomicBool::new(false));

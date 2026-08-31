@@ -13,7 +13,7 @@ fn a_pending_wake_for_another_scope_does_not_mask_a_stall() {
         time::Instant,
     };
     let config = Runtime::builder()
-        .stall_timeout(Some(Duration::from_millis(10)))
+        .stall_policy(crate::StallPolicy::AbortAfter(Duration::from_millis(10)))
         .build()
         .unwrap()
         .config();
@@ -57,7 +57,7 @@ fn unrelated_supervisor_activity_cannot_hide_a_stalled_root_scope() {
     };
     let runtime = Runtime::builder()
         .carriers(2)
-        .stall_timeout(Some(Duration::from_millis(10)))
+        .stall_policy(crate::StallPolicy::AbortAfter(Duration::from_millis(10)))
         .build()
         .unwrap();
     let supervisor = runtime.supervisor(crate::ScopeOptions::default()).unwrap();
@@ -93,7 +93,7 @@ fn unrelated_supervisor_activity_cannot_hide_a_stalled_root_scope() {
 fn a_terminal_sibling_does_not_hide_an_indefinitely_parked_child() {
     let runtime = Runtime::builder()
         .carriers(2)
-        .stall_timeout(Some(Duration::from_millis(10)))
+        .stall_policy(crate::StallPolicy::AbortAfter(Duration::from_millis(10)))
         .build()
         .expect("runtime");
     let (parker, _unparker) = park_pair();

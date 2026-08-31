@@ -1,7 +1,7 @@
 //! Runtime capacity and stack configuration.
 
-use crate::{Error, Result, Runtime};
-use std::time::{Duration, Instant};
+use crate::{Error, Result, Runtime, StallPolicy};
+use std::time::Instant;
 
 const DEFAULT_MAX_VTHREADS: usize = 65_536;
 const DEFAULT_STACK_SIZE: usize = 1024 * 1024;
@@ -20,7 +20,7 @@ pub struct RuntimeConfig {
     carriers: usize,
     task_local_capacity: usize,
     carrier_queue_capacity: usize,
-    stall_timeout: Option<Duration>,
+    stall_policy: StallPolicy,
 }
 
 impl RuntimeConfig {
@@ -51,9 +51,9 @@ impl RuntimeConfig {
         self.carrier_queue_capacity
     }
 
-    /// Grace period for an entirely parked, timerless scope; None disables recovery.
-    pub fn stall_timeout(self) -> Option<Duration> {
-        self.stall_timeout
+    /// Explicit inactivity policy; disabled by default because external wakes may be delayed.
+    pub fn stall_policy(self) -> StallPolicy {
+        self.stall_policy
     }
     /// Maximum live tasks plus unobserved completion records.
     pub fn max_vthreads(self) -> usize {
@@ -83,7 +83,7 @@ impl Default for RuntimeConfig {
             carriers: 1,
             task_local_capacity: 64,
             carrier_queue_capacity: 256,
-            stall_timeout: Some(Duration::from_secs(1)),
+            stall_policy: StallPolicy::Disabled,
         }
     }
 }
@@ -128,9 +128,9 @@ impl RuntimeBuilder {
         self
     }
 
-    /// Sets quiescent-scope recovery; use None for indefinite external wake waits.
-    pub fn stall_timeout(mut self, timeout: Option<Duration>) -> Self {
-        self.config.stall_timeout = timeout;
+    /// Chooses disabled, report-only, or explicit abort behavior for inactive root scopes.
+    pub fn stall_policy(mut self, policy: StallPolicy) -> Self {
+        self.config.stall_policy = policy;
         self
     }
     /// Bounds live tasks and unobserved completions; joined records may be evicted.
@@ -169,11 +169,12 @@ impl RuntimeBuilder {
         }
         if self
             .config
-            .stall_timeout
+            .stall_policy
+            .timeout()
             .is_some_and(|timeout| Instant::now().checked_add(timeout).is_none())
         {
             return Err(Error::invalid_configuration(
-                "stall_timeout",
+                "stall_policy",
                 "must fit the monotonic clock",
             ));
         }

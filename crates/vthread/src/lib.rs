@@ -54,6 +54,7 @@ mod runtime;
 mod scope;
 mod services;
 mod signal;
+mod stall_policy;
 mod supervisor;
 pub mod sync;
 mod task;
@@ -83,7 +84,8 @@ pub use parking::{ParkOutcome, Parker, UnparkResult, Unparker, park_pair};
 pub use runtime::{Runtime, ShutdownOutcome};
 pub use scope::Scope;
 pub use services::ServiceSnapshot;
-pub use supervisor::{ShutdownReport, Supervisor};
+pub use stall_policy::StallPolicy;
+pub use supervisor::{ShutdownReport, Supervisor, SupervisorShutdownOutcome};
 pub use task::{
     CarrierId, SuspensionReason, TaskFailure, TaskId, TaskSnapshot, TaskStatus, WakeReason,
 };

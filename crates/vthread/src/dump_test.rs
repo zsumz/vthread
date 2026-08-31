@@ -6,7 +6,7 @@ fn stall_evidence_survives_reclamation_and_is_replaced_by_the_next_stall() {
     let runtime = Runtime::builder()
         .max_vthreads(2)
         .stack_cache_capacity(2)
-        .stall_timeout(Some(Duration::from_millis(5)))
+        .stall_policy(crate::StallPolicy::AbortAfter(Duration::from_millis(5)))
         .build()
         .unwrap();
     for name in ["first\nforged-row", "second"] {

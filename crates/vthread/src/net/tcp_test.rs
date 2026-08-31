@@ -41,7 +41,7 @@ fn tcp_accept_connect_echo_and_eof_work_on_one_and_four_carriers() {
 fn slow_external_io_does_not_trigger_the_ownerless_park_stall_policy() {
     use std::{io::Write, thread, time::Duration};
     let runtime = Runtime::builder()
-        .stall_timeout(Some(Duration::from_millis(10)))
+        .stall_policy(crate::StallPolicy::AbortAfter(Duration::from_millis(10)))
         .build()
         .unwrap();
     let listener = TcpListener::bind("127.0.0.1:0".parse().unwrap()).unwrap();

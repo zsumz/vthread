@@ -28,3 +28,22 @@ fn file_requests_use_owned_inputs_enforce_read_limits_and_report_errors() {
         .unwrap();
     std::fs::remove_file(path).unwrap();
 }
+#[test]
+fn a_small_file_does_not_reserve_the_callers_large_limit() {
+    let runtime = crate::Runtime::new().unwrap();
+    for limit in [16 * 1024 * 1024, usize::MAX] {
+        let data = runtime
+            .scope(|scope| {
+                scope
+                    .spawn("small file", move || super::read("Cargo.toml", limit))?
+                    .join()?
+            })
+            .unwrap();
+        assert!(!data.is_empty());
+        assert!(
+            data.capacity() <= 8192,
+            "tiny read eagerly reserved {} bytes",
+            data.capacity()
+        );
+    }
+}

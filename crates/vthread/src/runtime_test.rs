@@ -125,7 +125,7 @@ fn completed_stacks_are_reused_by_later_tasks() {
 #[test]
 fn a_stalled_parked_scope_is_cleaned_before_reuse() {
     let runtime = Runtime::builder()
-        .stall_timeout(Some(Duration::from_millis(10)))
+        .stall_policy(crate::StallPolicy::AbortAfter(Duration::from_millis(10)))
         .build()
         .expect("build runtime");
     let (parker, _unparker) = park_pair();

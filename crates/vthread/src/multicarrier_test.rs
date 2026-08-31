@@ -140,7 +140,7 @@ fn external_unpark_interrupts_the_carriers_long_timer_wait() {
 #[test]
 fn stall_recovery_can_be_disabled_for_external_waits() {
     let runtime = Runtime::builder()
-        .stall_timeout(None)
+        .stall_policy(crate::StallPolicy::Disabled)
         .build()
         .expect("runtime");
     let (parker, unparker) = park_pair();
@@ -197,7 +197,7 @@ fn remote_unpark_racing_registration_never_loses_a_permit() {
 #[test]
 fn repeated_generation_progress_resets_the_quiescent_scope_grace() {
     let runtime = Runtime::builder()
-        .stall_timeout(Some(Duration::from_millis(500)))
+        .stall_policy(crate::StallPolicy::AbortAfter(Duration::from_millis(500)))
         .build()
         .expect("runtime");
     let (parker, unparker) = park_pair();

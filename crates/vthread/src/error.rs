@@ -86,6 +86,15 @@ pub enum Error {
     DeadlineExceeded,
     /// The per-task context reached its configured entry limit.
     TaskLocalCapacity,
+    /// A task-local initializer tried to read the same key before initialization completed.
+    RecursiveTaskLocal,
+    /// Fallible reservation could not grow an explicitly bounded result buffer.
+    AllocationFailed {
+        /// Bounded resource being allocated.
+        resource: &'static str,
+        /// Requested total buffer capacity in bytes.
+        requested: usize,
+    },
     /// A builder value violates the runtime contract.
     InvalidConfiguration {
         /// Name of the invalid field.
@@ -177,6 +186,11 @@ impl fmt::Display for Error {
             Self::Cancelled => formatter.write_str("scope cancellation requested"),
             Self::DeadlineExceeded => formatter.write_str("inherited deadline exceeded"),
             Self::TaskLocalCapacity => formatter.write_str("task-local entry capacity reached"),
+            Self::RecursiveTaskLocal => formatter.write_str("recursive task-local initialization"),
+            Self::AllocationFailed {
+                resource,
+                requested,
+            } => write!(formatter, "cannot reserve {requested} bytes for {resource}"),
             Self::InvalidConfiguration { field, message } => {
                 write!(formatter, "invalid {field}: {message}")
             }

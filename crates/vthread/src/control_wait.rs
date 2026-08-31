@@ -7,15 +7,26 @@ use crate::{Error, Result, SuspensionReason, TaskFailure, TaskId, TaskStatus, si
 
 impl Shared {
     pub(crate) fn wait(&self, scope: u64, target: Option<TaskId>) -> Result<()> {
+        self.wait_until(scope, target, None).map(|_| ())
+    }
+
+    pub(crate) fn wait_until(
+        &self,
+        scope: u64,
+        target: Option<TaskId>,
+        until: Option<Instant>,
+    ) -> Result<bool> {
         let mut quiescent_since = None;
         let mut stalled = None;
         let mut activity = None;
+        let mut reported = false;
         loop {
             let observed = self.changed.version();
             let mut state = lock(&self.state);
             let current_activity = state.scopes.get(&scope).map(|scope| scope.activity);
             if activity != current_activity {
                 quiescent_since = None;
+                reported = false;
                 activity = current_activity;
             }
             let mut active = 0;
@@ -39,7 +50,10 @@ impl Shared {
                 }
             }
             if active == 0 || (target.is_some() && target_done && stalled.is_none()) {
-                return stalled.map_or(Ok(()), |active| Err(Error::RuntimeStalled { active }));
+                return stalled.map_or(Ok(true), |active| Err(Error::RuntimeStalled { active }));
+            }
+            if until.is_some_and(|deadline| Instant::now() >= deadline) {
+                return Ok(false);
             }
             let scope_state = state.scopes.get(&scope);
             let recovering =
@@ -53,18 +67,21 @@ impl Shared {
                         .is_some_and(|record| lock(record).scope == scope)
                 })
             });
-            let deadline = if quiescent && !supervised && !recovering && stalled.is_none() {
-                let since = *quiescent_since.get_or_insert_with(Instant::now);
-                self.config
-                    .stall_timeout()
-                    .and_then(|timeout| since.checked_add(timeout))
-            } else {
-                quiescent_since = None;
-                None
-            };
+            let deadline =
+                if quiescent && !supervised && !recovering && stalled.is_none() && !reported {
+                    let since = *quiescent_since.get_or_insert_with(Instant::now);
+                    self.config
+                        .stall_policy()
+                        .timeout()
+                        .and_then(|timeout| since.checked_add(timeout))
+                } else {
+                    quiescent_since = None;
+                    None
+                };
             if deadline.is_some_and(|deadline| deadline <= Instant::now()) {
                 let detected_at = Instant::now();
                 state.last_stall = Some(crate::StallSnapshot {
+                    policy: self.config.stall_policy(),
                     scope,
                     detected_at,
                     quiescent_for: detected_at.duration_since(quiescent_since.expect("quiescent")),
@@ -78,6 +95,12 @@ impl Shared {
                         })
                         .collect(),
                 });
+                reported = true;
+                if !self.config.stall_policy().aborts() {
+                    drop(state);
+                    self.changed.notify();
+                    continue;
+                }
                 stalled = Some(active);
                 if let Some(scope) = state.scopes.get_mut(&scope) {
                     scope.aborting = Some(TaskFailure::ScopeStalled);
@@ -89,7 +112,8 @@ impl Shared {
                 continue;
             }
             drop(state);
-            self.changed.wait(observed, deadline);
+            self.changed
+                .wait(observed, deadline.into_iter().chain(until).min());
         }
     }
 }

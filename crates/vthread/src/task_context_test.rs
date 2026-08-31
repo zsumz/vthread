@@ -2,6 +2,56 @@ use super::TaskContext;
 use crate::{Error, ScopeOptions, options::TaskOptions};
 
 #[test]
+fn recursive_initialization_is_rejected_before_reentering_the_initializer() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static CALLS: AtomicUsize = AtomicUsize::new(0);
+    static KEY: crate::TaskLocal<bool> = crate::TaskLocal::new(|| {
+        if CALLS.fetch_add(1, Ordering::SeqCst) > 0 {
+            return false;
+        }
+        matches!(KEY.with(|_| ()), Err(Error::RecursiveTaskLocal))
+    });
+    let runtime = crate::Runtime::new().unwrap();
+    runtime
+        .scope(|scope| {
+            let rejected = scope
+                .spawn("recursive key", || KEY.with(|value| *value))?
+                .join()??;
+            assert!(rejected, "same-key initialization re-entered user code");
+            assert_eq!(CALLS.load(Ordering::SeqCst), 1);
+            Ok(())
+        })
+        .unwrap();
+}
+
+#[test]
+fn panicking_initialization_releases_its_reservation_for_retry() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static FIRST: AtomicBool = AtomicBool::new(true);
+    static KEY: crate::TaskLocal<usize> = crate::TaskLocal::new(|| {
+        assert!(
+            !FIRST.swap(false, Ordering::SeqCst),
+            "first initializer failed"
+        );
+        42
+    });
+    let runtime = crate::Runtime::builder()
+        .task_local_capacity(1)
+        .build()
+        .unwrap();
+    runtime
+        .scope(|scope| {
+            scope
+                .spawn("retry initialization", || {
+                    assert!(std::panic::catch_unwind(|| KEY.with(|_| ())).is_err());
+                    assert_eq!(KEY.with(|value| *value).unwrap(), 42);
+                })?
+                .join()
+        })
+        .unwrap();
+}
+
+#[test]
 fn cleanup_cannot_suspend_even_when_cancellation_is_masked() {
     let context = TaskContext::new(TaskOptions::root(ScopeOptions::default(), 1), 1);
     context.masked.set(1);
@@ -37,8 +87,13 @@ fn task_local_destructors_keep_task_identity_and_finish_before_join() {
 #[test]
 fn reentrant_initialization_cannot_exceed_task_local_capacity() {
     static INNER: crate::TaskLocal<usize> = crate::TaskLocal::new(|| 1);
-    static OUTER: crate::TaskLocal<usize> =
-        crate::TaskLocal::new(|| INNER.with(|value| *value).unwrap());
+    static OUTER: crate::TaskLocal<usize> = crate::TaskLocal::new(|| {
+        assert!(matches!(
+            INNER.with(|value| *value),
+            Err(Error::TaskLocalCapacity)
+        ));
+        7
+    });
     let runtime = crate::Runtime::builder()
         .task_local_capacity(1)
         .build()
@@ -47,8 +102,9 @@ fn reentrant_initialization_cannot_exceed_task_local_capacity() {
         .scope(|scope| {
             scope
                 .spawn("bounded context", || {
+                    assert_eq!(OUTER.with(|value| *value).unwrap(), 7);
                     assert!(matches!(
-                        OUTER.with(|value| *value),
+                        INNER.with(|value| *value),
                         Err(Error::TaskLocalCapacity)
                     ));
                 })?

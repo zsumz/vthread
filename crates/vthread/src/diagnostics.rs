@@ -25,6 +25,8 @@ pub enum ShutdownPhase {
 /// Most recent automatic scope recovery, retained after its task records are reclaimed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StallSnapshot {
+    /// Explicit policy that caused this observation; reporting alone never cancels work.
+    pub policy: crate::StallPolicy,
     /// Root scope selected for recovery.
     pub scope: u64,
     /// Monotonic detection time.

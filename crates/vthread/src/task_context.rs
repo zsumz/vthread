@@ -14,7 +14,26 @@ pub(crate) struct TaskContext {
     pub(crate) masked: Cell<usize>,
     pub(crate) closing: Cell<bool>,
     capacity: usize,
-    values: RefCell<BTreeMap<usize, Rc<dyn Any>>>,
+    values: RefCell<BTreeMap<usize, Value>>,
+}
+
+#[derive(Clone)]
+enum Value {
+    Initializing,
+    Ready(Rc<dyn Any>),
+}
+
+struct Initializing<'a> {
+    context: &'a TaskContext,
+    key: usize,
+    pending: bool,
+}
+impl Drop for Initializing<'_> {
+    fn drop(&mut self) {
+        if self.pending {
+            self.context.values.borrow_mut().remove(&self.key);
+        }
+    }
 }
 
 impl TaskContext {
@@ -106,23 +125,33 @@ impl<T> TaskLocal<T> {
         }
         let key = std::ptr::from_ref(self) as usize;
         let existing = execution.data.values.borrow().get(&key).cloned();
-        let value = if let Some(value) = existing {
-            value
-        } else {
-            if execution.data.values.borrow().len() >= execution.data.capacity {
-                return Err(Error::TaskLocalCapacity);
+        let value = match existing {
+            Some(Value::Ready(value)) => value,
+            Some(Value::Initializing) => return Err(Error::RecursiveTaskLocal),
+            None => {
+                if execution.data.values.borrow().len() >= execution.data.capacity {
+                    return Err(Error::TaskLocalCapacity);
+                }
+                execution
+                    .data
+                    .values
+                    .borrow_mut()
+                    .insert(key, Value::Initializing);
+                let mut initializing = Initializing {
+                    context: &execution.data,
+                    key,
+                    pending: true,
+                };
+                let value: Rc<dyn Any> = Rc::new((self.initialize)());
+                let replaced = execution
+                    .data
+                    .values
+                    .borrow_mut()
+                    .insert(key, Value::Ready(Rc::clone(&value)));
+                initializing.pending = false;
+                drop(replaced);
+                value
             }
-            let value: Rc<dyn Any> = Rc::new((self.initialize)());
-            if execution.data.values.borrow().len() >= execution.data.capacity {
-                return Err(Error::TaskLocalCapacity);
-            }
-            let replaced = execution
-                .data
-                .values
-                .borrow_mut()
-                .insert(key, Rc::clone(&value));
-            drop(replaced);
-            value
         };
         Ok(body(
             value.downcast_ref::<T>().expect("typed task-local key"),
