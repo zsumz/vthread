@@ -128,7 +128,9 @@ fn execute(work: Work, mut charge: Charge<'_>) {
             return;
         }
     };
-    if charge.discard && let Some((wake, token)) = &charge.wake {
+    if charge.discard
+        && let Some((wake, token)) = &charge.wake
+    {
         wake.select_closed(*token);
     }
     let Job { body, reclaim, .. } = job;
