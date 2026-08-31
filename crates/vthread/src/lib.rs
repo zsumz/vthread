@@ -42,6 +42,7 @@ mod inbox;
 mod join;
 mod join_wait;
 mod kernel;
+mod lifecycle_owner;
 mod local_carrier;
 mod local_join;
 mod local_scope;
@@ -59,10 +60,12 @@ mod task;
 mod task_body;
 mod task_context;
 mod task_fiber;
+mod thread_failure;
 mod time;
 mod timer;
 mod wait;
 mod wait_hub;
+mod worker_context;
 
 pub use cancellation::CancellationToken;
 pub use config::{RuntimeBuilder, RuntimeConfig};
@@ -85,6 +88,7 @@ pub use task::{
     CarrierId, SuspensionReason, TaskFailure, TaskId, TaskSnapshot, TaskStatus, WakeReason,
 };
 pub use task_context::TaskLocal;
+pub use thread_failure::{FailurePhase, ThreadComponent, ThreadFailure, ThreadFailures};
 pub use time::{sleep, sleep_until};
 
 /// Cooperatively yields the current virtual thread to the carrier scheduler.
@@ -96,6 +100,9 @@ pub fn yield_now() -> Result<()> {
 
 /// Runs one structured scope on a runtime with default configuration.
 pub fn run<R>(body: impl FnOnce(&Scope<'_>) -> Result<R>) -> Result<R> {
+    if context::current().is_some() {
+        return Err(Error::InsideVThread);
+    }
     Runtime::new()?.scope(body)
 }
 

@@ -27,6 +27,7 @@ struct State {
     error: Option<String>,
 }
 struct Inner {
+    owner: std::sync::Weak<crate::control::Shared>,
     state: Mutex<State>,
     waker: zio::Waker,
     capacity: usize,
@@ -44,18 +45,25 @@ pub(crate) struct Lease {
 }
 
 impl Reactor {
-    pub(crate) fn new(capacity: usize) -> Result<Self> {
+    pub(crate) fn new(
+        capacity: usize,
+        owner: std::sync::Weak<crate::control::Shared>,
+    ) -> Result<Self> {
         let (ready, receive) = std::sync::mpsc::sync_channel(1);
+        let runtime = owner.clone();
         let worker = thread::Builder::new()
             .name("vthread-readiness".to_owned())
-            .spawn(move || driver::start(capacity, ready))?;
+            .spawn(move || {
+                crate::worker_context::attach(runtime.clone(), crate::ThreadComponent::Readiness);
+                driver::start(capacity, ready, runtime);
+            })?;
         match receive.recv() {
             Ok(Ok(inner)) => Ok(Self {
                 inner,
                 worker: Mutex::new(Some(worker)),
             }),
             result => {
-                let _ = worker.join();
+                crate::thread_failure::join(worker, &owner, crate::ThreadComponent::Readiness);
                 Err(match result {
                     Ok(Err(error)) => error,
                     _ => Error::Invariant("readiness initialization failed"),
@@ -122,8 +130,13 @@ impl Reactor {
         self.inner.close(None);
     }
     pub(crate) fn join(&self) {
-        if let Some(worker) = lock(&self.worker).take() {
-            let _ = worker.join();
+        let worker = lock(&self.worker).take();
+        if let Some(worker) = worker {
+            crate::thread_failure::join(
+                worker,
+                &self.inner.owner,
+                crate::ThreadComponent::Readiness,
+            );
         }
     }
     pub(crate) fn snapshot(&self, snapshot: &mut ServiceSnapshot) {
@@ -151,14 +164,29 @@ impl Drop for Lease {
 }
 impl Inner {
     fn close(&self, error: Option<String>) {
-        let entries = {
+        let (entries, failure) = {
             let mut state = lock(&self.state);
             state.stopped = true;
+            let failure = if state.error.is_none() {
+                error.clone()
+            } else {
+                None
+            };
             if state.error.is_none() {
                 state.error = error;
             }
-            std::mem::take(&mut state.entries)
+            (std::mem::take(&mut state.entries), failure)
         };
+        if let Some(error) = failure
+            && let Some(owner) = self.owner.upgrade()
+        {
+            owner.record_failure(crate::ThreadFailure::new(
+                crate::ThreadComponent::Readiness,
+                "vthread-readiness",
+                crate::FailurePhase::Running,
+                crate::PanicReport::capture(Box::new(error)),
+            ));
+        }
         for (_, entry) in entries {
             entry.wake.select_closed(entry.token);
         }

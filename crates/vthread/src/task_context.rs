@@ -46,7 +46,8 @@ impl TaskContext {
             if let Err(payload) =
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(value)))
             {
-                panic.get_or_insert_with(|| crate::PanicReport::capture(payload));
+                let captured = crate::PanicReport::capture(payload);
+                panic.get_or_insert(captured);
             }
         }
         panic

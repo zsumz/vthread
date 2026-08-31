@@ -12,8 +12,9 @@ use std::{
 pub(super) fn start(
     capacity: usize,
     ready: std::sync::mpsc::SyncSender<crate::Result<Arc<Inner>>>,
+    owner: std::sync::Weak<crate::control::Shared>,
 ) {
-    let initialized = initialize(capacity);
+    let initialized = initialize(capacity, owner);
     match initialized {
         Ok((inner, poll, events)) => {
             if ready.send(Ok(Arc::clone(&inner))).is_ok() {
@@ -26,11 +27,15 @@ pub(super) fn start(
     }
 }
 
-fn initialize(capacity: usize) -> crate::Result<(Arc<Inner>, zio::Poll, zio::Events)> {
+fn initialize(
+    capacity: usize,
+    owner: std::sync::Weak<crate::control::Shared>,
+) -> crate::Result<(Arc<Inner>, zio::Poll, zio::Events)> {
     let mut poll = zio::Poll::with_capacity(capacity.max(2), capacity).map_err(io_error)?;
     let events = poll.events().map_err(io_error)?;
     let waker = poll.waker(zio::Key::ZERO).map_err(io_error)?;
     let inner = Arc::new(Inner {
+        owner,
         state: std::sync::Mutex::new(State {
             entries: BTreeMap::new(),
             next: 1,
@@ -51,7 +56,9 @@ fn run(inner: Arc<Inner>, mut poll: zio::Poll, mut events: zio::Events) {
     match outcome {
         Ok(Ok(())) => {}
         Ok(Err(error)) => inner.close(Some(error)),
-        Err(_) => inner.close(Some("readiness driver panicked".to_owned())),
+        Err(payload) => inner.close(Some(
+            crate::PanicReport::capture(payload).message().to_owned(),
+        )),
     }
     drop(poll);
     inner.registered.store(0, Ordering::Release);

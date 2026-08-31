@@ -67,7 +67,10 @@ impl Kernel {
         let entry = packet.entry.take();
         {
             let _mounted = context::mount(lock(&record).id, Arc::clone(&self.inbox.hub));
-            let _ = catch_unwind(AssertUnwindSafe(|| drop(entry)));
+            if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(entry))) {
+                let panic = crate::PanicReport::capture(payload);
+                lock(&record).panic.get_or_insert(panic);
+            }
         }
         self.pending = None;
         self.stats.aborted += 1;
@@ -86,7 +89,10 @@ impl Kernel {
             // through scope entry, joins, or explicit runtime shutdown.
             let _cleanup =
                 crate::task_context::TaskCleanup::new(execution, Arc::clone(&self.inbox.hub));
-            let _ = catch_unwind(AssertUnwindSafe(|| drop(fiber)));
+            if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(fiber))) {
+                let panic = crate::PanicReport::capture(payload);
+                lock(&record).panic.get_or_insert(panic);
+            }
         }
         self.in_flight = None;
         self.stats.aborted += 1;

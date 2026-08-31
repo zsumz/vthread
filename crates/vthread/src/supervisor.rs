@@ -6,8 +6,10 @@ use crate::{
 use std::{marker::PhantomData, rc::Rc};
 
 /// Cumulative outcomes observed after reclaiming the owned work.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ShutdownReport {
+    /// Bounded terminal component failures; an empty list is required for success.
+    pub failures: crate::ThreadFailures,
     /// Tasks whose functions returned, including user-returned Result errors.
     pub completed: u64,
     /// Tasks that panicked.

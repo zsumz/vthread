@@ -1,6 +1,9 @@
 //! Borrowed fibers whose executable state is revoked before their lexical scope exits.
 
-use crate::{Fiber, FiberState};
+use crate::{
+    Fiber, FiberLease,
+    panic_payload::{self, CapturedPanic},
+};
 use corosensei::stack::DefaultStack;
 use std::{
     cell::{Cell, RefCell},
@@ -8,54 +11,6 @@ use std::{
     marker::PhantomData,
     rc::Rc,
 };
-
-/// A carrier-local lease. After its scope exits it contains no executable stack.
-#[derive(Clone)]
-pub struct FiberLease(Rc<RefCell<LeaseState>>);
-
-struct LeaseState {
-    fiber: Option<Fiber>,
-    cleanup: Option<Rc<dyn Fn() -> Box<dyn std::any::Any>>>,
-}
-
-impl FiberLease {
-    /// Resumes a live stack; None means the scope has already reclaimed it.
-    pub fn resume(&self) -> Option<FiberState> {
-        self.0.borrow_mut().fiber.as_mut().map(Fiber::resume)
-    }
-
-    /// Takes a completed stack for reuse.
-    pub fn take_stack(&self) -> Option<DefaultStack> {
-        let (fiber, cleanup) = {
-            let mut state = self.0.borrow_mut();
-            (state.fiber.take(), state.cleanup.take())
-        };
-        drop(cleanup);
-        fiber.map(Fiber::into_stack)
-    }
-
-    /// Reclaims a suspended or unstarted stack on its owner thread.
-    pub fn reclaim(&self) {
-        let (fiber, cleanup) = {
-            let mut state = self.0.borrow_mut();
-            (state.fiber.take(), state.cleanup.take())
-        };
-        if fiber.is_some() {
-            let _context = cleanup.map(|cleanup| cleanup());
-            drop(fiber);
-        }
-    }
-
-    /// Whether this lease still owns an executable stack.
-    pub fn live(&self) -> bool {
-        self.0.borrow().fiber.is_some()
-    }
-
-    /// Installs a carrier-local guard around forced stack destruction.
-    pub fn cleanup_context(&self, mount: impl Fn() -> Box<dyn std::any::Any> + 'static) {
-        self.0.borrow_mut().cleanup = Some(Rc::new(mount));
-    }
-}
 
 /// Lexical ownership for a bounded set of borrowed, non-Send stacks.
 pub struct FiberScope<'scope, 'env: 'scope> {
@@ -87,31 +42,41 @@ impl<'scope, 'env> FiberScope<'scope, 'env> {
         // SAFETY: entry lives for scope; the non-forgettable outer scope owns a lease
         // and revokes every stack before returning, including on unwind or leaked leases.
         let fiber = unsafe { Fiber::borrowed(stack, entry) };
-        let lease = FiberLease(Rc::new(RefCell::new(LeaseState {
-            fiber: Some(fiber),
-            cleanup: None,
-        })));
+        let lease = FiberLease::new(fiber);
         fibers.push(lease.clone());
         Ok(lease)
     }
 }
 
-impl Drop for ScopeGuard {
-    fn drop(&mut self) {
+impl ScopeGuard {
+    fn drain(&self) -> Option<CapturedPanic> {
         self.0.closed.set(true);
         let fibers = self.0.fibers.take();
-        // A destructor panic cannot let subsequent borrowed stacks escape reclamation.
-        let mut panic = None;
+        let mut failure = None;
         for fiber in fibers {
-            if let Err(payload) =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fiber.reclaim()))
-            {
-                panic.get_or_insert(payload);
+            for _ in 0..2 {
+                if !fiber.live() {
+                    break;
+                }
+                if let Err(payload) =
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fiber.reclaim()))
+                {
+                    panic_payload::retain(&mut failure, payload);
+                }
+            }
+            // A borrowed executable stack must never survive the lexical environment.
+            // A mount that fails twice has no safe recovery path; do not leak the fiber.
+            if fiber.live() {
+                std::process::abort();
             }
         }
-        if let Some(payload) = panic {
-            std::panic::resume_unwind(payload);
-        }
+        failure
+    }
+}
+
+impl Drop for ScopeGuard {
+    fn drop(&mut self) {
+        self.drain();
     }
 }
 
@@ -132,8 +97,24 @@ pub fn fiber_scope<'env, R>(
     };
     // Declare the guard last: children may borrow the scope itself, so their
     // reclamation must precede destruction of the scope value on every exit path.
-    let _guard = ScopeGuard(Rc::clone(&scope.registry));
-    body(&scope)
+    let guard = ScopeGuard(Rc::clone(&scope.registry));
+    // Reclaim outside an active body unwind so a cleanup panic cannot double-unwind.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body(&scope)));
+    let cleanup = guard.drain();
+    match result {
+        Err(payload) => {
+            // corosensei uses a private panic payload as its forced-unwind control token.
+            // Preserve it exactly; cleanup payloads were separately captured and observed.
+            drop(cleanup);
+            std::panic::resume_unwind(payload)
+        }
+        Ok(value) => {
+            if let Some(failure) = cleanup {
+                std::panic::resume_unwind(Box::new(failure));
+            }
+            value
+        }
+    }
 }
 
 #[cfg(test)]

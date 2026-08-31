@@ -58,7 +58,7 @@ fn a_timed_wait_does_not_queue_behind_a_blocking_shutdown_join() {
             until(|| runtime.snapshot().active == 1 && runtime.snapshot().stats.mounts > 0);
             let remote = Arc::clone(&runtime);
             let stopper = thread::spawn(move || remote.shutdown());
-            until(|| runtime.workers.try_lock().is_err());
+            until(|| runtime.snapshot().shutdown_phase == crate::ShutdownPhase::JoiningCarriers);
             let before = Instant::now();
             let outcome = runtime.shutdown_until(before + Duration::from_millis(20))?;
             let elapsed = before.elapsed();

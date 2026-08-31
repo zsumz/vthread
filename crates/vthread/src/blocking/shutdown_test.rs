@@ -128,8 +128,7 @@ fn timed_shutdown_does_not_wait_behind_a_native_worker_join() {
             until(|| runtime.snapshot().services.blocking_running == 1);
             let remote = Arc::clone(&runtime);
             let stopper = thread::spawn(move || remote.shutdown());
-            let pool = &runtime.shared.services.get().unwrap().blocking;
-            until(|| pool.workers.try_lock().is_err());
+            until(|| runtime.snapshot().shutdown_phase == crate::ShutdownPhase::JoiningNative);
             let before = Instant::now();
             let outcome = runtime.shutdown_until(before + Duration::from_millis(20))?;
             let elapsed = before.elapsed();

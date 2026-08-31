@@ -25,9 +25,14 @@ pub(crate) struct Shared {
     pub(crate) config: RuntimeConfig,
     pub(crate) inboxes: Vec<Arc<Inbox>>,
     pub(crate) changed: Signal,
+    pub(crate) failures: Mutex<crate::ThreadFailures>,
     state: Mutex<State>,
     #[cfg(test)]
     pub(crate) fail_after_resume: std::sync::atomic::AtomicBool,
+    #[cfg(test)]
+    pub(crate) coordinator_exit_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    #[cfg(test)]
+    pub(crate) carrier_exit_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 struct State {
@@ -53,8 +58,13 @@ impl Shared {
             services: OnceLock::new(),
             config,
             changed: Signal::default(),
+            failures: Mutex::new(crate::ThreadFailures::default()),
             #[cfg(test)]
             fail_after_resume: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            coordinator_exit_hook: Mutex::new(None),
+            #[cfg(test)]
+            carrier_exit_hook: Mutex::new(None),
             inboxes: (0..config.carriers())
                 .map(|_| {
                     Arc::new(Inbox::new(
@@ -139,6 +149,11 @@ impl Shared {
         self.changed.notify();
     }
 
+    pub(crate) fn record_failure(&self, failure: crate::ThreadFailure) {
+        lock(&self.failures).push(failure);
+        self.changed.notify();
+    }
+
     pub(crate) fn transition(
         &self,
         record: &SharedTaskRecord,
@@ -193,6 +208,7 @@ impl Shared {
             shutdown_phase: state.shutdown_phase,
             accepting: state.accepting,
             last_stall: state.last_stall.clone(),
+            failures: lock(&self.failures).clone(),
             active: state.active,
             services: self
                 .services

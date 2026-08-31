@@ -1,23 +1,70 @@
-//! Stop requests and deadline-bounded observation without detaching owned work.
+//! Stop requests and deadline-bounded observation of a single owned join operation.
 
 use super::Runtime;
-use crate::{Error, Result, RuntimeSnapshot, ShutdownPhase, ShutdownReport, context};
+use crate::{
+    Error, Result, RuntimeSnapshot, ShutdownPhase, ShutdownReport, context, control::Shared,
+};
 use std::{
-    panic::{AssertUnwindSafe, catch_unwind},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     thread,
     time::Instant,
 };
 
-#[derive(Default)]
 pub(super) struct ShutdownDriver {
-    worker: Mutex<Option<thread::JoinHandle<()>>>,
+    ready: Arc<AtomicBool>,
+}
+
+impl ShutdownDriver {
+    pub(super) fn new(
+        shared: &Arc<Shared>,
+        workers: &Arc<Mutex<Vec<thread::JoinHandle<()>>>>,
+    ) -> Result<Self> {
+        let ready = Arc::new(AtomicBool::new(false));
+        let constructed = Arc::clone(&ready);
+        let shared = Arc::clone(shared);
+        let workers = Arc::clone(workers);
+        crate::lifecycle_owner::start(Arc::clone(&shared), move || {
+            loop {
+                let observed = shared.changed.version();
+                if constructed.load(Ordering::Acquire)
+                    && shared.shutdown_phase() != ShutdownPhase::NotRequested
+                {
+                    break;
+                }
+                shared.changed.wait(observed, None);
+            }
+            shared.advance_shutdown(ShutdownPhase::JoiningCarriers);
+            let workers = std::mem::take(&mut *crate::signal::lock(&workers));
+            for worker in workers {
+                crate::thread_failure::join(
+                    worker,
+                    &Arc::downgrade(&shared),
+                    crate::ThreadComponent::Carrier,
+                );
+            }
+            drain_services(&shared);
+            #[cfg(test)]
+            if let Some(hook) = crate::signal::lock(&shared.coordinator_exit_hook).take() {
+                hook();
+            }
+            // Only the process owner may publish completion, after joining this thread.
+        })?;
+        Ok(Self { ready })
+    }
+
+    pub(super) fn ready(&self, shared: &Shared) {
+        self.ready.store(true, Ordering::Release);
+        shared.changed.notify();
+    }
 }
 
 /// Result of a deadline-based runtime shutdown wait.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ShutdownOutcome {
-    /// All carrier and service threads have been joined and their resources reclaimed.
+    /// Every carrier, service and coordinator has been joined, including OS TLS cleanup.
     Complete(ShutdownReport),
     /// Work remains runtime-owned; the deadline expired without detaching any thread.
     TimedOut(Box<RuntimeSnapshot>),
@@ -26,36 +73,32 @@ pub enum ShutdownOutcome {
 impl Runtime {
     /// Stops admission and requests cancellation without joining or running user destructors.
     ///
-    /// Idempotent and safe to request from a virtual thread or native worker. A request
-    /// is not completion: ordinary OS callers use `shutdown` or `shutdown_until` to wait.
-    /// Internal metadata locks and wake delivery are not hard real-time operations.
+    /// Idempotent and safe from managed workers. A request is not completion: ordinary
+    /// OS callers use `shutdown` or `shutdown_until` to wait. Metadata locks and wake
+    /// delivery are not hard real-time operations.
     pub fn request_shutdown(&self) {
         self.shared.request_stop();
     }
 
-    /// Stops admission, reclaims tasks, and joins carriers and native services.
+    /// Stops admission, reclaims tasks, and waits for the single owned join operation.
     ///
-    /// This cannot preempt CPU loops, native blocking calls, FFI, or destructors. Such
-    /// work may delay shutdown indefinitely. Virtual threads and this runtime's own
-    /// native workers cannot wait for shutdown; that would require joining their own work.
+    /// CPU loops, native calls, FFI, and destructors can delay completion indefinitely.
+    /// No virtual thread or managed native worker may wait, including foreign workers.
     pub fn shutdown(&self) -> Result<ShutdownReport> {
         self.check_shutdown_caller()?;
         self.request_shutdown();
-        self.join_workers();
-        self.drain_services();
-        self.shared.advance_shutdown(ShutdownPhase::Complete);
+        self.wait_shutdown(None)?;
         Ok(self.shutdown_report())
     }
 
-    /// Requests shutdown and waits up to an absolute monotonic deadline.
+    /// Requests shutdown and observes completion up to an absolute monotonic deadline.
     ///
-    /// An expired deadline still checks completion once. Timeout retains every unfinished
-    /// thread under runtime ownership; callers can inspect the snapshot and retry. Dropping
-    /// the runtime still drains work and may block indefinitely. This method never waits
-    /// behind another caller's blocking join. One lazily started, runtime-owned coordinator
-    /// performs joins (including OS TLS cleanup). OS scheduling, coordinator startup, and
-    /// metadata operations are not a hard real-time guarantee. Calls from virtual threads or this runtime's native
-    /// workers fail before admission changes; those callers may use `request_shutdown`.
+    /// An expired deadline checks completion once. Timeout retains every unfinished
+    /// thread under the process lifecycle owner's bounded ownership; callers can retry.
+    /// One coordinator is established before runtime workers start. Final-owner Drop on
+    /// an ordinary OS thread waits; on any managed worker it only requests shutdown.
+    /// The process service retains and joins the coordinator, including OS TLS cleanup.
+    /// Scheduling and metadata locks are not a hard real-time guarantee.
     ///
     /// ```
     /// use std::time::{Duration, Instant};
@@ -70,73 +113,27 @@ impl Runtime {
     pub fn shutdown_until(&self, deadline: Instant) -> Result<ShutdownOutcome> {
         self.check_shutdown_caller()?;
         self.request_shutdown();
-        self.start_shutdown_driver()?;
+        if self.wait_shutdown(Some(deadline))? {
+            Ok(ShutdownOutcome::Complete(self.shutdown_report()))
+        } else {
+            Ok(ShutdownOutcome::TimedOut(Box::new(self.snapshot())))
+        }
+    }
+
+    pub(super) fn wait_shutdown(&self, deadline: Option<Instant>) -> Result<bool> {
         loop {
             let observed = self.shared.changed.version();
             match self.shared.shutdown_phase() {
-                ShutdownPhase::Complete => {
-                    return Ok(ShutdownOutcome::Complete(self.shutdown_report()));
-                }
+                ShutdownPhase::Complete => return Ok(true),
                 ShutdownPhase::Failed => {
-                    return Err(Error::Invariant("shutdown coordinator failed"));
+                    return Err(Error::ShutdownFailed(Box::new(self.shutdown_report())));
                 }
                 _ => {}
             }
-            if Instant::now() >= deadline {
-                return Ok(ShutdownOutcome::TimedOut(Box::new(self.snapshot())));
+            if deadline.is_some_and(|end| Instant::now() >= end) {
+                return Ok(false);
             }
-            self.shared.changed.wait(observed, Some(deadline));
-        }
-    }
-
-    pub(super) fn start_shutdown_driver(&self) -> Result<()> {
-        let mut worker = crate::signal::lock(&self.shutdown_driver.worker);
-        if worker.is_some() || self.shared.shutdown_phase() == ShutdownPhase::Complete {
-            return Ok(());
-        }
-        let shared = Arc::clone(&self.shared);
-        let workers = Arc::clone(&self.workers);
-        *worker = Some(
-            thread::Builder::new()
-                .name("vthread-shutdown".to_owned())
-                .stack_size(256 * 1024)
-                .spawn(move || {
-                    // JoinHandle::is_finished may precede OS TLS destructors. Only a real join
-                    // proves thread reclamation; timed callers must never perform that join.
-                    let outcome = catch_unwind(AssertUnwindSafe(|| {
-                        shared.advance_shutdown(ShutdownPhase::JoiningCarriers);
-                        for worker in crate::signal::lock(&workers).drain(..) {
-                            let _ = worker.join();
-                        }
-                        drain_services(&shared);
-                    }));
-                    shared.advance_shutdown(if outcome.is_ok() {
-                        ShutdownPhase::Complete
-                    } else {
-                        ShutdownPhase::Failed
-                    });
-                })?,
-        );
-        Ok(())
-    }
-
-    pub(super) fn owns_current_worker(&self) -> bool {
-        self.worker_ids.contains(&thread::current().id())
-            || self
-                .shared
-                .services
-                .get()
-                .is_some_and(|services| services.blocking.owns_current_thread())
-    }
-
-    pub(super) fn drain_services(&self) {
-        drain_services(&self.shared);
-    }
-
-    pub(super) fn join_shutdown_driver(&self) {
-        let worker = crate::signal::lock(&self.shutdown_driver.worker).take();
-        if let Some(worker) = worker {
-            let _ = worker.join();
+            self.shared.changed.wait(observed, deadline);
         }
     }
 
@@ -144,12 +141,7 @@ impl Runtime {
         if context::current().is_some() {
             return Err(Error::InsideVThread);
         }
-        if self
-            .shared
-            .services
-            .get()
-            .is_some_and(|services| services.blocking.owns_current_thread())
-        {
+        if crate::worker_context::is_managed() {
             return Err(Error::InsideBlockingWorker);
         }
         Ok(())
@@ -158,6 +150,7 @@ impl Runtime {
     fn shutdown_report(&self) -> ShutdownReport {
         let snapshot = self.snapshot();
         ShutdownReport {
+            failures: snapshot.failures,
             completed: snapshot.stats.completed,
             panicked: snapshot.stats.panicked,
             aborted: snapshot.stats.aborted,
@@ -170,7 +163,7 @@ impl Runtime {
     }
 }
 
-fn drain_services(shared: &crate::control::Shared) {
+fn drain_services(shared: &Shared) {
     if let Some(services) = shared.services.get() {
         shared.advance_shutdown(ShutdownPhase::JoiningReadiness);
         services.reactor.join();
@@ -182,3 +175,7 @@ fn drain_services(shared: &crate::control::Shared) {
 #[cfg(test)]
 #[path = "runtime_lifecycle_test.rs"]
 mod runtime_lifecycle_test;
+
+#[cfg(test)]
+#[path = "runtime_ownership_test.rs"]
+mod runtime_ownership_test;

@@ -25,6 +25,8 @@ pub struct ServiceSnapshot {
     pub blocking_capacity: usize,
     /// Native body or late-result/queued-capture destructor panics observed by workers.
     pub blocking_panics: u64,
+    /// A native worker failed outside its ordinary job boundary; admission is closed.
+    pub blocking_failed: bool,
 }
 
 pub(crate) struct Services {
@@ -33,10 +35,13 @@ pub(crate) struct Services {
 }
 
 impl Services {
-    pub(crate) fn new(config: RuntimeConfig) -> Result<Self> {
+    pub(crate) fn new(
+        config: RuntimeConfig,
+        owner: std::sync::Weak<crate::control::Shared>,
+    ) -> Result<Self> {
         Ok(Self {
-            reactor: Reactor::new(config.io_capacity())?,
-            blocking: Pool::new(config.blocking_threads(), config.blocking_capacity())?,
+            reactor: Reactor::new(config.io_capacity(), owner.clone())?,
+            blocking: Pool::new(config.blocking_threads(), config.blocking_capacity(), owner)?,
         })
     }
     pub(crate) fn stop(&self) {

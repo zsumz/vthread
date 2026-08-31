@@ -79,18 +79,28 @@ fn a_panicking_panic_payload_does_not_leave_its_caller_parked() {
         }
     }
     let runtime = Runtime::builder().blocking_threads(1).build().unwrap();
-    runtime
-        .scope_with(
-            ScopeOptions::default().deadline(Instant::now() + Duration::from_millis(100)),
-            |scope| {
-                let job = scope.spawn("panic-payload", || {
-                    blocking::run(|| std::panic::panic_any(Payload))
-                })?;
-                assert!(matches!(job.join()?, Err(Error::BlockingPanicked(_))));
-                Ok(())
-            },
-        )
-        .unwrap();
+    let result = runtime.scope_with(
+        ScopeOptions::default().deadline(Instant::now() + Duration::from_millis(100)),
+        |scope| {
+            let job = scope.spawn("panic-payload", || {
+                blocking::run(|| std::panic::panic_any(Payload))
+            })?;
+            let _ = job.join();
+            Ok(())
+        },
+    );
+    assert!(result.is_ok(), "failed runtime still drains its scope");
+    assert!(!runtime.snapshot().accepting);
+    let Err(Error::ShutdownFailed(report)) = runtime.shutdown() else {
+        panic!("panic-payload cleanup failure must fail the runtime");
+    };
+    assert!(
+        report
+            .failures
+            .entries()
+            .iter()
+            .any(|failure| failure.panic().cleanup_panicked())
+    );
 }
 
 #[test]

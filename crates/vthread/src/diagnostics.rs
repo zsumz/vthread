@@ -16,10 +16,10 @@ pub enum ShutdownPhase {
     JoiningReadiness,
     /// Carriers/readiness are joined; waiting for native workers and their TLS cleanup.
     JoiningNative,
-    /// The shutdown coordinator failed; a blocking shutdown may still recover ownership.
-    Failed,
-    /// Every carrier and native/readiness service thread has been joined.
+    /// Every owned runtime thread, including its coordinator, has been joined.
     Complete,
+    /// All owned threads have been joined, but terminal component failures were retained.
+    Failed,
 }
 
 /// Most recent automatic scope recovery, retained after its task records are reclaimed.
@@ -153,6 +153,8 @@ impl CarrierSnapshot {
 /// Point-in-time runtime state.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RuntimeSnapshot {
+    /// Bounded terminal component failures, retained through shutdown.
+    pub failures: crate::ThreadFailures,
     /// Current shutdown progress, including waits beyond task and native-job completion.
     pub shutdown_phase: ShutdownPhase,
     /// Whether new root scopes and task admissions are accepted (subject to capacity).

@@ -73,7 +73,9 @@ pub(crate) fn run_for<T: Send + 'static>(
     })?;
     execution.data.check()?;
     if outcome == ParkOutcome::Closed {
-        return Err(if services.blocking.is_stopped() {
+        return Err(if services.blocking.is_failed() {
+            Error::BlockingFailed
+        } else if services.blocking.is_stopped() {
             Error::RuntimeStopped
         } else {
             Error::BlockingPanicked(crate::PanicReport::capture(Box::new(

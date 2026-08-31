@@ -28,6 +28,7 @@ impl Shared {
             return crate::ShutdownReport::default();
         };
         crate::ShutdownReport {
+            failures: lock(&self.failures).clone(),
             completed: scope.completed,
             panicked: scope.panicked,
             aborted: scope.aborted,

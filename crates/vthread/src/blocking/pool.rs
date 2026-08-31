@@ -1,9 +1,11 @@
 //! Bounded queued/running native jobs and cancellation-safe queue leases.
 
+#[path = "worker.rs"]
+mod worker;
+
 use crate::{Error, Result, ServiceSnapshot, signal::lock, wait::WaitRegistration};
 use std::{
     collections::VecDeque,
-    panic::{AssertUnwindSafe, catch_unwind},
     sync::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -25,16 +27,19 @@ struct State {
     panicked: u64,
     next: u64,
     stopped: bool,
+    failed: bool,
 }
 struct Inner {
     state: Mutex<State>,
     changed: Condvar,
     capacity: usize,
+    #[cfg(test)]
+    fail_worker: AtomicBool,
 }
 pub(crate) struct Pool {
     inner: Arc<Inner>,
     workers: Mutex<Vec<thread::JoinHandle<()>>>,
-    worker_ids: Vec<thread::ThreadId>,
+    owner: std::sync::Weak<crate::control::Shared>,
 }
 pub(crate) struct Lease {
     inner: Arc<Inner>,
@@ -43,8 +48,12 @@ pub(crate) struct Lease {
 }
 
 impl Pool {
-    pub(crate) fn new(threads: usize, capacity: usize) -> Result<Self> {
-        let mut pool = Self {
+    pub(crate) fn new(
+        threads: usize,
+        capacity: usize,
+        owner: std::sync::Weak<crate::control::Shared>,
+    ) -> Result<Self> {
+        let pool = Self {
             inner: Arc::new(Inner {
                 state: Mutex::new(State {
                     queue: VecDeque::new(),
@@ -53,19 +62,28 @@ impl Pool {
                     panicked: 0,
                     next: 1,
                     stopped: false,
+                    failed: false,
                 }),
                 changed: Condvar::new(),
                 capacity,
+                #[cfg(test)]
+                fail_worker: AtomicBool::new(false),
             }),
             workers: Mutex::new(Vec::new()),
-            worker_ids: Vec::new(),
+            owner,
         };
         for index in 0..threads {
             let inner = Arc::clone(&pool.inner);
+            let owner = pool.owner.clone();
             let worker = thread::Builder::new()
                 .name(format!("vthread-blocking-{index}"))
-                .spawn(move || work(inner))?;
-            pool.worker_ids.push(worker.thread().id());
+                .spawn(move || {
+                    crate::worker_context::attach(
+                        owner.clone(),
+                        crate::ThreadComponent::NativeWorker,
+                    );
+                    worker::run(inner, owner);
+                })?;
             lock(&pool.workers).push(worker);
         }
         Ok(pool)
@@ -79,6 +97,9 @@ impl Pool {
         body: Box<dyn FnOnce() -> bool + Send>,
     ) -> Result<Lease> {
         let mut state = lock(&self.inner.state);
+        if state.failed {
+            return Err(Error::BlockingFailed);
+        }
         if state.stopped {
             return Err(Error::RuntimeStopped);
         }
@@ -109,17 +130,16 @@ impl Pool {
         self.inner.changed.notify_all();
     }
     pub(crate) fn join(&self) {
-        for worker in lock(&self.workers).drain(..) {
-            if worker.thread().id() != thread::current().id() {
-                let _ = worker.join();
-            }
+        let workers = std::mem::take(&mut *lock(&self.workers));
+        for worker in workers {
+            crate::thread_failure::join(worker, &self.owner, crate::ThreadComponent::NativeWorker);
         }
+    }
+    pub(crate) fn is_failed(&self) -> bool {
+        lock(&self.inner.state).failed
     }
     pub(crate) fn is_stopped(&self) -> bool {
         lock(&self.inner.state).stopped
-    }
-    pub(crate) fn owns_current_thread(&self) -> bool {
-        self.worker_ids.contains(&thread::current().id())
     }
     pub(crate) fn snapshot(&self, snapshot: &mut ServiceSnapshot) {
         let state = lock(&self.inner.state);
@@ -128,6 +148,7 @@ impl Pool {
         snapshot.blocking_discarding = state.discarding;
         snapshot.blocking_capacity = self.inner.capacity;
         snapshot.blocking_panics = state.panicked;
+        snapshot.blocking_failed = state.failed;
     }
 }
 impl Drop for Pool {
@@ -154,52 +175,6 @@ impl Drop for Lease {
                 .and_then(|index| state.queue.remove(index))
         };
         drop(removed);
-    }
-}
-
-fn work(inner: Arc<Inner>) {
-    loop {
-        let (job, discard) = {
-            let mut state = lock(&inner.state);
-            while state.queue.is_empty() && !state.stopped {
-                state = inner
-                    .changed
-                    .wait(state)
-                    .unwrap_or_else(|poison| poison.into_inner());
-            }
-            let Some(job) = state.queue.pop_front() else {
-                return;
-            };
-            let discard = state.stopped;
-            if discard {
-                state.discarding += 1;
-            } else {
-                state.running += 1;
-            }
-            (job, discard)
-        };
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            if discard {
-                job.wake.select_closed(job.token);
-                drop(job.body);
-                false
-            } else {
-                (job.body)()
-            }
-        }));
-        if result.is_err() {
-            job.wake.select_closed(job.token);
-        }
-        let panicked = !matches!(result, Ok(false));
-        // Retain the capacity charge through panic-payload cleanup as well.
-        let cleanup_panicked = catch_unwind(AssertUnwindSafe(|| drop(result))).is_err();
-        let mut state = lock(&inner.state);
-        if discard {
-            state.discarding -= 1;
-        } else {
-            state.running -= 1;
-        }
-        state.panicked += u64::from(panicked || cleanup_panicked);
     }
 }
 

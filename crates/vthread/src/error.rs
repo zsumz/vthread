@@ -10,28 +10,39 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// A stable, transportable description of a task panic.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PanicReport {
-    message: String,
+    captured: vthread_stack::panic_payload::CapturedPanic,
 }
 
 impl PanicReport {
     pub(crate) fn capture(payload: Box<dyn Any + Send>) -> Self {
-        let message = payload
-            .downcast_ref::<&'static str>()
-            .map(|value| (*value).to_owned())
-            .or_else(|| payload.downcast_ref::<String>().cloned())
-            .unwrap_or_else(|| "non-string panic payload".to_owned());
-        Self { message }
+        Self {
+            captured: vthread_stack::panic_payload::capture(payload),
+        }
+    }
+
+    pub(crate) fn from_captured(captured: vthread_stack::panic_payload::CapturedPanic) -> Self {
+        Self { captured }
     }
 
     /// Returns the panic message or a fallback for non-string payloads.
     pub fn message(&self) -> &str {
-        &self.message
+        &self.captured.message
+    }
+
+    /// Whether the original message exceeded the 1024-byte UTF-8 text limit.
+    pub fn truncated(&self) -> bool {
+        self.captured.truncated
+    }
+
+    /// Whether disposing of the panic payload itself panicked and failed its owner.
+    pub fn cleanup_panicked(&self) -> bool {
+        self.captured.cleanup_panicked
     }
 }
 
 impl fmt::Display for PanicReport {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.message)
+        formatter.write_str(self.message())
     }
 }
 
@@ -44,6 +55,13 @@ pub enum Error {
     ReadinessFailed,
     /// All configured blocking-job slots are occupied.
     BlockingCapacity,
+    /// A native worker failed and its pool no longer accepts work.
+    BlockingFailed,
+    /// The process already owns the maximum number of unfinished runtime lifecycles.
+    LifecycleCapacity {
+        /// Maximum runtimes, including coordinators still being joined.
+        limit: usize,
+    },
     /// A bounded I/O result exceeded its requested limit.
     LimitExceeded {
         /// Which result was bounded.
@@ -84,6 +102,8 @@ pub enum Error {
     NestedScope,
     /// The runtime no longer accepts work.
     RuntimeStopped,
+    /// All runtime threads were joined, but one or more owned components failed.
+    ShutdownFailed(Box<crate::ShutdownReport>),
     /// A blocking runtime operation was called from a virtual thread.
     InsideVThread,
     /// A native worker tried to wait for shutdown of its owning runtime.
@@ -141,6 +161,10 @@ impl fmt::Display for Error {
             Self::Io(error) => write!(formatter, "I/O: {error}"),
             Self::ReadinessFailed => formatter.write_str("readiness driver failed"),
             Self::BlockingCapacity => formatter.write_str("blocking job capacity reached"),
+            Self::BlockingFailed => formatter.write_str("native blocking worker pool failed"),
+            Self::LifecycleCapacity { limit } => {
+                write!(formatter, "runtime lifecycle capacity {limit} reached")
+            }
             Self::LimitExceeded { resource, limit } => {
                 write!(formatter, "{resource} limit {limit} exceeded")
             }
@@ -161,6 +185,9 @@ impl fmt::Display for Error {
             }
             Self::NestedScope => formatter.write_str("nested runtime scopes are not supported yet"),
             Self::RuntimeStopped => formatter.write_str("runtime has stopped accepting work"),
+            Self::ShutdownFailed(_) => {
+                formatter.write_str("runtime shutdown retained component failures")
+            }
             Self::InsideVThread => formatter.write_str(
                 "this operation blocks an OS caller and cannot run inside a virtual thread",
             ),

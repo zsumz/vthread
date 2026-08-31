@@ -7,9 +7,21 @@ use std::{
 };
 
 pub(crate) fn run(shared: Arc<Shared>, id: CarrierId) {
-    let mut kernel = Kernel::new(shared, id);
+    let mut kernel = Kernel::new(Arc::clone(&shared), id);
     let outcome = catch_unwind(AssertUnwindSafe(|| drive(&mut kernel)));
     if !matches!(outcome, Ok(Ok(()))) {
+        let panic = match outcome {
+            Err(payload) => crate::PanicReport::capture(payload),
+            Ok(result) => {
+                crate::PanicReport::capture(Box::new(result.expect_err("failed drive").to_string()))
+            }
+        };
+        shared.record_failure(crate::ThreadFailure::new(
+            crate::ThreadComponent::Carrier,
+            std::thread::current().name().unwrap_or("carrier"),
+            crate::FailurePhase::Running,
+            panic,
+        ));
         kernel.inbox.stop();
         kernel.abort(None, TaskFailure::CarrierFailed);
         kernel.retire(CarrierStatus::Failed);

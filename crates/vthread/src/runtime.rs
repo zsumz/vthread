@@ -19,8 +19,6 @@ use std::{
 pub struct Runtime {
     config: RuntimeConfig,
     pub(crate) shared: Arc<Shared>,
-    workers: Arc<Mutex<Vec<thread::JoinHandle<()>>>>,
-    worker_ids: Vec<thread::ThreadId>,
     shutdown_driver: runtime_lifecycle::ShutdownDriver,
 }
 
@@ -36,28 +34,48 @@ impl Runtime {
     }
 
     pub(crate) fn from_config(config: RuntimeConfig) -> Result<Self> {
+        if context::current().is_some() {
+            return Err(Error::InsideVThread);
+        }
+        if crate::worker_context::is_managed() {
+            return Err(Error::InsideBlockingWorker);
+        }
         let shared = Arc::new(Shared::new(config));
-        shared
-            .services
-            .set(crate::services::Services::new(config)?)
-            .map_err(|_| Error::Invariant("runtime services initialized twice"))?;
-        let mut runtime = Self {
+        let workers = Arc::new(Mutex::new(Vec::new()));
+        let shutdown_driver = runtime_lifecycle::ShutdownDriver::new(&shared, &workers)?;
+        let runtime = Self {
             config,
             shared,
-            workers: Arc::new(Mutex::new(Vec::new())),
-            worker_ids: Vec::new(),
-            shutdown_driver: runtime_lifecycle::ShutdownDriver::default(),
+            shutdown_driver,
         };
+        runtime
+            .shared
+            .services
+            .set(crate::services::Services::new(
+                config,
+                Arc::downgrade(&runtime.shared),
+            )?)
+            .map_err(|_| Error::Invariant("runtime services initialized twice"))?;
         for index in 0..config.carriers() {
             let shared = Arc::clone(&runtime.shared);
             let name = format!("vthread-carrier-{index}");
             let worker = thread::Builder::new()
                 .name(name)
-                .spawn(move || carrier::run(shared, CarrierId(index)))
+                .spawn(move || {
+                    crate::worker_context::attach(
+                        Arc::downgrade(&shared),
+                        crate::ThreadComponent::Carrier,
+                    );
+                    carrier::run(Arc::clone(&shared), CarrierId(index));
+                    #[cfg(test)]
+                    if let Some(hook) = lock(&shared.carrier_exit_hook).take() {
+                        hook();
+                    }
+                })
                 .map_err(Error::CarrierStart)?;
-            runtime.worker_ids.push(worker.thread().id());
-            lock(&runtime.workers).push(worker);
+            lock(&workers).push(worker);
         }
+        runtime.shutdown_driver.ready(&runtime.shared);
         Ok(runtime)
     }
 
@@ -123,34 +141,17 @@ impl Runtime {
             spawned.record,
         ))
     }
-
-    fn join_workers(&self) {
-        self.shared
-            .advance_shutdown(crate::ShutdownPhase::JoiningCarriers);
-        let mut workers = lock(&self.workers);
-        for worker in workers.drain(..) {
-            // A task may drop the last Arc<Runtime>. Its own carrier exits after that
-            // task returns; joining itself here would deadlock.
-            if worker.thread().id() != thread::current().id() {
-                let _ = worker.join();
-            }
-        }
-    }
 }
 
 impl Drop for Runtime {
     fn drop(&mut self) {
+        // Also release a coordinator created before a partial construction failure.
+        self.shutdown_driver.ready(&self.shared);
         self.shared.request_stop();
-        // The final Arc can be owned by one of our workers. A coordinator retains
-        // and drains that work after this destructor returns to the worker.
-        if self.owns_current_worker() && self.start_shutdown_driver().is_ok() {
-            return;
-        }
-        self.join_workers();
-        self.drain_services();
-        self.join_shutdown_driver();
-        if !self.owns_current_worker() {
-            self.shared.advance_shutdown(crate::ShutdownPhase::Complete);
+        // Any managed worker may participate in a cross-runtime dependency cycle.
+        // The process lifecycle owner already retains this operation and all handles.
+        if context::current().is_none() && !crate::worker_context::is_managed() {
+            let _ = self.wait_shutdown(None);
         }
     }
 }

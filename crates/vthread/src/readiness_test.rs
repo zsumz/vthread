@@ -12,7 +12,7 @@ use std::{
 
 #[test]
 fn registration_is_bounded_and_remote_readiness_selects_the_exact_generation() {
-    let reactor = Reactor::new(1).unwrap();
+    let reactor = Reactor::new(1, std::sync::Weak::new()).unwrap();
     let (reader, mut writer) = UnixStream::pair().unwrap();
     reader.set_nonblocking(true).unwrap();
     let cell = WaitCell::new();
@@ -58,7 +58,7 @@ fn registration_is_bounded_and_remote_readiness_selects_the_exact_generation() {
 
 #[test]
 fn driver_failure_closes_waits_and_rejects_later_registration() {
-    let reactor = Reactor::new(1).unwrap();
+    let reactor = Reactor::new(1, std::sync::Weak::new()).unwrap();
     let (reader, _writer) = UnixStream::pair().unwrap();
     let cell = WaitCell::new();
     let hub = Arc::new(WaitHub::new(1, Arc::default()));
