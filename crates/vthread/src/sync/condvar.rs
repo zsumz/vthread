@@ -11,8 +11,13 @@ pub struct Condvar {
 }
 
 impl Condvar {
+    /// Creates a condition variable using [`super::DEFAULT_WAIT_CAPACITY`].
+    pub fn new() -> Result<Self> {
+        Self::with_wait_capacity(super::DEFAULT_WAIT_CAPACITY)
+    }
+
     /// Creates a condition variable with a positive outstanding-wait limit.
-    pub fn new(wait_capacity: usize) -> Result<Self> {
+    pub fn with_wait_capacity(wait_capacity: usize) -> Result<Self> {
         Ok(Self {
             gate: Gate::new(0, 0, wait_capacity)?,
         })
@@ -46,6 +51,10 @@ impl Condvar {
     /// Outstanding condition waits, including selected waiters.
     pub fn waiting(&self) -> usize {
         self.gate.waiting()
+    }
+    /// Configured outstanding-wait limit, including selected waiters.
+    pub fn wait_capacity(&self) -> usize {
+        self.gate.wait_capacity()
     }
 }
 

@@ -119,7 +119,8 @@ impl IoFailure {
     pub fn raw_os_error(&self) -> Option<i32> {
         self.source.raw_os_error()
     }
-    pub(crate) fn into_io_error(self) -> io::Error {
+    /// Recovers ownership of the original I/O cause, including any custom source.
+    pub fn into_io_error(self) -> io::Error {
         self.source
     }
     /// Original I/O cause.

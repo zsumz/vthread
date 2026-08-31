@@ -114,12 +114,15 @@ fn a_body_panic_rethrows_its_payload_and_retains_secondary_child_failure() {
     let snapshot = runtime.snapshot();
     let failure = snapshot.last_scope_failure.as_ref().unwrap();
     assert!(failure.body_panicked());
-    assert!(matches!(failure.child(), Some(Error::TaskPanicked { .. })));
+    assert_eq!(
+        failure.child().unwrap().kind(),
+        crate::error::FailureKind::Panicked
+    );
     assert_eq!(snapshot.active, 0);
 }
 
 #[test]
-fn replacing_a_scope_failure_drops_user_io_causes_outside_the_metadata_lock() {
+fn dropping_the_caller_error_releases_its_cause_before_report_replacement() {
     use std::sync::{
         Arc, Weak,
         atomic::{AtomicBool, Ordering},
@@ -145,9 +148,49 @@ fn replacing_a_scope_failure_drops_user_io_causes_outside_the_metadata_lock() {
     let unlocked = Arc::new(AtomicBool::new(false));
     let cause = Cause(Arc::downgrade(&runtime.shared), Arc::clone(&unlocked));
     drop(runtime.run_scope::<()>(|_| Err(std::io::Error::other(cause).into())));
-    drop(runtime.run_scope::<()>(|_| Err(Error::WouldBlock)));
     assert!(
         unlocked.load(Ordering::Relaxed),
-        "user error was destroyed while holding metadata lock"
+        "runtime diagnostics retained the user error or locked its destructor"
     );
+    drop(runtime.run_scope::<()>(|_| Err(Error::WouldBlock)));
+}
+
+#[test]
+fn a_single_scope_failure_keeps_its_direct_error_variant() {
+    let runtime = Runtime::new().unwrap();
+    for expected in [Error::WouldBlock, Error::Cancelled, Error::DeadlineExceeded] {
+        let tag = std::mem::discriminant(&expected);
+        let result = runtime.run_scope::<()>(|_| Err(expected)).unwrap_err();
+        assert_eq!(std::mem::discriminant(&result), tag);
+        assert!(runtime.snapshot().last_scope_failure().is_some());
+    }
+}
+
+#[test]
+fn a_single_child_panic_is_returned_directly_after_reclamation() {
+    let runtime = Runtime::new().unwrap();
+    let error = runtime
+        .run_scope(|scope| {
+            let child = scope.spawn("unobserved", || panic!("single failure"))?;
+            until(|| child.is_finished());
+            Ok(())
+        })
+        .unwrap_err();
+    assert!(matches!(error, Error::TaskPanicked { .. }));
+    assert!(runtime.snapshot().tasks().is_empty());
+}
+
+#[test]
+fn a_single_error_propagates_directly_through_local_and_root_scopes() {
+    let runtime = Runtime::new().unwrap();
+    let error = runtime
+        .run_scope(|scope| {
+            scope
+                .spawn("parent", || {
+                    local_scope(|_| Err::<(), _>(Error::WouldBlock))
+                })?
+                .join()?
+        })
+        .unwrap_err();
+    assert!(matches!(error, Error::WouldBlock));
 }

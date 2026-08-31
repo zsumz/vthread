@@ -1,9 +1,9 @@
-use crate::{Error, Runtime, channel::bounded, local_scope, yield_now};
+use crate::{Error, Runtime, channel::bounded_with_wait_capacity, local_scope, yield_now};
 
 #[test]
 fn last_sender_and_explicit_close_allow_buffer_drain() {
     for close in [true, false] {
-        let (sender, receiver) = bounded(2, 1).unwrap();
+        let (sender, receiver) = bounded_with_wait_capacity(2, 1).unwrap();
         sender.try_send(1).unwrap();
         sender.try_send(2).unwrap();
         if close {
@@ -24,7 +24,7 @@ fn disconnect_wakes_blocked_senders_and_receivers() {
         .run_scope(|scope| {
             scope
                 .spawn("parent", || {
-                    let (sender, receiver) = bounded(1, 1).unwrap();
+                    let (sender, receiver) = bounded_with_wait_capacity(1, 1).unwrap();
                     sender.try_send(1).unwrap();
                     local_scope(|local| {
                         let mut child = local.spawn("send", || sender.send(2))?;
@@ -38,7 +38,7 @@ fn disconnect_wakes_blocked_senders_and_receivers() {
                         Ok(())
                     })
                     .unwrap();
-                    let (sender, receiver) = bounded::<u8>(1, 1).unwrap();
+                    let (sender, receiver) = bounded_with_wait_capacity::<u8>(1, 1).unwrap();
                     local_scope(|local| {
                         let mut child = local.spawn("receive", || receiver.recv())?;
                         while receiver.waiting() == 0 {
@@ -66,7 +66,7 @@ fn buffered_destructors_can_reenter_the_channel() {
             assert!(guard.as_ref().unwrap().is_closed());
         }
     }
-    let (sender, receiver) = bounded(1, 1).unwrap();
+    let (sender, receiver) = bounded_with_wait_capacity(1, 1).unwrap();
     let holder = Arc::new(Mutex::new(Some(sender.clone())));
     sender.try_send(Reenter(Arc::clone(&holder))).unwrap();
     drop(receiver);

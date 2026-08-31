@@ -51,7 +51,7 @@ use std::net::{SocketAddr, ToSocketAddrs};
 pub fn lookup_host(host: impl Into<String>, port: u16, limit: usize) -> Result<Vec<SocketAddr>> {
     if limit == 0 || limit == usize::MAX {
         return Err(Error::invalid_configuration(
-            "address_limit",
+            crate::error::ConfigurationField::AddressLimit,
             "must be positive and below usize::MAX",
         ));
     }
@@ -64,7 +64,7 @@ pub fn lookup_host(host: impl Into<String>, port: u16, limit: usize) -> Result<V
             .collect::<Vec<_>>();
         if addresses.len() > limit {
             return Err(Error::LimitExceeded {
-                resource: "resolved addresses",
+                resource: crate::error::LimitResource::ResolvedAddresses,
                 limit,
             });
         }

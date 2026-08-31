@@ -3,7 +3,7 @@ use crate::{Error, Runtime, local_scope, yield_now};
 
 #[test]
 fn notifications_coalesce_only_when_no_waiter_is_available() {
-    let notify = Notify::new(2).unwrap();
+    let notify = Notify::with_wait_capacity(2).unwrap();
     notify.notify_one();
     notify.notify_one();
     notify.try_notified().unwrap();
@@ -13,7 +13,7 @@ fn notifications_coalesce_only_when_no_waiter_is_available() {
         .run_scope(|scope| {
             scope
                 .spawn("parent", || {
-                    let notify = Notify::new(2).unwrap();
+                    let notify = Notify::with_wait_capacity(2).unwrap();
                     local_scope(|local| {
                         let mut first = local.spawn("first", || notify.notified())?;
                         let mut second = local.spawn("second", || notify.notified())?;
@@ -41,7 +41,7 @@ fn broadcast_wakes_existing_waiters_only_and_close_is_terminal() {
         .run_scope(|scope| {
             scope
                 .spawn("parent", || {
-                    let notify = Notify::new(2).unwrap();
+                    let notify = Notify::with_wait_capacity(2).unwrap();
                     local_scope(|local| {
                         let mut first = local.spawn("first", || notify.notified())?;
                         let mut second = local.spawn("second", || notify.notified())?;
@@ -75,7 +75,7 @@ fn cancelled_selection_returns_one_notification_for_a_future_wait() {
         .run_scope(|scope| {
             scope
                 .spawn("parent", || {
-                    let notify = Notify::new(1).unwrap();
+                    let notify = Notify::with_wait_capacity(1).unwrap();
                     let token = RefCell::new(None);
                     local_scope(|local| {
                         let mut child = local.spawn("cancelled", || {

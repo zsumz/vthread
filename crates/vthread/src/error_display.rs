@@ -46,10 +46,12 @@ impl fmt::Display for Error {
             Self::ShutdownFailed(_) => {
                 formatter.write_str("runtime shutdown retained component failures")
             }
+            Self::LifecycleFailed(_) => formatter.write_str("process lifecycle owner failed"),
+            Self::RunFailed(failure) => failure.fmt(formatter),
             Self::InsideVThread => formatter.write_str(
                 "this operation blocks an OS caller and cannot run inside a virtual thread",
             ),
-            Self::InsideBlockingWorker => formatter.write_str(
+            Self::InsideManagedWorker => formatter.write_str(
                 "a managed native worker cannot perform this blocking runtime operation",
             ),
             Self::ThreadStart { component, source } => {
@@ -82,6 +84,7 @@ impl StdError for Error {
         match self {
             Self::ScopeFailed(failure) => Some(failure.as_ref()),
             Self::Io(error) => Some(error),
+            Self::RunFailed(failure) => Some(failure.as_ref()),
             Self::StackAllocation(error) | Self::ThreadStart { source: error, .. } => Some(error),
             _ => None,
         }

@@ -31,7 +31,7 @@ impl Gate {
     pub(super) fn new(available: usize, maximum: usize, capacity: usize) -> Result<Self> {
         if capacity == 0 {
             return Err(Error::invalid_configuration(
-                "wait_capacity",
+                crate::error::ConfigurationField::WaitCapacity,
                 "must be positive",
             ));
         }
@@ -164,6 +164,9 @@ impl Gate {
     }
     pub(super) fn waiting(&self) -> usize {
         lock(&self.state).entries.len()
+    }
+    pub(super) fn wait_capacity(&self) -> usize {
+        self.capacity
     }
     pub(super) fn is_closed(&self) -> bool {
         lock(&self.state).closed

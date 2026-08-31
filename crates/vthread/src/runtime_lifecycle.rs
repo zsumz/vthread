@@ -25,8 +25,12 @@ impl ShutdownDriver {
         let ready = Arc::new(AtomicBool::new(false));
         let constructed = Arc::clone(&ready);
         let shared = Arc::clone(shared);
-        let workers = Arc::clone(workers);
-        crate::lifecycle_owner::start(Arc::clone(&shared), move || {
+        let resources = Arc::new(crate::lifecycle_owner::CoordinatorResources {
+            workers: Arc::clone(workers),
+            drained: AtomicBool::new(false),
+        });
+        let cleanup = Arc::clone(&resources);
+        crate::lifecycle_owner::start(Arc::clone(&shared), resources, move || {
             loop {
                 let observed = shared.changed.version();
                 if constructed.load(Ordering::Acquire)
@@ -36,9 +40,17 @@ impl ShutdownDriver {
                 }
                 shared.changed.wait(observed, None);
             }
+            #[cfg(test)]
+            assert!(
+                !shared.fail_coordinator_before_drain.load(Ordering::Relaxed),
+                "injected coordinator failure before cleanup"
+            );
             shared.advance_shutdown(ShutdownPhase::JoiningCarriers);
-            let workers = std::mem::take(&mut *crate::signal::lock(&workers));
-            for worker in workers {
+            loop {
+                let worker = crate::signal::lock(&cleanup.workers).pop();
+                let Some(worker) = worker else {
+                    break;
+                };
                 crate::thread_failure::join(
                     worker,
                     &Arc::downgrade(&shared),
@@ -46,6 +58,7 @@ impl ShutdownDriver {
                 );
             }
             drain_services(&shared);
+            cleanup.drained.store(true, Ordering::Release);
             #[cfg(test)]
             if let Some(hook) = crate::signal::lock(&shared.coordinator_exit_hook).take() {
                 hook();
@@ -86,6 +99,8 @@ impl Runtime {
     ///
     /// CPU loops, native calls, FFI, and destructors can delay completion indefinitely.
     /// No virtual thread or managed native worker may wait, including foreign workers.
+    /// A failed process lifecycle service returns `Error::LifecycleFailed` promptly;
+    /// unfinished coordinators stay process-owned and cleanup is not claimed complete.
     pub fn shutdown(&self) -> Result<ShutdownReport> {
         self.check_shutdown_caller()?;
         self.request_shutdown();
@@ -100,6 +115,7 @@ impl Runtime {
     /// One coordinator is established before runtime workers start. Final-owner Drop on
     /// an ordinary OS thread waits; on any managed worker it only requests shutdown.
     /// The process service retains and joins the coordinator, including OS TLS cleanup.
+    /// Service failure returns `Error::LifecycleFailed` without waiting for the deadline.
     /// Scheduling and metadata locks are not a hard real-time guarantee.
     ///
     /// ```
@@ -133,6 +149,7 @@ impl Runtime {
                 }
                 _ => {}
             }
+            crate::lifecycle_owner::check_health()?;
             if deadline.is_some_and(|end| Instant::now() >= end) {
                 return Ok(false);
             }
@@ -145,7 +162,7 @@ impl Runtime {
             return Err(Error::InsideVThread);
         }
         if crate::worker_context::is_managed() {
-            return Err(Error::InsideBlockingWorker);
+            return Err(Error::InsideManagedWorker);
         }
         Ok(())
     }
@@ -168,6 +185,8 @@ impl Runtime {
 
 fn drain_services(shared: &Shared) {
     if let Some(services) = shared.services.get() {
+        // A stop request can race publication during runtime construction.
+        services.stop();
         shared.advance_shutdown(ShutdownPhase::JoiningReadiness);
         services.reactor.join();
         shared.advance_shutdown(ShutdownPhase::JoiningNative);

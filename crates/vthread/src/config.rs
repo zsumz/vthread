@@ -89,6 +89,16 @@ impl Default for RuntimeConfig {
 }
 
 /// Builder for a bounded multicarrier runtime.
+///
+/// Construction starts `carriers + blocking_threads + 2` OS threads: affine carriers,
+/// native workers, one readiness driver, and one shutdown coordinator (five by default).
+/// One process-wide lifecycle owner is shared. Coordinator/owner stacks request 256 KiB;
+/// other native stacks use platform defaults. The owner polls completions every 10 ms.
+///
+/// One root may run at a time; supervisors and local task groups reuse these threads.
+/// [`crate::lifecycle::LIFECYCLE_CAPACITY`] limits retained lifecycles to 256. A full table
+/// returns [`Error::Capacity`] with [`crate::error::CapacityResource::Lifecycles`]; a failed
+/// process owner returns [`Error::LifecycleFailed`] before runtime workers start.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RuntimeBuilder {
     config: RuntimeConfig,
@@ -155,7 +165,7 @@ impl RuntimeBuilder {
     pub fn build(self) -> Result<Runtime> {
         if self.config.io_capacity == 0 {
             return Err(Error::invalid_configuration(
-                "io_capacity",
+                crate::error::ConfigurationField::IoCapacity,
                 "must be positive",
             ));
         }
@@ -163,7 +173,7 @@ impl RuntimeBuilder {
             || self.config.blocking_threads > self.config.blocking_capacity
         {
             return Err(Error::invalid_configuration(
-                "blocking_threads",
+                crate::error::ConfigurationField::BlockingThreads,
                 "must be between one and blocking_capacity",
             ));
         }
@@ -174,37 +184,37 @@ impl RuntimeBuilder {
             .is_some_and(|timeout| Instant::now().checked_add(timeout).is_none())
         {
             return Err(Error::invalid_configuration(
-                "stall_policy",
+                crate::error::ConfigurationField::StallPolicy,
                 "must fit the monotonic clock",
             ));
         }
         if self.config.max_vthreads == 0 {
             return Err(Error::invalid_configuration(
-                "max_vthreads",
+                crate::error::ConfigurationField::MaxVthreads,
                 "must be greater than zero",
             ));
         }
         if self.config.carriers == 0 || self.config.carriers > self.config.max_vthreads {
             return Err(Error::invalid_configuration(
-                "carriers",
+                crate::error::ConfigurationField::Carriers,
                 "must be between one and max_vthreads",
             ));
         }
         if self.config.carrier_queue_capacity == 0 {
             return Err(Error::invalid_configuration(
-                "carrier_queue_capacity",
+                crate::error::ConfigurationField::CarrierQueueCapacity,
                 "must be greater than zero",
             ));
         }
         if self.config.stack_size < MIN_STACK_SIZE {
             return Err(Error::invalid_configuration(
-                "stack_size",
+                crate::error::ConfigurationField::StackSize,
                 "must be at least 64 KiB",
             ));
         }
         if self.config.stack_cache_capacity > self.config.max_vthreads {
             return Err(Error::invalid_configuration(
-                "stack_cache_capacity",
+                crate::error::ConfigurationField::StackCacheCapacity,
                 "cannot exceed max_vthreads",
             ));
         }

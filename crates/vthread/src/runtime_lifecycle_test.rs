@@ -6,6 +6,40 @@ use std::{
 };
 
 #[test]
+fn stop_before_service_publication_still_drains_late_services() {
+    let config = crate::RuntimeConfig::default();
+    let shared = Arc::new(crate::control::Shared::new(config));
+    let workers = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let driver = super::ShutdownDriver::new(&shared, &workers).unwrap();
+    shared.request_stop();
+    assert!(
+        shared
+            .services
+            .set(crate::services::Services::new(config, Arc::downgrade(&shared),).unwrap())
+            .is_ok()
+    );
+    driver.ready(&shared);
+    let deadline = Instant::now() + Duration::from_millis(200);
+    let complete = loop {
+        let observed = shared.changed.version();
+        if shared.shutdown_phase() == crate::ShutdownPhase::Complete {
+            break true;
+        }
+        if Instant::now() >= deadline {
+            break false;
+        }
+        shared.changed.wait(observed, Some(deadline));
+    };
+    // Even the old behavior is unblocked before the assertion so its failed case
+    // cannot leave a live service behind in the rest of this test process.
+    shared.services.get().unwrap().stop();
+    assert!(
+        complete,
+        "late services missed stop and stranded the coordinator"
+    );
+}
+
+#[test]
 fn deadline_reports_running_native_work_and_retry_joins_it() {
     let runtime = Runtime::new().unwrap();
     let (release, receive) = mpsc::sync_channel(1);
@@ -92,7 +126,7 @@ fn owned_threads_can_request_stop_but_cannot_wait_for_themselves() {
                     let result = remote.shutdown_until(Instant::now());
                     assert!(matches!(
                         (native, result),
-                        (true, Err(Error::InsideBlockingWorker))
+                        (true, Err(Error::InsideManagedWorker))
                             | (false, Err(Error::InsideVThread))
                     ));
                     assert!(remote.snapshot().accepting);

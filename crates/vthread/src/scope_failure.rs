@@ -3,9 +3,10 @@
 use crate::{Error, Result, control::Shared, signal::lock};
 use std::{fmt, sync::Arc};
 
-/// Bounded failures retained after a structured scope reclaims its children.
+/// Caller-owned failures returned after a structured scope reclaims its children.
 /// Body, inherited policy, cleanup and one representative child remain independently
 /// inspectable. Further child/cleanup failures increment counters instead of a list.
+/// Original error sources remain caller-owned; runtime snapshots retain inert reports.
 #[derive(Debug, Default)]
 pub struct ScopeFailure {
     body: Option<Error>,
@@ -88,8 +89,52 @@ impl ScopeFailure {
         if self.primary().is_none() {
             return Ok(value.expect("successful body"));
         }
-        let failure = self.retain(shared);
-        Err(Error::ScopeFailed(failure))
+        self.retain_report(shared, false);
+        Err(self.into_error())
+    }
+
+    pub(crate) fn finish_generic<R, E>(
+        mut self,
+        body: std::result::Result<R, E>,
+        policy: Result<()>,
+        shared: &Shared,
+    ) -> std::result::Result<R, crate::error::ScopeRunError<E>> {
+        use crate::error::ScopeRunError;
+        self.policy = policy.err();
+        if body.is_ok() && self.primary().is_none() {
+            return body.map_err(ScopeRunError::Body);
+        }
+        self.retain_report(shared, body.is_err());
+        let runtime = self.primary().is_some().then(|| self.into_error());
+        match (body, runtime) {
+            (Ok(value), None) => Ok(value),
+            (Err(body), None) => Err(ScopeRunError::Body(body)),
+            (Ok(_), Some(runtime)) => Err(ScopeRunError::Runtime(runtime)),
+            (Err(body), Some(runtime)) => Err(ScopeRunError::BodyAndRuntime { body, runtime }),
+        }
+    }
+
+    pub(crate) fn failure_count(&self) -> usize {
+        [self.body(), self.policy(), self.cleanup(), self.child()]
+            .iter()
+            .filter(|error| error.is_some())
+            .count()
+            .saturating_add(usize::from(self.body_panicked))
+            .saturating_add(self.additional_child_failures)
+            .saturating_add(self.additional_cleanup_failures)
+    }
+
+    fn into_error(mut self) -> Error {
+        if self.failure_count() == 1 {
+            self.body
+                .take()
+                .or_else(|| self.policy.take())
+                .or_else(|| self.cleanup.take())
+                .or_else(|| self.child.take())
+                .expect("one recorded failure")
+        } else {
+            Error::ScopeFailed(Arc::new(self))
+        }
     }
 
     pub(crate) fn unwind(
@@ -100,16 +145,15 @@ impl ScopeFailure {
     ) -> ! {
         self.policy = policy.err();
         self.body_panicked = true;
-        self.retain(shared);
+        self.retain_report(shared, false);
         std::panic::resume_unwind(payload)
     }
 
-    fn retain(self, shared: &Shared) -> Arc<Self> {
-        let failure = Arc::new(self);
-        let previous = lock(&shared.last_scope_failure).replace(Arc::clone(&failure));
-        // An owned I/O cause may run arbitrary user Drop code. Never do so under metadata locks.
-        drop(previous);
-        failure
+    fn retain_report(&self, shared: &Shared, application_error: bool) {
+        let report =
+            crate::scope_failure_report::ScopeFailureReport::capture(self, application_error);
+        // Both the old and new report contain only inert, bounded data.
+        *lock(&shared.last_scope_failure) = Some(Arc::new(report));
     }
 }
 

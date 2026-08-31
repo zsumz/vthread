@@ -1,26 +1,18 @@
 //! Borrowed scope ownership on the currently mounted task's carrier.
 
 use crate::{
-    CancellationToken, Error, LocalJoinHandle, Result, SuspensionReason,
-    context::{self, Execution},
-    join::JoinCell,
-    join_wait,
-    kernel::Task,
-    options::TaskOptions,
-    signal::lock,
-    task::SharedTaskRecord,
-    task_context::TaskContext,
-    task_fiber::TaskFiber,
+    CancellationToken, Error, LocalJoinHandle, Result, SuspensionReason, context::Execution,
+    join::JoinCell, join_wait, kernel::Task, options::TaskOptions, signal::lock,
+    task::SharedTaskRecord, task_context::TaskContext, task_fiber::TaskFiber,
 };
-use std::{
-    cell::RefCell,
-    marker::PhantomData,
-    panic::{AssertUnwindSafe, catch_unwind},
-    rc::Rc,
-    sync::Arc,
-    time::Instant,
-};
+use std::{cell::RefCell, marker::PhantomData, rc::Rc, sync::Arc, time::Instant};
 use vthread_stack::FiberScope;
+
+#[path = "local_scope_run.rs"]
+mod local_scope_run;
+pub use local_scope_run::{
+    local_scope, local_scope_with_deadline, try_local_scope, try_local_scope_with_deadline,
+};
 
 /// A lexical owner of borrowed, non-Send children on the current carrier.
 pub struct LocalScope<'scope, 'env: 'scope> {
@@ -155,76 +147,6 @@ impl Drop for LocalScope<'_, '_> {
             lock(record).outcome_observed = true;
         }
     }
-}
-
-/// Runs borrowed work on the current carrier, reclaiming all children before returning.
-/// ScopeFailure preserves the body, inherited policy, cleanup and representative child
-/// failure with additional counts. Representative order matches run_scope: body, policy,
-/// cleanup, then child. A body panic is rethrown unchanged after retaining scope diagnostics.
-///
-/// ```compile_fail
-/// vthread::local_scope(|scope| Ok(scope.spawn("escape", || 1)?));
-/// ```
-///
-/// ```compile_fail
-/// vthread::local_scope(|scope| {
-///     let too_short = String::from("scope body local");
-///     scope.spawn("invalid borrow", || too_short.len())?;
-///     Ok(())
-/// });
-/// ```
-///
-/// ```compile_fail
-/// vthread::local_scope(|scope| {
-///     scope.spawn("cannot retain the facade", || scope.cancel())?;
-///     Ok(())
-/// });
-/// ```
-pub fn local_scope<'env, R>(
-    body: impl for<'scope> FnOnce(&LocalScope<'scope, 'env>) -> Result<R>,
-) -> Result<R> {
-    run_local(None, body)
-}
-
-/// Adds a local deadline; it cannot extend an inherited parent deadline.
-pub fn local_scope_with_deadline<'env, R>(
-    deadline: Instant,
-    body: impl for<'scope> FnOnce(&LocalScope<'scope, 'env>) -> Result<R>,
-) -> Result<R> {
-    run_local(Some(deadline), body)
-}
-
-fn run_local<'env, R>(
-    deadline: Option<Instant>,
-    body: impl for<'scope> FnOnce(&LocalScope<'scope, 'env>) -> Result<R>,
-) -> Result<R> {
-    let mounted = context::current().ok_or(Error::OutsideVThread)?;
-    let execution = mounted.execution()?.clone();
-    execution.data.check()?;
-    let options = execution.data.options.child(deadline);
-    vthread_stack::fiber_scope(execution.shared.config.max_vthreads(), |fibers| {
-        let scope = LocalScope {
-            fibers,
-            execution,
-            options,
-            records: RefCell::new(Vec::new()),
-        };
-        let outcome = catch_unwind(AssertUnwindSafe(|| body(&scope)));
-        let policy = scope.options.check();
-        if !matches!(&outcome, Ok(Ok(_))) || policy.is_err() {
-            scope.cancel();
-        }
-        let failures = scope.drain();
-        let policy = if matches!(&outcome, Ok(Ok(_))) {
-            policy.and_then(|()| scope.options.check())
-        } else {
-            policy
-        };
-        match outcome {
-            Err(payload) => failures.unwind(payload, policy, &scope.execution.shared),
-            Ok(result) => failures.finish(result, policy, &scope.execution.shared),
-        }
-    })
 }
 
 #[cfg(test)]

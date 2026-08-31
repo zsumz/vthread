@@ -1,8 +1,8 @@
 //! Read-only access to runtime observations; callers cannot construct internal state.
 
 impl crate::RuntimeSnapshot {
-    /// Most recent failed scope, retained after task records are removed.
-    pub fn last_scope_failure(&self) -> Option<&crate::ScopeFailure> {
+    /// Latest inert, bounded scope report; original error sources remain caller-owned.
+    pub fn last_scope_failure(&self) -> Option<&crate::scope_failure_report::ScopeFailureReport> {
         self.last_scope_failure.as_deref()
     }
     /// Bounded terminal component failures, retained through shutdown.

@@ -50,7 +50,7 @@ fn zero_capacity_is_rejected() {
     assert!(matches!(
         error,
         Error::InvalidConfiguration {
-            field: "max_vthreads",
+            field: crate::error::ConfigurationField::MaxVthreads,
             ..
         }
     ));
@@ -65,7 +65,7 @@ fn tiny_stacks_are_rejected_before_allocation() {
     assert!(matches!(
         error,
         Error::InvalidConfiguration {
-            field: "stack_size",
+            field: crate::error::ConfigurationField::StackSize,
             ..
         }
     ));

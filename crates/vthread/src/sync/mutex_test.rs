@@ -9,7 +9,7 @@ fn single_carrier_contention_is_fifo_and_guards_can_yield() {
         .run_scope(|scope| {
             scope
                 .spawn("parent", || {
-                    let mutex = Mutex::new(Vec::new(), 4).unwrap();
+                    let mutex = Mutex::with_wait_capacity(Vec::new(), 4).unwrap();
                     let guard = mutex.lock().unwrap();
                     local_scope(|local| {
                         let mut children = Vec::new();
@@ -44,7 +44,7 @@ fn single_carrier_contention_is_fifo_and_guards_can_yield() {
 #[test]
 fn multiple_carriers_exclude_each_other_and_preserve_updates() {
     let runtime = Runtime::builder().carriers(4).build().unwrap();
-    let mutex = Arc::new(Mutex::new(0, 16).unwrap());
+    let mutex = Arc::new(Mutex::with_wait_capacity(0, 16).unwrap());
     runtime
         .run_scope(|scope| {
             let mut children = Vec::new();
@@ -71,7 +71,7 @@ fn multiple_carriers_exclude_each_other_and_preserve_updates() {
 #[test]
 fn panic_unlocks_and_returns_the_modified_value_without_poisoning() {
     let runtime = Runtime::new().unwrap();
-    let mutex = Arc::new(Mutex::new(0, 1).unwrap());
+    let mutex = Arc::new(Mutex::with_wait_capacity(0, 1).unwrap());
     runtime
         .run_scope(|scope| {
             let shared = Arc::clone(&mutex);
@@ -96,7 +96,7 @@ fn local_mutexes_can_protect_borrowed_non_send_values() {
             scope
                 .spawn("parent", || {
                     let value = Rc::new(Cell::new(0));
-                    let mutex = Mutex::new(&value, 1).unwrap();
+                    let mutex = Mutex::with_wait_capacity(&value, 1).unwrap();
                     local_scope(|local| {
                         local
                             .spawn("borrower", || {

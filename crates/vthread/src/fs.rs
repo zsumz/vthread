@@ -24,7 +24,7 @@ pub fn read(path: impl AsRef<Path>, limit: usize) -> Result<Vec<u8>> {
                 Ok(count) => {
                     if count > remaining {
                         return Err(Error::LimitExceeded {
-                            resource: "file bytes",
+                            resource: crate::error::LimitResource::FileBytes,
                             limit,
                         });
                     }
@@ -33,7 +33,7 @@ pub fn read(path: impl AsRef<Path>, limit: usize) -> Result<Vec<u8>> {
                         let capacity = needed.max(data.capacity().saturating_mul(2)).min(limit);
                         data.try_reserve_exact(capacity - data.len()).map_err(|_| {
                             Error::AllocationFailed {
-                                resource: "file bytes",
+                                resource: crate::error::LimitResource::FileBytes,
                                 requested: capacity,
                             }
                         })?;

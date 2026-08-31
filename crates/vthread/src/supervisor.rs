@@ -45,6 +45,7 @@ pub enum SupervisorShutdownOutcome {
 pub struct Supervisor<'runtime> {
     runtime: &'runtime Runtime,
     scope: Option<u64>,
+    id: crate::diagnostics::ScopeId,
     cancellation: CancellationToken,
     completed: Option<ShutdownReport>,
     owner: PhantomData<Rc<()>>,
@@ -57,7 +58,7 @@ impl Runtime {
             return Err(Error::InsideVThread);
         }
         if crate::worker_context::is_managed() {
-            return Err(Error::InsideBlockingWorker);
+            return Err(Error::InsideManagedWorker);
         }
         let scope = self.shared.begin_owned(options, true)?;
         let cancellation = self
@@ -68,6 +69,7 @@ impl Runtime {
         Ok(Supervisor {
             runtime: self,
             scope: Some(scope),
+            id: crate::diagnostics::ScopeId::new(scope),
             cancellation,
             completed: None,
             owner: PhantomData,
@@ -76,6 +78,13 @@ impl Runtime {
 }
 
 impl Supervisor<'_> {
+    /// Stable runtime-local identity, retained after supervised work is reclaimed.
+    /// Match this against [`crate::diagnostics::TaskSnapshot::scope`] to identify
+    /// this supervisor's tasks in a runtime-wide timeout snapshot.
+    pub fn id(&self) -> crate::diagnostics::ScopeId {
+        self.id
+    }
+
     /// Admits a transferable task owned by this supervisor.
     pub fn spawn<T: Send + 'static>(
         &self,
@@ -115,6 +124,8 @@ impl Supervisor<'_> {
 
     /// Waits until a monotonic deadline, retaining ownership on timeout for retry.
     /// Dropping this owner after a timeout still blocks until its children are reclaimed.
+    /// Timeout snapshots include all runtime tasks; filter `snapshot.tasks()` using
+    /// `task.scope() == self.id()` to select this supervisor's tasks.
     pub fn shutdown_until(&mut self, deadline: Instant) -> Result<SupervisorShutdownOutcome> {
         match self.close(Some(deadline))? {
             Some(report) => Ok(SupervisorShutdownOutcome::Complete(report)),

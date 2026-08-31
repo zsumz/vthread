@@ -62,9 +62,11 @@ pub mod net;
 mod options;
 pub mod parking;
 mod readiness;
+mod runner;
 mod runtime;
 mod scope;
 mod scope_failure;
+mod scope_failure_report;
 mod services;
 mod signal;
 mod stall_policy;
@@ -93,7 +95,10 @@ pub(crate) use error::PanicReport;
 pub use error::{Error, Result};
 pub use join::JoinHandle;
 pub use local_join::LocalJoinHandle;
-pub use local_scope::{LocalScope, local_scope, local_scope_with_deadline};
+pub use local_scope::{
+    LocalScope, local_scope, local_scope_with_deadline, try_local_scope,
+    try_local_scope_with_deadline,
+};
 pub use options::ScopeOptions;
 pub(crate) use parking::{ParkOutcome, Parker, park_pair};
 #[cfg(test)]
@@ -122,12 +127,14 @@ pub fn yield_now() -> Result<()> {
     checkpoint()
 }
 
-/// Runs one structured scope on a runtime with default configuration.
+/// Runs one structured scope and explicitly shuts down its default runtime.
+/// Returns a shutdown error even when the scope succeeds. If both fail,
+/// [`error::RunFailure`] preserves both causes in [`Error::RunFailed`].
 pub fn run<R>(body: impl FnOnce(&Scope<'_>) -> Result<R>) -> Result<R> {
     if context::current().is_some() {
         return Err(Error::InsideVThread);
     }
-    Runtime::new()?.run_scope(body)
+    runner::run(Runtime::new()?, body)
 }
 
 #[cfg(test)]

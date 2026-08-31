@@ -6,7 +6,14 @@ mod error_display;
 use std::{any::Any, io};
 
 pub use crate::scope_failure::ScopeFailure;
+pub use crate::scope_failure_report::{FailureKind, FailureReport, ScopeFailureReport};
+#[path = "error_types.rs"]
+mod error_types;
+pub use error_types::{ConfigurationField, LimitResource};
+#[path = "run_error.rs"]
+mod run_error;
 use crate::{TaskFailure, TaskId};
+pub use run_error::{RunFailure, ScopeRunError};
 #[path = "error_context.rs"]
 mod error_context;
 pub use error_context::{CapacityResource, FaultComponent, IoFailure, RuntimeFault};
@@ -60,7 +67,7 @@ pub enum Error {
     /// A bounded I/O result exceeded its requested limit.
     LimitExceeded {
         /// Which result was bounded.
-        resource: &'static str,
+        resource: LimitResource,
         /// Configured maximum size or count.
         limit: usize,
     },
@@ -81,14 +88,14 @@ pub enum Error {
     /// Fallible reservation could not grow an explicitly bounded result buffer.
     AllocationFailed {
         /// Bounded resource being allocated.
-        resource: &'static str,
+        resource: LimitResource,
         /// Requested total buffer capacity in bytes.
         requested: usize,
     },
     /// A builder value violates the runtime contract.
     InvalidConfiguration {
         /// Name of the invalid field.
-        field: &'static str,
+        field: ConfigurationField,
         /// Human-readable constraint.
         message: &'static str,
     },
@@ -107,10 +114,14 @@ pub enum Error {
     ScopeFailed(std::sync::Arc<crate::ScopeFailure>),
     /// All runtime threads were joined, but one or more owned components failed.
     ShutdownFailed(Box<crate::ShutdownReport>),
+    /// The process lifecycle service failed; unfinished threads remain process-owned.
+    LifecycleFailed(Box<crate::ThreadFailure>),
+    /// Both the application scope and explicit shutdown failed.
+    RunFailed(Box<RunFailure>),
     /// A blocking runtime operation was called from a virtual thread.
     InsideVThread,
-    /// A native worker tried to wait for shutdown of its owning runtime.
-    InsideBlockingWorker,
+    /// A managed runtime thread attempted an operation reserved for ordinary OS callers.
+    InsideManagedWorker,
     /// An owned operating-system thread could not be created.
     ThreadStart {
         /// Component that could not start.
@@ -188,7 +199,7 @@ impl Error {
     pub(crate) fn thread_start(component: crate::ThreadComponent, source: io::Error) -> Self {
         Self::ThreadStart { component, source }
     }
-    pub(crate) fn invalid_configuration(field: &'static str, message: &'static str) -> Self {
+    pub(crate) fn invalid_configuration(field: ConfigurationField, message: &'static str) -> Self {
         Self::InvalidConfiguration { field, message }
     }
 

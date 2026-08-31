@@ -71,8 +71,16 @@ fn timed_shutdown_retains_supervised_work_until_retry_completes() {
         sync::mpsc,
         time::{Duration, Instant},
     };
-    let runtime = crate::Runtime::new().unwrap();
+    let runtime = crate::Runtime::builder().carriers(2).build().unwrap();
     let mut supervisor = runtime.supervisor(crate::ScopeOptions::default()).unwrap();
+    let id = supervisor.id();
+    let other = runtime.supervisor(crate::ScopeOptions::default()).unwrap();
+    assert_ne!(id, other.id());
+    let (parked, _waker) = park_pair();
+    let other_child = other
+        .spawn("other-supervisor", move || parked.park())
+        .unwrap();
+    until(|| runtime.snapshot().parked == 1);
     let (release, gate) = mpsc::sync_channel(1);
     let (started, entered) = mpsc::sync_channel(1);
     let mut child = supervisor
@@ -87,10 +95,22 @@ fn timed_shutdown_retains_supervised_work_until_retry_completes() {
         .unwrap();
     let still_owned = supervisor.scope.is_some();
     release.send(()).unwrap();
-    assert!(matches!(
-        observed,
-        crate::SupervisorShutdownOutcome::TimedOut(_)
-    ));
+    let crate::SupervisorShutdownOutcome::TimedOut(snapshot) = observed else {
+        panic!("supervisor should retain the uncooperative task");
+    };
+    let owned: Vec<_> = snapshot
+        .tasks()
+        .iter()
+        .filter(|task| task.scope() == id)
+        .collect();
+    assert_eq!(owned.len(), 1);
+    assert_eq!(owned[0].name(), "uncooperative");
+    assert!(
+        snapshot
+            .tasks()
+            .iter()
+            .any(|task| task.scope() == other.id())
+    );
     assert!(still_owned);
     assert!(matches!(
         supervisor.spawn("rejected", || ()),
@@ -112,8 +132,11 @@ fn timed_shutdown_retains_supervised_work_until_retry_completes() {
         panic!("owner regressed");
     };
     assert_eq!(report, repeated);
+    assert_eq!(supervisor.id(), id);
     assert!(child.is_finished());
     assert!(supervisor.cancellation_token().is_cancelled());
     let _ = child.join();
     supervisor.shutdown().unwrap();
+    other.shutdown().unwrap();
+    assert!(other_child.is_finished());
 }

@@ -9,8 +9,8 @@ fn predicate_wait_releases_and_reacquires_on_one_carrier() {
         .run_scope(|scope| {
             scope
                 .spawn("parent", || {
-                    let mutex = Mutex::new(false, 2).unwrap();
-                    let changed = Condvar::new(2).unwrap();
+                    let mutex = Mutex::with_wait_capacity(false, 2).unwrap();
+                    let changed = Condvar::with_wait_capacity(2).unwrap();
                     changed.notify_one(); // No stored notification.
                     local_scope(|local| {
                         let mut waiter = local.spawn("predicate", || {
@@ -44,8 +44,8 @@ fn cancellation_removes_the_condition_wait_and_leaves_mutex_unlocked() {
         .run_scope(|scope| {
             scope
                 .spawn("parent", || {
-                    let mutex = Mutex::new(0, 1).unwrap();
-                    let changed = Condvar::new(1).unwrap();
+                    let mutex = Mutex::with_wait_capacity(0, 1).unwrap();
+                    let changed = Condvar::with_wait_capacity(1).unwrap();
                     let token = RefCell::new(None);
                     local_scope(|local| {
                         let mut waiter = local.spawn("cancelled", || {
@@ -72,7 +72,10 @@ fn cancellation_removes_the_condition_wait_and_leaves_mutex_unlocked() {
 fn registration_and_unlock_do_not_lose_remote_notifications() {
     let runtime = Runtime::builder().carriers(2).build().unwrap();
     for _ in 0..64 {
-        let pair = Arc::new((Mutex::new(false, 2).unwrap(), Condvar::new(2).unwrap()));
+        let pair = Arc::new((
+            Mutex::with_wait_capacity(false, 2).unwrap(),
+            Condvar::with_wait_capacity(2).unwrap(),
+        ));
         runtime
             .run_scope(|scope| {
                 let shared = Arc::clone(&pair);

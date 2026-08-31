@@ -28,13 +28,13 @@ impl Shared {
     ) -> Result<SharedTaskRecord> {
         if name.trim().is_empty() {
             return Err(Error::invalid_configuration(
-                "task name",
+                crate::error::ConfigurationField::TaskName,
                 "must not be empty",
             ));
         }
         if name.len() > 128 {
             return Err(Error::LimitExceeded {
-                resource: "task name UTF-8 bytes",
+                resource: crate::error::LimitResource::TaskNameBytes,
                 limit: 128,
             });
         }

@@ -15,10 +15,18 @@ pub struct Permit<'a> {
 }
 
 impl Semaphore {
+    /// Creates a positive fixed permit pool using [`super::DEFAULT_WAIT_CAPACITY`].
+    pub fn new(permits: usize) -> Result<Self> {
+        Self::with_wait_capacity(permits, super::DEFAULT_WAIT_CAPACITY)
+    }
+
     /// Creates a positive fixed permit pool and positive waiter limit.
-    pub fn new(permits: usize, wait_capacity: usize) -> Result<Self> {
+    pub fn with_wait_capacity(permits: usize, wait_capacity: usize) -> Result<Self> {
         if permits == 0 {
-            return Err(Error::invalid_configuration("permits", "must be positive"));
+            return Err(Error::invalid_configuration(
+                crate::error::ConfigurationField::Permits,
+                "must be positive",
+            ));
         }
         Ok(Self {
             gate: Gate::new(permits, permits, wait_capacity)?,
@@ -57,6 +65,10 @@ impl Semaphore {
     /// Outstanding wait tickets, including selected but unconsumed permits.
     pub fn waiting(&self) -> usize {
         self.gate.waiting()
+    }
+    /// Configured outstanding-wait limit, including selected waiters.
+    pub fn wait_capacity(&self) -> usize {
+        self.gate.wait_capacity()
     }
 }
 

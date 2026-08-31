@@ -41,7 +41,7 @@ fn empty_names_are_rejected() {
         assert!(matches!(
             error,
             Error::InvalidConfiguration {
-                field: "task name",
+                field: crate::error::ConfigurationField::TaskName,
                 ..
             }
         ));

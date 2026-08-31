@@ -1,4 +1,4 @@
-use crate::{Error, Runtime, channel::bounded, local_scope, yield_now};
+use crate::{Error, Runtime, channel::bounded_with_wait_capacity, local_scope, yield_now};
 
 #[test]
 fn waiter_bounds_include_selected_sends_and_receives() {
@@ -7,7 +7,7 @@ fn waiter_bounds_include_selected_sends_and_receives() {
         .run_scope(|scope| {
             scope
                 .spawn("parent", || {
-                    let (sender, receiver) = bounded(1, 1).unwrap();
+                    let (sender, receiver) = bounded_with_wait_capacity(1, 1).unwrap();
                     local_scope(|local| {
                         let mut first = local.spawn("receive", || receiver.recv())?;
                         while receiver.waiting() == 0 {
@@ -63,8 +63,8 @@ fn shutdown_removes_both_directions_and_reclaims_unsent_input() {
     }
     let drops = Arc::new(AtomicUsize::new(0));
     let runtime = Runtime::new().unwrap();
-    let (sender, receiver) = bounded(1, 1).unwrap();
-    let (_other_sender, other_receiver) = bounded::<u8>(1, 1).unwrap();
+    let (sender, receiver) = bounded_with_wait_capacity(1, 1).unwrap();
+    let (_other_sender, other_receiver) = bounded_with_wait_capacity::<u8>(1, 1).unwrap();
     sender.try_send(Count(Arc::clone(&drops))).unwrap();
     runtime
         .run_scope(|scope| {

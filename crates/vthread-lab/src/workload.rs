@@ -9,7 +9,7 @@ pub(crate) fn batch(
     iteration: u64,
     previous: Option<super::network::Pair>,
 ) -> Result<super::network::Pair> {
-    let (sender, receiver) = channel::bounded(8, tasks + 8)?;
+    let (sender, receiver) = channel::bounded_with_wait_capacity(8, tasks + 8)?;
     let mut producer = scope.spawn("soak-channel-send", move || -> Result<()> {
         for value in 0..128u64 {
             sender.send(value).map_err(|error| error.into_parts().0)?;
@@ -23,7 +23,7 @@ pub(crate) fn batch(
         Ok(())
     })?;
     let exchange = super::network::start(scope, iteration, previous)?;
-    let semaphore = Arc::new(vthread::sync::Semaphore::new(2, tasks + 8)?);
+    let semaphore = Arc::new(vthread::sync::Semaphore::with_wait_capacity(2, tasks + 8)?);
     let mut jobs = Vec::new();
     for id in 0..tasks {
         let semaphore = Arc::clone(&semaphore);

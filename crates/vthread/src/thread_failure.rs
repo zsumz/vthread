@@ -82,7 +82,7 @@ impl ThreadFailure {
     pub fn panic(&self) -> &PanicReport {
         &self.panic
     }
-    /// Whether a join confirmed OS cleanup without a panic-payload disposal failure.
+    /// Whether a join confirmed OS cleanup without failed or quarantined payload cleanup.
     pub fn cleanup_complete(&self) -> bool {
         self.cleanup_complete
     }
@@ -131,16 +131,12 @@ pub(crate) fn join(
 ) {
     let name = worker.thread().name().unwrap_or("unnamed").to_owned();
     if let Err(payload) = worker.join() {
-        let panic = PanicReport::from_captured(
-            vthread_stack::panic_payload::capture_without_observer(payload),
-        );
+        let (captured, quarantined) = vthread_stack::panic_payload::capture_for_join(payload);
+        let panic = PanicReport::from_captured(captured);
         if let Some(shared) = shared.upgrade() {
-            shared.record_failure(ThreadFailure::new(
-                component,
-                &name,
-                FailurePhase::Join,
-                panic,
-            ));
+            let mut failure = ThreadFailure::new(component, &name, FailurePhase::Join, panic);
+            failure.cleanup_complete &= !quarantined;
+            shared.record_failure(failure);
         }
     } else if let Some(shared) = shared.upgrade() {
         crate::signal::lock(&shared.failures).joined(component, &name);

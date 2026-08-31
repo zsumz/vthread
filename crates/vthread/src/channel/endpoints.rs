@@ -26,6 +26,10 @@ impl<T> Sender<T> {
     pub fn capacity(&self) -> usize {
         self.core.capacity
     }
+    /// Configured outstanding-wait limit per direction, including selected waiters.
+    pub fn wait_capacity(&self) -> usize {
+        self.core.wait_capacity
+    }
     /// Buffered message count, excluding inputs held by waiting senders.
     pub fn len(&self) -> usize {
         lock(&self.core.state).values.len()
@@ -41,6 +45,10 @@ impl<T> Sender<T> {
 }
 
 impl<T> Receiver<T> {
+    /// Configured outstanding-wait limit per direction, including selected waiters.
+    pub fn wait_capacity(&self) -> usize {
+        self.core.wait_capacity
+    }
     /// Receives or parks for a value; returns `Error::Closed` after disconnection
     /// and buffer drain. No value is removed on cancellation or deadline failure.
     pub fn recv(&self) -> Result<T> {

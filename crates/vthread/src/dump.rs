@@ -83,6 +83,9 @@ impl RuntimeSnapshot {
         for task in &self.tasks {
             task_line(output, "task", task)?;
         }
+        if let Some(failure) = &self.last_scope_failure {
+            writeln!(output, "last_scope_failure {failure:?}")?;
+        }
         if let Some(stall) = &self.last_stall {
             writeln!(
                 output,

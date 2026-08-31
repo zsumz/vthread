@@ -2,21 +2,26 @@
 
 #[path = "runtime_lifecycle.rs"]
 mod runtime_lifecycle;
+#[path = "runtime_scope.rs"]
+mod runtime_scope;
 pub use runtime_lifecycle::ShutdownOutcome;
 
 use crate::{
-    CarrierId, Error, JoinHandle, Result, RuntimeBuilder, RuntimeConfig, RuntimeSnapshot, Scope,
-    carrier, context, control::Shared, signal::lock,
+    CarrierId, Error, JoinHandle, Result, RuntimeBuilder, RuntimeConfig, RuntimeSnapshot, carrier,
+    context, control::Shared, signal::lock,
 };
 use std::{
     fmt,
-    panic::{AssertUnwindSafe, catch_unwind},
     sync::{Arc, Mutex},
     thread,
 };
 
 /// An application lifecycle owner with one active root scope and persistent affine carriers.
 /// Explicit supervisors may coexist with that root; independent roots use separate runtimes.
+/// Task groups and supervisors share this runtime's workers, rather than creating new ones.
+/// Each runtime owns `carriers + blocking_threads + 2` OS threads (five by default), plus
+/// one process-shared lifecycle owner. See [`RuntimeBuilder`] for thread/stack costs and
+/// [`crate::lifecycle::LIFECYCLE_CAPACITY`] for the fixed process admission bound.
 pub struct Runtime {
     config: RuntimeConfig,
     pub(crate) shared: Arc<Shared>,
@@ -39,7 +44,7 @@ impl Runtime {
             return Err(Error::InsideVThread);
         }
         if crate::worker_context::is_managed() {
-            return Err(Error::InsideBlockingWorker);
+            return Err(Error::InsideManagedWorker);
         }
         let shared = Arc::new(Shared::new(config));
         let workers = Arc::new(Mutex::new(Vec::new()));
@@ -82,6 +87,7 @@ impl Runtime {
             lock(&workers).push(worker);
         }
         runtime.shutdown_driver.ready(&runtime.shared);
+        crate::lifecycle_owner::check_health()?;
         Ok(runtime)
     }
 
@@ -93,49 +99,6 @@ impl Runtime {
     /// Returns the immutable runtime configuration.
     pub fn config(&self) -> RuntimeConfig {
         self.config
-    }
-
-    /// Runs a scope body on an ordinary OS caller and drains all admitted children.
-    ///
-    /// One lexical root scope may be active per runtime; supervisors may coexist.
-    /// Virtual callers use local_scope for borrowed, nested ownership.
-    pub fn run_scope<R>(&self, body: impl FnOnce(&Scope<'_>) -> Result<R>) -> Result<R> {
-        self.run_scope_with(crate::ScopeOptions::default(), body)
-    }
-
-    /// Runs a root with an inherited task deadline, observed before and after the callback.
-    /// The OS callback cannot be preempted. Child reclamation may exceed the deadline;
-    /// failures are retained in ScopeFailure and the latest runtime snapshot.
-    pub fn run_scope_with<R>(
-        &self,
-        options: crate::ScopeOptions,
-        body: impl FnOnce(&Scope<'_>) -> Result<R>,
-    ) -> Result<R> {
-        if context::current().is_some() {
-            return Err(Error::InsideVThread);
-        }
-        if crate::worker_context::is_managed() {
-            return Err(Error::InsideBlockingWorker);
-        }
-        root_deadline(options.deadline)?;
-        let id = self.shared.begin_owned(options, false)?;
-        let scope = Scope::new(self, id);
-        let result = catch_unwind(AssertUnwindSafe(|| body(&scope)));
-        let policy = root_deadline(options.deadline);
-        if !matches!(&result, Ok(Ok(_))) || policy.is_err() {
-            scope.cancel();
-        }
-        let drained = self.shared.wait(id, None);
-        let mut failures = self.shared.unobserved(id);
-        if let Err(error) = drained {
-            failures.cleanup_failed(error);
-        }
-        let policy = policy.and_then(|()| root_deadline(options.deadline));
-        self.shared.finish_scope(id);
-        match result {
-            Err(payload) => failures.unwind(payload, policy, &self.shared),
-            Ok(result) => failures.finish(result, policy, &self.shared),
-        }
     }
 
     /// Returns the published carrier state and retained task diagnostics.
@@ -157,14 +120,6 @@ impl Runtime {
             spawned.cell,
             spawned.record,
         ))
-    }
-}
-
-fn root_deadline(deadline: Option<std::time::Instant>) -> Result<()> {
-    if deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
-        Err(Error::DeadlineExceeded)
-    } else {
-        Ok(())
     }
 }
 

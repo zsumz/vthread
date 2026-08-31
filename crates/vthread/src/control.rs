@@ -24,12 +24,15 @@ pub(crate) struct Shared {
     pub(crate) id: crate::identity::RuntimeId,
     #[cfg(test)]
     pub(crate) fail_coordinator_start: std::sync::atomic::AtomicBool,
+    #[cfg(test)]
+    pub(crate) fail_coordinator_before_drain: std::sync::atomic::AtomicBool,
     pub(crate) services: OnceLock<crate::services::Services>,
     pub(crate) config: RuntimeConfig,
     pub(crate) inboxes: Vec<Arc<Inbox>>,
     pub(crate) changed: Signal,
     pub(crate) failures: Mutex<crate::ThreadFailures>,
-    pub(crate) last_scope_failure: Mutex<Option<Arc<crate::ScopeFailure>>>,
+    pub(crate) last_scope_failure:
+        Mutex<Option<Arc<crate::scope_failure_report::ScopeFailureReport>>>,
     state: Mutex<State>,
     #[cfg(test)]
     pub(crate) fail_after_resume: std::sync::atomic::AtomicBool,
@@ -62,6 +65,8 @@ impl Shared {
             id: crate::identity::RuntimeId::next(),
             #[cfg(test)]
             fail_coordinator_start: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            fail_coordinator_before_drain: std::sync::atomic::AtomicBool::new(false),
             services: OnceLock::new(),
             config,
             changed: Signal::default(),

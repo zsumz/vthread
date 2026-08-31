@@ -9,7 +9,7 @@ fn cancelling_a_selected_waiter_returns_its_permit_to_the_next_waiter() {
         .run_scope(|scope| {
             scope
                 .spawn("parent", || {
-                    let semaphore = Semaphore::new(1, 2).unwrap();
+                    let semaphore = Semaphore::with_wait_capacity(1, 2).unwrap();
                     let permit = semaphore.try_acquire().unwrap();
                     let token = RefCell::new(None);
                     local_scope(|local| {
@@ -44,7 +44,7 @@ fn close_fails_waiters_and_held_permits_cannot_reopen_it() {
         .run_scope(|scope| {
             scope
                 .spawn("parent", || {
-                    let semaphore = Semaphore::new(1, 1).unwrap();
+                    let semaphore = Semaphore::with_wait_capacity(1, 1).unwrap();
                     let permit = semaphore.try_acquire().unwrap();
                     local_scope(|local| {
                         let mut waiter =
@@ -73,7 +73,7 @@ fn waiter_overflow_is_explicit_and_nonblocking_callers_do_not_barge() {
         .run_scope(|scope| {
             scope
                 .spawn("parent", || {
-                    let semaphore = Semaphore::new(1, 1).unwrap();
+                    let semaphore = Semaphore::with_wait_capacity(1, 1).unwrap();
                     let permit = semaphore.try_acquire().unwrap();
                     local_scope(|local| {
                         let mut waiter = local.spawn("first", || semaphore.acquire().map(drop))?;
@@ -106,7 +106,7 @@ fn multiple_permits_bound_concurrent_holders_across_carriers() {
         atomic::{AtomicUsize, Ordering},
     };
     let runtime = Runtime::builder().carriers(4).build().unwrap();
-    let semaphore = Arc::new(Semaphore::new(3, 16).unwrap());
+    let semaphore = Arc::new(Semaphore::with_wait_capacity(3, 16).unwrap());
     let holders = Arc::new(AtomicUsize::new(0));
     runtime
         .run_scope(|scope| {

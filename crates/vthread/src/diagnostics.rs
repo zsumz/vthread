@@ -177,7 +177,8 @@ impl CarrierSnapshot {
 pub struct RuntimeSnapshot {
     pub(crate) runtime_id: RuntimeId,
     /// Most recent failed scope, retained after task records are removed.
-    pub(crate) last_scope_failure: Option<std::sync::Arc<crate::ScopeFailure>>,
+    pub(crate) last_scope_failure:
+        Option<std::sync::Arc<crate::scope_failure_report::ScopeFailureReport>>,
     /// Bounded terminal component failures, retained through shutdown.
     pub(crate) failures: crate::ThreadFailures,
     /// Current shutdown progress, including waits beyond task and native-job completion.

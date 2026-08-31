@@ -2,7 +2,8 @@
 //!
 //! Blocking methods require a virtual caller and respect inherited cancellation and
 //! deadlines. Try methods, notifications, closing, and guard destruction also work
-//! from ordinary threads. All constructors require an explicit waiter capacity.
+//! from ordinary threads. Simple constructors use [`DEFAULT_WAIT_CAPACITY`];
+//! `with_wait_capacity` constructors set a different positive waiter limit.
 //! Native locks protect only short metadata operations and are never held at suspension.
 
 mod condvar;
@@ -16,6 +17,11 @@ pub use condvar::Condvar;
 pub use mutex::{Mutex, MutexGuard};
 pub use notify::Notify;
 pub use semaphore::{Permit, Semaphore};
+
+/// Default outstanding-wait limit for each synchronization primitive and each
+/// channel direction. Selected but unconsumed wait tickets count toward this limit.
+/// Exceeding it returns `Error::Capacity`; primitives never grow an unbounded queue.
+pub const DEFAULT_WAIT_CAPACITY: usize = 64;
 
 #[cfg(test)]
 #[path = "sync_test.rs"]

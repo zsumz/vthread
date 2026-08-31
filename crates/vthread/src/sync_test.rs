@@ -6,15 +6,74 @@ use std::{
 };
 
 #[test]
+fn simple_constructors_expose_bounded_wait_capacity() {
+    let mutex = Mutex::new(42).unwrap();
+    assert_eq!(mutex.wait_capacity(), super::DEFAULT_WAIT_CAPACITY);
+    assert_eq!(*mutex.try_lock().unwrap(), 42);
+    let semaphore = Semaphore::new(2).unwrap();
+    assert_eq!(semaphore.wait_capacity(), super::DEFAULT_WAIT_CAPACITY);
+    let permit = semaphore.try_acquire().unwrap();
+    assert_eq!(semaphore.available_permits(), 1);
+    drop(permit);
+    assert_eq!(semaphore.available_permits(), 2);
+    assert!(Semaphore::new(0).is_err());
+    let notify = Notify::new().unwrap();
+    assert_eq!(notify.wait_capacity(), super::DEFAULT_WAIT_CAPACITY);
+    notify.notify_one();
+    notify.try_notified().unwrap();
+    let changed = Condvar::new().unwrap();
+    assert_eq!(changed.wait_capacity(), super::DEFAULT_WAIT_CAPACITY);
+    changed.notify_all();
+    assert!(Mutex::with_wait_capacity(0, 0).is_err());
+    assert!(Semaphore::with_wait_capacity(1, 0).is_err());
+    assert!(Notify::with_wait_capacity(0).is_err());
+    assert!(Condvar::with_wait_capacity(0).is_err());
+}
+
+#[test]
+fn default_waiter_budget_rejects_overflow_without_losing_existing_waits() {
+    let runtime = Runtime::new().unwrap();
+    let notify = Arc::new(Notify::new().unwrap());
+    runtime
+        .run_scope(|scope| {
+            let mut waits = Vec::new();
+            for _ in 0..super::DEFAULT_WAIT_CAPACITY {
+                let notify = Arc::clone(&notify);
+                waits.push(scope.spawn("default-waiter", move || notify.notified())?);
+            }
+            until(|| notify.waiting() == super::DEFAULT_WAIT_CAPACITY);
+            let overflow = Arc::clone(&notify);
+            let error = scope
+                .spawn("overflow", move || overflow.notified())?
+                .join()?
+                .unwrap_err();
+            assert!(matches!(
+                error,
+                Error::Capacity {
+                    resource: crate::error::CapacityResource::Waiters,
+                    limit: super::DEFAULT_WAIT_CAPACITY,
+                }
+            ));
+            notify.notify_waiters();
+            for mut wait in waits {
+                wait.join()??;
+            }
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(notify.waiting(), 0);
+}
+
+#[test]
 fn blocking_sync_calls_require_virtual_context_even_when_ready() {
-    let mutex = Mutex::new(42, 1).unwrap();
+    let mutex = Mutex::with_wait_capacity(42, 1).unwrap();
     assert!(matches!(mutex.lock(), Err(Error::OutsideVThread)));
-    let semaphore = Semaphore::new(1, 1).unwrap();
+    let semaphore = Semaphore::with_wait_capacity(1, 1).unwrap();
     assert!(matches!(semaphore.acquire(), Err(Error::OutsideVThread)));
-    let notify = Notify::new(1).unwrap();
+    let notify = Notify::with_wait_capacity(1).unwrap();
     notify.notify_one();
     assert!(matches!(notify.notified(), Err(Error::OutsideVThread)));
-    let changed = Condvar::new(1).unwrap();
+    let changed = Condvar::with_wait_capacity(1).unwrap();
     assert!(matches!(
         changed.wait(mutex.try_lock().unwrap()),
         Err(Error::OutsideVThread)
@@ -25,7 +84,7 @@ fn blocking_sync_calls_require_virtual_context_even_when_ready() {
 #[test]
 fn deadlines_remove_waiters_and_return_selected_resources() {
     let runtime = Runtime::new().unwrap();
-    let semaphore = Arc::new(Semaphore::new(1, 1).unwrap());
+    let semaphore = Arc::new(Semaphore::with_wait_capacity(1, 1).unwrap());
     let permit = semaphore.try_acquire().unwrap();
     let options = ScopeOptions::default().deadline(Instant::now() + Duration::from_millis(20));
     let error = runtime
@@ -45,8 +104,8 @@ fn deadlines_remove_waiters_and_return_selected_resources() {
 #[test]
 fn forced_shutdown_drops_held_guards_and_wait_tickets() {
     let runtime = Runtime::new().unwrap();
-    let mutex = Arc::new(Mutex::new(0, 2).unwrap());
-    let notify = Arc::new(Notify::new(1).unwrap());
+    let mutex = Arc::new(Mutex::with_wait_capacity(0, 2).unwrap());
+    let notify = Arc::new(Notify::with_wait_capacity(1).unwrap());
     runtime
         .run_scope(|scope| {
             let shared = Arc::clone(&mutex);
@@ -75,7 +134,7 @@ fn forced_shutdown_drops_held_guards_and_wait_tickets() {
 fn shutdown_after_selection_returns_the_reserved_permit_without_resuming_waiter() {
     use std::sync::atomic::{AtomicBool, Ordering};
     let runtime = Runtime::new().unwrap();
-    let semaphore = Arc::new(Semaphore::new(1, 1).unwrap());
+    let semaphore = Arc::new(Semaphore::with_wait_capacity(1, 1).unwrap());
     let permit = semaphore.try_acquire().unwrap();
     let started = Arc::new(AtomicBool::new(false));
     let release = Arc::new(AtomicBool::new(false));
@@ -110,7 +169,7 @@ fn shutdown_after_selection_returns_the_reserved_permit_without_resuming_waiter(
 
 #[test]
 fn task_dumps_identify_every_synchronization_boundary() {
-    use crate::{SuspensionReason, TaskStatus, channel::bounded};
+    use crate::{SuspensionReason, TaskStatus, channel::bounded_with_wait_capacity};
     fn check(reason: SuspensionReason, body: impl FnOnce() -> crate::Result<()> + Send + 'static) {
         let runtime = Runtime::new().unwrap();
         runtime
@@ -129,28 +188,32 @@ fn task_dumps_identify_every_synchronization_boundary() {
             })
             .unwrap();
     }
-    let semaphore = Arc::new(Semaphore::new(1, 1).unwrap());
+    let semaphore = Arc::new(Semaphore::with_wait_capacity(1, 1).unwrap());
     let _permit = semaphore.try_acquire().unwrap();
     let shared = Arc::clone(&semaphore);
     check(SuspensionReason::Semaphore, move || {
         shared.acquire().map(drop)
     });
-    let mutex = Arc::new(Mutex::new(0, 1).unwrap());
+    let mutex = Arc::new(Mutex::with_wait_capacity(0, 1).unwrap());
     let _guard = mutex.try_lock().unwrap();
     let shared = Arc::clone(&mutex);
     check(SuspensionReason::Mutex, move || shared.lock().map(drop));
-    check(SuspensionReason::Notify, || Notify::new(1)?.notified());
-    check(SuspensionReason::Condvar, || {
-        let mutex = Mutex::new(0, 1)?;
-        Condvar::new(1)?.wait(mutex.lock()?).map(drop)
+    check(SuspensionReason::Notify, || {
+        Notify::with_wait_capacity(1)?.notified()
     });
-    let (sender, receiver) = bounded(1, 1).unwrap();
+    check(SuspensionReason::Condvar, || {
+        let mutex = Mutex::with_wait_capacity(0, 1)?;
+        Condvar::with_wait_capacity(1)?
+            .wait(mutex.lock()?)
+            .map(drop)
+    });
+    let (sender, receiver) = bounded_with_wait_capacity(1, 1).unwrap();
     sender.try_send(0).unwrap();
     check(SuspensionReason::ChannelSend, move || {
         sender.send(1).map_err(|error| error.error)
     });
     drop(receiver);
-    let (_sender, receiver) = bounded::<u8>(1, 1).unwrap();
+    let (_sender, receiver) = bounded_with_wait_capacity::<u8>(1, 1).unwrap();
     check(SuspensionReason::ChannelRecv, move || {
         receiver.recv().map(drop)
     });

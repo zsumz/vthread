@@ -1,12 +1,26 @@
-use super::bounded;
+use super::bounded_with_wait_capacity;
 use crate::{Error, Runtime};
 use std::sync::{Arc, Mutex};
+
+#[test]
+fn simple_channel_constructor_exposes_a_bounded_default() {
+    assert!(super::bounded::<u8>(0).is_err());
+    let (sender, receiver) = super::bounded(1).unwrap();
+    assert_eq!(sender.wait_capacity(), super::DEFAULT_WAIT_CAPACITY);
+    assert_eq!(receiver.wait_capacity(), super::DEFAULT_WAIT_CAPACITY);
+    sender.try_send(42).unwrap();
+    assert_eq!(receiver.try_recv().unwrap(), 42);
+    assert_eq!(sender.capacity(), 1);
+    let (sender, receiver) = bounded_with_wait_capacity::<u8>(1, 7).unwrap();
+    assert_eq!(sender.wait_capacity(), 7);
+    assert_eq!(receiver.wait_capacity(), 7);
+}
 
 #[test]
 fn mpmc_delivers_each_value_once_on_one_and_four_carriers() {
     for carriers in [1, 4] {
         let runtime = Runtime::builder().carriers(carriers).build().unwrap();
-        let (sender, receiver) = bounded(3, 8).unwrap();
+        let (sender, receiver) = bounded_with_wait_capacity(3, 8).unwrap();
         let output = Arc::new(Mutex::new(Vec::new()));
         runtime
             .run_scope(|scope| {
@@ -50,9 +64,9 @@ fn mpmc_delivers_each_value_once_on_one_and_four_carriers() {
 
 #[test]
 fn constructors_and_nonblocking_operations_enforce_bounds() {
-    assert!(bounded::<u8>(0, 1).is_err());
-    assert!(bounded::<u8>(1, 0).is_err());
-    let (sender, receiver) = bounded(1, 1).unwrap();
+    assert!(bounded_with_wait_capacity::<u8>(0, 1).is_err());
+    assert!(bounded_with_wait_capacity::<u8>(1, 0).is_err());
+    let (sender, receiver) = bounded_with_wait_capacity(1, 1).unwrap();
     assert!(matches!(receiver.recv(), Err(Error::OutsideVThread)));
     let error = sender.send(1).unwrap_err();
     assert!(matches!(error.error, Error::OutsideVThread));

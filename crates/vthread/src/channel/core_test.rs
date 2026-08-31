@@ -1,4 +1,4 @@
-use crate::{Error, Runtime, channel::bounded, local_scope, yield_now};
+use crate::{Error, Runtime, channel::bounded_with_wait_capacity, local_scope, yield_now};
 use std::cell::RefCell;
 
 #[test]
@@ -8,7 +8,7 @@ fn blocked_senders_are_fifo_and_try_send_cannot_barge() {
         .run_scope(|scope| {
             scope
                 .spawn("parent", || {
-                    let (sender, receiver) = bounded(1, 3).unwrap();
+                    let (sender, receiver) = bounded_with_wait_capacity(1, 3).unwrap();
                     sender.try_send(0).unwrap();
                     local_scope(|local| {
                         let mut first = local.spawn("first", || sender.send(1))?;
@@ -44,7 +44,7 @@ fn selected_receiver_cancellation_preserves_the_buffer_and_fifo_successor() {
         .run_scope(|scope| {
             scope
                 .spawn("parent", || {
-                    let (sender, receiver) = bounded(1, 2).unwrap();
+                    let (sender, receiver) = bounded_with_wait_capacity(1, 2).unwrap();
                     let token = RefCell::new(None);
                     local_scope(|local| {
                         let mut first = local.spawn("cancelled", || {
@@ -81,7 +81,7 @@ fn cancelled_send_returns_its_input_even_after_capacity_wakes_it() {
         .run_scope(|scope| {
             scope
                 .spawn("parent", || {
-                    let (sender, receiver) = bounded(1, 1).unwrap();
+                    let (sender, receiver) = bounded_with_wait_capacity(1, 1).unwrap();
                     sender.try_send(1).unwrap();
                     let token = RefCell::new(None);
                     local_scope(|local| {
@@ -117,7 +117,7 @@ fn inherited_deadlines_remove_channel_waits_without_transferring_values() {
         .run_scope(|scope| {
             scope
                 .spawn("parent", || {
-                    let (sender, receiver) = bounded(1, 1).unwrap();
+                    let (sender, receiver) = bounded_with_wait_capacity(1, 1).unwrap();
                     sender.try_send(1).unwrap();
                     let error = local_scope_with_deadline(
                         Instant::now() + Duration::from_millis(20),

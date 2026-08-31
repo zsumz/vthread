@@ -65,7 +65,7 @@ fn timed_shutdown_retains_blocked_cleanup_and_isolates_its_panic() {
             assert_eq!(self.2.snapshot().services.blocking_discarding, 1);
             assert!(matches!(
                 self.2.shutdown(),
-                Err(crate::Error::InsideBlockingWorker)
+                Err(crate::Error::InsideManagedWorker)
             ));
             self.1.send(()).unwrap();
             self.0.recv_timeout(Duration::from_secs(5)).unwrap();

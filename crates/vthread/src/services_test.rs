@@ -68,7 +68,7 @@ fn a_native_worker_cannot_shut_down_the_runtime_that_owns_it() {
             })?;
             assert!(matches!(
                 task.join()??,
-                Err(crate::Error::InsideBlockingWorker)
+                Err(crate::Error::InsideManagedWorker)
             ));
             Ok(())
         })

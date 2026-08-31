@@ -5,11 +5,13 @@
 //! sender rejects sends but lets receivers drain buffered values. Dropping the last
 //! receiver rejects sends and reclaims buffered values outside the metadata lock.
 //! A failed send returns its input; cancellation never consumes a received value.
+//! [`bounded`] uses [`DEFAULT_WAIT_CAPACITY`] per direction; choose a different
+//! positive waiter limit with [`bounded_with_wait_capacity`].
 //!
 //! ```
 //! use vthread::{Runtime, channel::bounded};
 //! let runtime = Runtime::new()?;
-//! let (sender, receiver) = bounded(1, 4)?;
+//! let (sender, receiver) = bounded(1)?;
 //! runtime.run_scope(|scope| {
 //!     let mut consumer = scope.spawn("consumer", move || receiver.recv())?;
 //!     scope.spawn("producer", move || sender.send(42).map_err(|e| e.into_parts().0))?.join()??;
@@ -22,6 +24,8 @@
 mod core;
 mod endpoints;
 mod wait;
+
+pub use crate::sync::DEFAULT_WAIT_CAPACITY;
 
 use crate::{Error, Result, wait::WaitCell};
 use std::{
@@ -98,19 +102,29 @@ struct State<T> {
     recv_waits: VecDeque<WaitCell>,
 }
 
+/// Creates a channel with positive buffer capacity and [`DEFAULT_WAIT_CAPACITY`]
+/// outstanding waiters per direction. Selected tickets count toward this limit.
+/// Zero-capacity rendezvous channels are not supported.
+pub fn bounded<T>(capacity: usize) -> Result<(Sender<T>, Receiver<T>)> {
+    bounded_with_wait_capacity(capacity, DEFAULT_WAIT_CAPACITY)
+}
+
 /// Creates a channel with positive buffer capacity and a positive waiter limit
 /// per direction. Zero-capacity rendezvous channels are not supported.
 /// Selected but unconsumed wait tickets still count toward the limit.
-pub fn bounded<T>(capacity: usize, wait_capacity: usize) -> Result<(Sender<T>, Receiver<T>)> {
+pub fn bounded_with_wait_capacity<T>(
+    capacity: usize,
+    wait_capacity: usize,
+) -> Result<(Sender<T>, Receiver<T>)> {
     if capacity == 0 {
         return Err(Error::invalid_configuration(
-            "channel_capacity",
+            crate::error::ConfigurationField::ChannelCapacity,
             "must be positive",
         ));
     }
     if wait_capacity == 0 {
         return Err(Error::invalid_configuration(
-            "wait_capacity",
+            crate::error::ConfigurationField::ChannelWaitCapacity,
             "must be positive",
         ));
     }

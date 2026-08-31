@@ -40,9 +40,11 @@ pub struct CapturedPanic {
 /// Rust process-fatal conditions, as do allocation failure and a panicking panic hook.
 pub fn capture(payload: Payload) -> CapturedPanic {
     if payload.is::<CapturedPanic>() {
-        return *payload
-            .downcast::<CapturedPanic>()
-            .expect("captured panic type");
+        return bounded(
+            *payload
+                .downcast::<CapturedPanic>()
+                .expect("captured panic type"),
+        );
     }
     let report = capture_without_observer(payload);
     if report.cleanup_panicked
@@ -56,9 +58,11 @@ pub fn capture(payload: Payload) -> CapturedPanic {
 /// Captures a joined thread's payload for an explicitly identified failure owner.
 pub fn capture_without_observer(payload: Payload) -> CapturedPanic {
     if payload.is::<CapturedPanic>() {
-        return *payload
-            .downcast::<CapturedPanic>()
-            .expect("captured panic type");
+        return bounded(
+            *payload
+                .downcast::<CapturedPanic>()
+                .expect("captured panic type"),
+        );
     }
     let text = payload
         .downcast_ref::<String>()
@@ -80,16 +84,55 @@ pub fn capture_without_observer(payload: Payload) -> CapturedPanic {
             // These exact standard types contain no user-defined destructor.
             drop(secondary);
         } else {
-            let mut quarantine = QUARANTINE
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner());
-            if quarantine.len() == QUARANTINE_LIMIT {
-                std::process::abort();
-            }
-            quarantine.push(secondary);
+            quarantine(secondary);
         }
     }
     report
+}
+
+/// Captures an owned thread's exit payload without executing any user destructor.
+///
+/// Control threads must not acquire user TLS or block in payload disposal. Known
+/// inert payload types are consumed normally; opaque payloads share the bounded
+/// process quarantine. The boolean reports retained, incomplete payload cleanup.
+/// Quarantine bounds object count, not the unknowable heap behind arbitrary values.
+pub fn capture_for_join(payload: Payload) -> (CapturedPanic, bool) {
+    if payload.is::<CapturedPanic>() || payload.is::<String>() || payload.is::<&'static str>() {
+        return (capture_without_observer(payload), false);
+    }
+    quarantine(payload);
+    (
+        CapturedPanic {
+            message: "non-string panic payload".to_owned(),
+            truncated: false,
+            cleanup_panicked: false,
+        },
+        true,
+    )
+}
+
+fn bounded(mut report: CapturedPanic) -> CapturedPanic {
+    if report.message.len() > MESSAGE_LIMIT {
+        let mut end = MESSAGE_LIMIT;
+        while !report.message.is_char_boundary(end) {
+            end -= 1;
+        }
+        report.message.truncate(end);
+        report.truncated = true;
+    }
+    // Even short caller-constructed strings can carry arbitrarily large capacity.
+    report.message = report.message.into_boxed_str().into_string();
+    report
+}
+
+fn quarantine(payload: Payload) {
+    let mut quarantine = QUARANTINE
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    if quarantine.len() == QUARANTINE_LIMIT {
+        std::process::abort();
+    }
+    quarantine.push(payload);
 }
 
 pub(crate) fn retain(first: &mut Option<CapturedPanic>, payload: Payload) {

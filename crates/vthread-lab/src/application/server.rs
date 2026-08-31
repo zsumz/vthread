@@ -29,7 +29,8 @@ pub(crate) fn start(
     let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))?;
     let address = listener.local_addr()?;
     let counts = Shared::default();
-    let (sender, receiver) = channel::bounded::<Connection>(capacity, workers + 2)?;
+    let (sender, receiver) =
+        channel::bounded_with_wait_capacity::<Connection>(capacity, workers + 2)?;
     let mut tasks = Vec::with_capacity(workers + 1);
     for _ in 0..workers {
         let receiver = receiver.clone();
