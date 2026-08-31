@@ -164,7 +164,10 @@ impl Service {
             snapshot.timers(),
             io.readiness_waits(),
             io.readiness_registered(),
-            io.blocking_running() + io.blocking_queued() + io.blocking_discarding(),
+            io.blocking_running()
+                + io.blocking_queued()
+                + io.blocking_completed()
+                + io.blocking_discarding(),
             snapshot.stats().panicked(),
             snapshot.stats().admitted(),
             snapshot.stats().completed(),

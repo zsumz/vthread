@@ -34,7 +34,7 @@ pub(crate) fn run(duration: Duration, carriers: usize, tasks: usize) -> Result<R
         loop {
             let snapshot = runtime.snapshot();
             let services = &snapshot.services();
-            if services.readiness_registered() == 0 && services.blocking_running() == 0 {
+            if services_drained(services) {
                 assert_eq!(snapshot.active(), 0);
                 assert_eq!(services.readiness_waits(), 0);
                 assert_eq!(services.blocking_queued(), 0);
@@ -62,7 +62,10 @@ pub(crate) fn run(duration: Duration, carriers: usize, tasks: usize) -> Result<R
     runtime.shutdown()?;
     let snapshot = runtime.snapshot();
     assert_eq!(snapshot.active(), 0);
+    assert_eq!(snapshot.services().readiness_waits(), 0);
     assert_eq!(snapshot.services().readiness_registered(), 0);
+    assert_eq!(snapshot.services().blocking_queued(), 0);
+    assert_eq!(snapshot.services().blocking_completed(), 0);
     assert_eq!(snapshot.services().blocking_running(), 0);
     assert_eq!(snapshot.services().blocking_discarding(), 0);
     assert!(!snapshot.accepting());
@@ -72,6 +75,15 @@ pub(crate) fn run(duration: Duration, carriers: usize, tasks: usize) -> Result<R
         stats: snapshot.stats(),
         stacks: snapshot.stacks(),
     })
+}
+
+fn services_drained(services: &vthread::diagnostics::ServiceSnapshot) -> bool {
+    services.readiness_waits() == 0
+        && services.readiness_registered() == 0
+        && services.blocking_queued() == 0
+        && services.blocking_running() == 0
+        && services.blocking_completed() == 0
+        && services.blocking_discarding() == 0
 }
 
 #[cfg(test)]
