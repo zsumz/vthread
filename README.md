@@ -15,6 +15,8 @@
 <p align="center">
   <a href="#start">Start</a>
   <span> · </span>
+  <a href="#requirements">Requirements</a>
+  <span> · </span>
   <a href="#what-it-provides">Features</a>
   <span> · </span>
   <a href="#how-it-behaves">Behavior</a>
@@ -34,6 +36,19 @@ fn main() -> vthread::Result<()> {
         Ok(())
     })
 }
+```
+
+## Requirements
+
+vthread 0.0.1 supports Linux x86_64 and macOS ARM64 with Rust 1.96 or newer. It
+requires unwinding panics; applications configured with `panic = "abort"` are rejected at
+compile time.
+
+Install the signed release tag directly from Git:
+
+```toml
+[dependencies]
+vthread = { git = "https://github.com/zsumz/vthread", tag = "v0.0.1" }
 ```
 
 ## What it provides
@@ -60,8 +75,6 @@ Use the matching vthread API or `vthread::blocking::run`.
 The standalone [reference application](reference/README.md) uses only the public API. It
 shows structured services, virtual networking, notifications, blocking delegation, and
 controlled shutdown.
-
-All workspace packages are version `0.0.1`.
 
 ## Check
 
