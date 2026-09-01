@@ -6,9 +6,9 @@ contract_sha256 = "5148db58e10b05e972f6ea9916b90d3259b7eeb2ff314b58f8769475ec2c2
 ratchet = []
 
 [analysis]
-inventory_sha256 = "a6e46039a0ffce6c81662933c46ab24f593933c83a159bba8ee3e342661fbbc7"
+inventory_sha256 = "ffbde0e37e27a93b910607633b1fab1280723ea3065a680e1ef4223b3822850f"
 exclusions_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-cargo_lock_sha256 = "f7c83e49dee82b51a484ca32ea5e110b24cbee4b58192ece8726abc483931ebf"
+cargo_lock_sha256 = "7a0deeda4fcae9905c697dfa0e76b455908b5088e639312508002e58e590af34"
 cargo_features_sha256 = "244894c3afef082bf4c0db86f12f18c54e34d5958761bfa46ad71abc094efa6f"
 feature_worlds_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 feature_worlds = 0
@@ -17,7 +17,7 @@ targets = 4
 physical_rust_files = 249
 base_source_contexts = 364
 derived_source_contexts = 0
-source_facts = 71719
+source_facts = 71734
 projection_queries = 443863
 projected_facts = 13
 unresolved_bindings = 0
@@ -77,9 +77,7 @@ optional = false
 default_features = false
 
 [package.dependency.source]
-kind = "git"
-repository = "https://github.com/zsumz/zio.git"
-rev = "eaf713a58b9ab54b219755f5b96efa087b27ff60"
+kind = "registry"
 requirement = "=0.0.1-dev.1"
 
 [[package]]

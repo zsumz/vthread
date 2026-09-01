@@ -40,7 +40,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -65,7 +65,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -199,7 +199,8 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 [[package]]
 name = "zio"
 version = "0.0.1-dev.1"
-source = "git+https://github.com/zsumz/zio.git?rev=eaf713a58b9ab54b219755f5b96efa087b27ff60#eaf713a58b9ab54b219755f5b96efa087b27ff60"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "750aaeeed0dbd6d31b8c6e2070edb812a777243190f2b917a2faba5da17061e4"
 dependencies = [
  "libc",
  "rustix",
