@@ -15,9 +15,7 @@
 
 #[cfg(not(unix))]
 const _: () = {
-    compile_error!(
-        "vthread requires a supported Unix target (Linux or macOS)"
-    );
+    compile_error!("vthread requires a supported Unix target (Linux or macOS)");
 };
 
 pub mod blocking;

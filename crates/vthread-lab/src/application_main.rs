@@ -1,4 +1,4 @@
-//! Public-API TCP service for reproducible application workloads.
+//! Public-API TCP service for application load testing.
 
 #![forbid(unsafe_code)]
 

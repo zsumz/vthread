@@ -1,0 +1,76 @@
+schema = 1
+default = "check"
+
+[execution]
+jobs = 2
+default_timeout = "15m"
+repository_state = "preserve"
+
+[tasks.policy]
+description = "Enforce the zsumz source-layout and unsafe-boundary policy."
+run = ["python3", "scripts/guardrail-policy.py"]
+tools = ["python3"]
+
+[tasks.format]
+description = "Validate Rust formatting."
+run = ["cargo", "fmt", "--all", "--", "--check"]
+tools = ["cargo"]
+needs = ["policy"]
+
+[tasks.clippy]
+description = "Reject workspace warnings and suspicious code."
+run = ["cargo", "clippy", "--locked", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings"]
+tools = ["cargo"]
+needs = ["format"]
+
+[tasks.test]
+description = "Run the complete workspace test suite."
+run = ["cargo", "test", "--locked", "--workspace", "--all-targets", "--all-features"]
+tools = ["cargo"]
+needs = ["clippy"]
+
+[tasks.docs]
+description = "Build public API documentation without dependencies."
+run = ["cargo", "doc", "--locked", "--workspace", "--all-features", "--no-deps"]
+tools = ["cargo"]
+needs = ["doctest"]
+
+[tasks.doctest]
+description = "Run the API example and prove the documented Send boundaries."
+run = ["cargo", "test", "--locked", "--workspace", "--all-features", "--doc"]
+tools = ["cargo"]
+needs = ["test"]
+
+[tasks.zrail]
+description = "Enforce the zsumz architecture lock."
+run = ["zrail", "check"]
+tools = ["zrail"]
+needs = ["docs"]
+
+[tasks.check]
+description = "Check the complete vthread source checkout."
+needs = ["zrail", "source-package", "application-smoke"]
+
+[tasks.source-package-test]
+description = "Reject corrupt source archives and extraction path escapes."
+run = ["python3", "scripts/source_package_test.py"]
+tools = ["python3"]
+needs = ["policy"]
+
+[tasks.source-package]
+description = "Vendor and verify the source artifact, then build and run its offline reference app."
+run = ["python3", "scripts/source_package.py"]
+tools = ["python3", "cargo"]
+needs = ["source-package-test", "docs"]
+
+[tasks.application-evidence-test]
+description = "Reject corrupt payloads, missing samples, incomplete application matrices and failed recovery."
+run = ["python3", "scripts/application_verify_test.py"]
+tools = ["python3"]
+needs = ["policy"]
+
+[tasks.application-smoke]
+description = "Exercise bounded public-API TCP load, overload, deadline recovery and loaded shutdown."
+run = ["python3", "scripts/run-application.py", "--carriers", "1", "--concurrency", "1", "16", "--rounds", "8", "--fault-rounds", "1"]
+tools = ["python3", "cargo"]
+needs = ["application-evidence-test", "test"]

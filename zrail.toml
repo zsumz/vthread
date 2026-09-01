@@ -1,0 +1,137 @@
+schema = 2
+adapters = ["rust"]
+
+[repository]
+roots = ["crates"]
+exclude = []
+workspace_members = "exact"
+nested_git = "deny"
+submodules = "deny"
+symlinks = "inside"
+
+[dependencies]
+mode = "locked"
+unassigned_packages = "allow"
+cycles = "deny"
+
+[source.rust]
+module_docs = "allow"
+facades = "allow"
+entrypoints = "allow"
+tests = "sibling"
+
+[source.rust.macros]
+mode = "deny-unreviewed"
+
+[[source.rust.macros.allow]]
+name = "Clone"
+reason = "Approved: built-in cloning of task metadata, wait handles, and value types."
+
+[[source.rust.macros.allow]]
+name = "Copy"
+reason = "Approved: built-in copying of small tokens, counters, and state enums."
+
+[[source.rust.macros.allow]]
+name = "Debug"
+reason = "Approved: built-in diagnostic formatting of runtime data."
+
+[[source.rust.macros.allow]]
+name = "Default"
+reason = "Approved: built-in initialization of counters and empty collections."
+
+[[source.rust.macros.allow]]
+name = "Eq"
+reason = "Approved: built-in exact equality for tokens and modeled state."
+
+[[source.rust.macros.allow]]
+name = "Hash"
+reason = "Approved: built-in hashing of task and park identities."
+
+[[source.rust.macros.allow]]
+name = "Ord"
+reason = "Approved: built-in ordering of task and park identities."
+
+[[source.rust.macros.allow]]
+name = "PartialEq"
+reason = "Approved: built-in field comparisons for state and diagnostics."
+
+[[source.rust.macros.allow]]
+name = "PartialOrd"
+reason = "Approved: built-in partial ordering of task and park identities."
+
+[[source.rust.macros.allow]]
+name = "assert"
+reason = "Approved: standard boolean assertions in the regression tests."
+
+[[source.rust.macros.allow]]
+name = "assert_eq"
+reason = "Approved: standard equality assertions in the regression tests."
+
+[[source.rust.macros.allow]]
+name = "assert_ne"
+reason = "Approved: tests assert that a later park uses a different generation."
+
+[[source.rust.macros.allow]]
+name = "format"
+reason = "Approved: standard formatting builds bounded carrier thread names from their index."
+
+[[source.rust.macros.allow]]
+name = "matches"
+reason = "Approved: standard pattern matching for state predicates and regression assertions."
+
+[[source.rust.macros.allow]]
+name = "panic"
+reason = "Approved: tests deliberately panic to verify isolation and stack cleanup."
+
+[[source.rust.macros.allow]]
+name = "unreachable"
+inputs = "opaque"
+reason = "Approved: standard panic for enum alternatives excluded under a held state lock or prior match; no custom expansion, external input, generated source or unchecked execution."
+
+[[source.rust.macros.allow]]
+name = "thread_local"
+inputs = "opaque"
+reason = "Approved: carrier-local mount identity and yielder pointer; guards restore prior state."
+
+[[source.rust.macros.allow]]
+name = "vec"
+reason = "Approved: standard vectors hold expected test values and the configuration-bounded carrier load array."
+
+[[source.rust.macros.allow]]
+name = "write"
+reason = "Approved: standard formatting into diagnostic and error formatters."
+
+[[source.rust.macros.allow]]
+name = "writeln"
+reason = "Approved: standard formatting streams escaped task diagnostics and workload measurements without generated code or external inputs."
+
+[[source.rust.macros.allow]]
+name = "compile_error"
+inputs = "opaque"
+reason = "Approved by primary agent: constant unsupported-target diagnostic under cfg(not(unix)); no generated source, filesystem input or runtime behavior."
+
+[[source.rust.macros.allow]]
+name = "format_args"
+reason = "Approved by primary agent: standard borrowed formatting arguments feed bounded diagnostic writers; no allocation, generated source, external input or unsafe expansion."
+
+[source.rust.hygiene]
+unsafe = "allow"
+lint_suppressions = "allow"
+deny_methods = []
+deny_macros = []
+
+[source.rust.size.facade]
+target = 300
+hard = 300
+
+[source.rust.size.implementation]
+target = 300
+hard = 300
+
+[source.rust.size.test]
+target = 300
+hard = 300
+
+[source.rust.size.auxiliary]
+target = 300
+hard = 300
