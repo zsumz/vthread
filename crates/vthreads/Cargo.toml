@@ -1,0 +1,20 @@
+[package]
+name = "vthreads"
+description = "Compatibility alias for the vthread virtual-thread runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/vthreads"
+publish = ["crates-io"]
+keywords = ["virtual-thread", "runtime", "coroutine", "concurrency"]
+categories = ["asynchronous", "concurrency"]
+
+[dependencies]
+vthread = { path = "../vthread", version = "=0.0.1" }
+
+[lints]
+workspace = true

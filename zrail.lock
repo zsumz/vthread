@@ -6,19 +6,19 @@ contract_sha256 = "5148db58e10b05e972f6ea9916b90d3259b7eeb2ff314b58f8769475ec2c2
 ratchet = []
 
 [analysis]
-inventory_sha256 = "ffbde0e37e27a93b910607633b1fab1280723ea3065a680e1ef4223b3822850f"
+inventory_sha256 = "fb490fa805c5485ab160fcccac41ec9d3616ce861516d8920733c2b9ee811cce"
 exclusions_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-cargo_lock_sha256 = "7a0deeda4fcae9905c697dfa0e76b455908b5088e639312508002e58e590af34"
-cargo_features_sha256 = "244894c3afef082bf4c0db86f12f18c54e34d5958761bfa46ad71abc094efa6f"
+cargo_lock_sha256 = "da8e958417ac5d9a2c7750372b22a7e73d7a2850f98d49b554c02c6b26fad5f8"
+cargo_features_sha256 = "b7c6aaf3a163d2f10da67d14626b8040a623ec7b3c5af478eb06ceb9334688ab"
 feature_worlds_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 feature_worlds = 0
-packages = 3
-targets = 4
-physical_rust_files = 249
-base_source_contexts = 364
+packages = 4
+targets = 5
+physical_rust_files = 251
+base_source_contexts = 367
 derived_source_contexts = 0
-source_facts = 71734
-projection_queries = 443863
+source_facts = 71758
+projection_queries = 443885
 projected_facts = 13
 unresolved_bindings = 0
 analyzer_semantics = 4
@@ -111,3 +111,20 @@ default_features = true
 [package.dependency.source]
 kind = "registry"
 requirement = "=0.3.4"
+
+[[package]]
+name = "vthreads"
+
+[[package.dependency]]
+alias = "vthread"
+name = "vthread"
+crate_root = "vthread"
+kind = "normal"
+scope = "internal"
+optional = false
+default_features = true
+
+[package.dependency.source]
+kind = "workspace-member"
+directory = "crates/vthread"
+requirement = "=0.0.1"

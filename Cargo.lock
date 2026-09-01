@@ -109,6 +109,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "vthreads"
+version = "0.0.1"
+dependencies = [
+ "vthread",
+]
+
+[[package]]
 name = "windows-link"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

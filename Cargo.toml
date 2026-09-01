@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/vthread", "crates/vthread-stack", "crates/vthread-lab"]
+members = ["crates/vthread", "crates/vthreads", "crates/vthread-stack", "crates/vthread-lab"]
 resolver = "3"
 
 [workspace.package]
