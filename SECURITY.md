@@ -2,11 +2,9 @@
 
 ## Reporting
 
-Report sensitive findings through the access-controlled
-[zsumz/vthread-private issue tracker](https://github.com/zsumz/vthread-private/issues).
-Do not place exploit details, credentials, or private data in a public channel. If you do not
-have repository access, contact the maintainer through GitHub without including sensitive
-details so a private channel can be arranged.
+Report sensitive findings through the
+[private vulnerability reporting form](https://github.com/zsumz/vthread/security/advisories/new).
+Do not place exploit details, credentials, or private data in a public issue or discussion.
 
 Include the exact source revision, operating system and architecture, Rust and dependency
 versions, configured limits, a minimal reproduction, and the expected impact. Call out any
