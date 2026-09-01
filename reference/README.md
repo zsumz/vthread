@@ -2,7 +2,7 @@
 
 This standalone crate depends only on vthread's public API. It demonstrates structured
 pipelines, virtual TCP, dynamic services, notifications, blocking work, and controlled
-shutdown while also checking the packaged source boundary.
+shutdown.
 
 ```sh
 cargo test --locked --manifest-path reference/Cargo.toml
@@ -26,9 +26,3 @@ Use vthread networking, synchronization, sleep, DNS, and filesystem APIs. Delega
 synchronous work with `blocking::run`; direct standard-library blocking calls block a carrier.
 Cancellation can stop queued work but cannot undo a completed write or interrupt native work
 that is already running.
-
-To verify a vendored source distribution and run this application from its extracted archive:
-
-```sh
-python3 scripts/source_package.py
-```

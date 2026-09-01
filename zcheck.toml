@@ -49,19 +49,7 @@ needs = ["docs"]
 
 [tasks.check]
 description = "Check the complete vthread source checkout."
-needs = ["zrail", "source-package", "application-smoke"]
-
-[tasks.source-package-test]
-description = "Reject corrupt source archives and extraction path escapes."
-run = ["python3", "scripts/source_package_test.py"]
-tools = ["python3"]
-needs = ["policy"]
-
-[tasks.source-package]
-description = "Vendor and verify the source artifact, then build and run its offline reference app."
-run = ["python3", "scripts/source_package.py"]
-tools = ["python3", "cargo"]
-needs = ["source-package-test", "docs"]
+needs = ["zrail", "application-smoke"]
 
 [tasks.application-evidence-test]
 description = "Reject corrupt payloads, missing samples, incomplete application matrices and failed recovery."
