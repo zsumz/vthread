@@ -10,7 +10,16 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-24.04
+    name: check (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: linux-x86-64
+          - runner: macos-14
+            target: macos-arm64
+    runs-on: ${{ matrix.runner }}
     env:
       CARGO_TARGET_DIR: /tmp/vthread-check-build
       CARGO_HOME: ${{ github.workspace }}/target/cargo-home
@@ -34,7 +43,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: check-linux-x86-64
+          name: check-${{ matrix.target }}
           path: .zcheck/
           include-hidden-files: true
           if-no-files-found: warn

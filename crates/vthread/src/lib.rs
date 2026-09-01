@@ -18,9 +18,12 @@ const _: () = {
     compile_error!("vthread requires panic=unwind");
 };
 
-#[cfg(not(unix))]
+#[cfg(not(any(
+    all(target_os = "linux", target_arch = "x86_64"),
+    all(target_os = "macos", target_arch = "aarch64"),
+)))]
 const _: () = {
-    compile_error!("vthread requires a supported Unix target (Linux or macOS)");
+    compile_error!("vthread 0.0.1 supports Linux x86_64 and macOS ARM64");
 };
 
 pub mod blocking;
