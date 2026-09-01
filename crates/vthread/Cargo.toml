@@ -8,7 +8,8 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 readme = "README.md"
-publish = false
+documentation = "https://docs.rs/vthread"
+publish = ["crates-io"]
 keywords = ["virtual-thread", "runtime", "coroutine", "concurrency"]
 categories = ["asynchronous", "concurrency"]
 

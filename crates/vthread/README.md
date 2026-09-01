@@ -5,9 +5,11 @@ Carrier-affine virtual threads for Rust.
 Version 0.0.1 supports Linux x86_64 and macOS ARM64 with Rust 1.96 or newer. It requires
 unwinding panics; applications configured with `panic = "abort"` are rejected at compile time.
 
+Install from crates.io:
+
 ```toml
 [dependencies]
-vthread = { git = "https://github.com/zsumz/vthread", tag = "v0.0.1" }
+vthread = "0.0.1"
 ```
 
 ```rust

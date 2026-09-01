@@ -1,6 +1,6 @@
 [package]
 name = "vthread-stack"
-description = "Private stack and context backend for vthread"
+description = "Stack and context backend for vthread"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 readme = "README.md"
-publish = false
+publish = ["crates-io"]
 
 [dependencies]
 corosensei.workspace = true

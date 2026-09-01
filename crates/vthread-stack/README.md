@@ -6,4 +6,5 @@ Applications should depend on `vthread`, whose public crate forbids unsafe Rust.
 contains the narrow stack boundary, pins corosensei, and enforces the rule that every started
 stack is resumed, unwound, and reclaimed by its owning carrier.
 
-The package is internal to the workspace and is licensed under the Apache License 2.0.
+This support crate is published so `vthread` can be installed from crates.io. Applications
+should not depend on it directly. It is licensed under the Apache License 2.0.
