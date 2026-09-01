@@ -6,6 +6,11 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
+#[cfg(panic = "abort")]
+const _: () = {
+    compile_error!("vthread-stack requires panic=unwind");
+};
+
 mod fiber;
 mod lease;
 #[doc(hidden)]

@@ -13,6 +13,11 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+#[cfg(panic = "abort")]
+const _: () = {
+    compile_error!("vthread requires panic=unwind");
+};
+
 #[cfg(not(unix))]
 const _: () = {
     compile_error!("vthread requires a supported Unix target (Linux or macOS)");

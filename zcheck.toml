@@ -23,11 +23,17 @@ run = ["cargo", "clippy", "--locked", "--workspace", "--all-targets", "--all-fea
 tools = ["cargo"]
 needs = ["format"]
 
+[tasks.panic-contract]
+description = "Reject panic-abort builds at both crate boundaries."
+run = ["python3", "scripts/panic_contract_test.py"]
+tools = ["python3", "cargo"]
+needs = ["clippy"]
+
 [tasks.test]
 description = "Run the complete workspace test suite."
 run = ["cargo", "test", "--locked", "--workspace", "--all-targets", "--all-features"]
 tools = ["cargo"]
-needs = ["clippy"]
+needs = ["panic-contract"]
 
 [tasks.docs]
 description = "Build public API documentation without dependencies."
