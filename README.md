@@ -1,10 +1,30 @@
-# vthread
+<p align="center">
+  <img src="./vthread-logo.svg" alt="vthread" width="720">
+</p>
 
-**Carrier-affine virtual threads for Rust.**
+<p align="center">
+  <strong>Carrier-affine virtual threads for Rust.</strong>
+</p>
 
-vthread runs ordinary synchronous functions on reusable stacks. A task suspends at explicit
-vthread operations, stays on one carrier thread after it starts, and always belongs to a
-scope or supervisor.
+<p align="center">
+  vthread runs ordinary synchronous functions on reusable stacks. A task suspends at
+  explicit vthread operations, stays on one carrier thread after it starts, and always
+  belongs to a scope or supervisor.
+</p>
+
+<p align="center">
+  <a href="#start">Start</a>
+  <span> · </span>
+  <a href="#what-it-provides">Features</a>
+  <span> · </span>
+  <a href="#how-it-behaves">Behavior</a>
+  <span> · </span>
+  <a href="#check">Check</a>
+</p>
+
+<br />
+
+## Start
 
 ```rust
 fn main() -> vthread::Result<()> {
