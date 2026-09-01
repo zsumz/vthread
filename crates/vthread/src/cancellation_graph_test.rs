@@ -162,3 +162,70 @@ fn repeated_branching_and_reconvergence_does_not_retain_relay_history() {
     assert!(!graph.is_cancelled(roots[1]));
     assert!(!graph.is_cancelled(roots[2]));
 }
+
+#[test]
+fn equivalent_relays_with_different_history_preserve_future_cancellation() {
+    let mut graph = Graph::default();
+    let p = insert(&mut graph, &[]);
+    let q = insert(&mut graph, &[]);
+    let retired = insert(&mut graph, &[]);
+
+    let prefix = insert(&mut graph, &[p, q]);
+    let old = insert(&mut graph, &[prefix, retired]);
+    graph.remove(prefix);
+    let old_children = [insert(&mut graph, &[old]), insert(&mut graph, &[old])];
+    graph.cancel(retired);
+    graph.remove(old);
+    graph.remove(retired);
+
+    let fresh = insert(&mut graph, &[p, q]);
+    let fresh_children = [insert(&mut graph, &[fresh]), insert(&mut graph, &[fresh])];
+    graph.remove(fresh);
+
+    assert!(old_children.iter().all(|id| graph.is_cancelled(*id)));
+    assert!(fresh_children.iter().all(|id| !graph.is_cancelled(*id)));
+    graph.cancel(p);
+    assert!(fresh_children.iter().all(|id| graph.is_cancelled(*id)));
+}
+
+#[test]
+fn unique_owner_prefix_relays_do_not_flatten_live_ancestry() {
+    const OWNERS: usize = 2_000;
+    let mut graph = Graph::default();
+    let owners = (0..OWNERS)
+        .map(|_| insert(&mut graph, &[]))
+        .collect::<Vec<_>>();
+    let mut bridge = insert(&mut graph, &[owners[0], owners[1]]);
+    let mut leaves = Vec::new();
+    for owner in owners.iter().skip(2) {
+        let next = insert(&mut graph, &[bridge, *owner]);
+        leaves.push(insert(&mut graph, &[bridge]));
+        leaves.push(insert(&mut graph, &[bridge]));
+        graph.remove(bridge);
+        bridge = next;
+    }
+    leaves.push(insert(&mut graph, &[bridge]));
+    leaves.push(insert(&mut graph, &[bridge]));
+    graph.remove(bridge);
+
+    let (tokens, relays, links) = graph.snapshot();
+    assert_eq!(tokens, OWNERS + leaves.len());
+    assert_eq!(relays, OWNERS - 1);
+    assert!(
+        links <= 4 * relays,
+        "{relays} relays retained {links} links"
+    );
+    let work = graph.work_snapshot();
+    assert!(
+        work.signature_items <= 2 * OWNERS,
+        "flattened {} ancestry items",
+        work.signature_items
+    );
+    assert_eq!(work.exact_items, 0);
+    assert!(graph.nodes.values().all(|entry| {
+        entry.kind != super::Kind::Relay || (entry.parents.len() > 1 && entry.children.len() > 1)
+    }));
+
+    graph.cancel(owners[0]);
+    assert!(leaves.iter().all(|id| graph.is_cancelled(*id)));
+}

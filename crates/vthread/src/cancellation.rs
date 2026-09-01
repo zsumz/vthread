@@ -32,9 +32,9 @@ struct Node {
 
 impl Drop for Node {
     fn drop(&mut self) {
-        // Graph entries contain only IDs and flags, never tokens or user values.
-        // Splicing live neighbors preserves retained ancestors without retaining
-        // this historical node or recursively destroying ancestor tokens.
+        // Graph entries contain only IDs, flags and inert ancestry signatures.
+        // Narrow history splices away; high-degree history becomes a compressed
+        // relay, so this drop never recursively destroys ancestor tokens.
         lock(&self.domain.state).graph.remove(self.id);
     }
 }
