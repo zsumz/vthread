@@ -1,0 +1,15 @@
+[package]
+name = "vthread-reference"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.96"
+publish = false
+license = "Apache-2.0"
+
+[workspace]
+
+[dependencies]
+vthread = { path = "../crates/vthread", version = "=0.0.1" }
+
+[profile.release]
+panic = "unwind"
