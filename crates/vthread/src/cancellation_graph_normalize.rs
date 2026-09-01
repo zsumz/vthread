@@ -1,53 +1,99 @@
 //! Incremental relay compaction and exact ancestry indexing.
 
 use super::{Graph, Kind, Signature};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+
+#[cfg(test)]
+use super::signature::Work as SignatureWork;
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum SignatureState {
+    Known,
+    Dirty,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct RelayWork {
+    id: usize,
+    signature: SignatureState,
+}
+
+impl RelayWork {
+    pub(super) fn known(id: usize) -> Self {
+        Self {
+            id,
+            signature: SignatureState::Known,
+        }
+    }
+
+    pub(super) fn dirty(id: usize) -> Self {
+        Self {
+            id,
+            signature: SignatureState::Dirty,
+        }
+    }
+}
 
 impl Graph {
     pub(super) fn normalize<I>(&mut self, initial: I)
     where
-        I: IntoIterator<Item = usize>,
+        I: IntoIterator<Item = RelayWork>,
     {
-        let mut pending = initial.into_iter().collect::<BTreeSet<_>>();
-        loop {
-            let mut touched = BTreeSet::new();
-            while let Some(id) = pending.pop_first() {
-                let Some((parents, compact)) = self.nodes.get(&id).and_then(|entry| {
-                    (entry.kind == Kind::Relay)
-                        .then(|| (entry.parents.clone(), entry.children.len() <= 1))
-                }) else {
-                    continue;
-                };
-                if parents.len() <= 1 || compact {
-                    pending.extend(self.erase(id, true));
-                    continue;
-                }
-                let signature = self.signature_for(&parents);
-                let changed = !self.nodes[&id].signature.same_set(&signature);
-                if changed {
-                    self.unindex_relay(id);
-                    let children = {
-                        let entry = self.nodes.get_mut(&id).expect("live relay");
-                        entry.signature = signature;
-                        entry.children.clone()
-                    };
-                    self.index_relay(id);
-                    pending.extend(children);
-                }
-                touched.insert(id);
+        let mut pending = BTreeMap::new();
+        for work in initial {
+            enqueue(&mut pending, work);
+        }
+        while let Some((id, signature)) = pending.pop_first() {
+            let Some(entry) = self.nodes.get(&id) else {
+                continue;
+            };
+            if entry.kind != Kind::Relay {
+                continue;
             }
-            let duplicate = touched
-                .into_iter()
-                .find_map(|id| self.equivalent_relay(id).map(|other| (id, other)));
-            let Some((left, right)) = duplicate else {
-                break;
+            if entry.parents.len() <= 1 || entry.children.len() <= 1 {
+                let affected = self.erase(id, true, signature == SignatureState::Dirty);
+                for work in affected {
+                    enqueue(&mut pending, work);
+                }
+                continue;
+            }
+            if signature == SignatureState::Dirty {
+                self.refresh_signature(id, &mut pending);
+            }
+            #[cfg(test)]
+            {
+                self.work.relay_checks += 1;
+            }
+            let Some(other) = self.equivalent_relay(id) else {
+                continue;
             };
-            let (keep, remove) = if left < right {
-                (left, right)
-            } else {
-                (right, left)
-            };
-            pending.extend(self.merge_relays(keep, remove));
+            let (keep, remove) = if id < other { (id, other) } else { (other, id) };
+            for work in self.merge_relays(keep, remove) {
+                enqueue(&mut pending, work);
+            }
+        }
+    }
+
+    fn refresh_signature(&mut self, id: usize, pending: &mut BTreeMap<usize, SignatureState>) {
+        let parents = self.nodes[&id].parents.clone();
+        let signature = self.signature_for(&parents);
+        let previous = self.nodes[&id].signature.clone();
+        #[cfg(test)]
+        {
+            self.work.topology_rebuilds += 1;
+        }
+        if self.signatures_equal(&previous, &signature) {
+            return;
+        }
+        self.unindex_relay(id);
+        let children = {
+            let entry = self.nodes.get_mut(&id).expect("live relay");
+            entry.signature = signature;
+            entry.children.clone()
+        };
+        self.index_relay(id);
+        for child in children {
+            enqueue(pending, RelayWork::dirty(child));
         }
     }
 
@@ -57,9 +103,14 @@ impl Graph {
             let next = self.nodes[parent].signature.clone();
             #[cfg(test)]
             {
-                self.work.signature_items += signature.cardinality().min(next.cardinality());
+                let (merged, work) = signature.union_counted(&next);
+                self.record_signature_work(work);
+                signature = merged;
             }
-            signature = signature.union(&next);
+            #[cfg(not(test))]
+            {
+                signature = signature.union(&next);
+            }
         }
         signature
     }
@@ -73,7 +124,7 @@ impl Graph {
             .insert(id);
     }
 
-    fn unindex_relay(&mut self, id: usize) {
+    pub(super) fn unindex_relay(&mut self, id: usize) {
         let candidate = self.nodes[&id].signature.candidate();
         let empty = {
             let ids = self
@@ -96,117 +147,71 @@ impl Graph {
         let candidate = entry.signature.candidate();
         let cancelled = entry.cancelled;
         let signature = entry.signature.clone();
+        let mut matched = None;
         #[cfg(test)]
-        let mut compared = 0;
-        let match_id = self
-            .relay_index
-            .get(&candidate)?
-            .iter()
-            .copied()
-            .find(|other| {
+        let mut comparison_work = SignatureWork::default();
+        #[cfg(test)]
+        let mut candidate_checks = 0;
+        if let Some(ids) = self.relay_index.get(&candidate) {
+            for other in ids {
                 if *other == id {
-                    return false;
-                }
-                let other_entry = self.nodes.get(other).expect("indexed relay");
-                if other_entry.cancelled != cancelled {
-                    return false;
+                    continue;
                 }
                 #[cfg(test)]
                 {
-                    compared += signature.cardinality();
+                    candidate_checks += 1;
                 }
-                signature.same_set(&other_entry.signature)
-            });
-        #[cfg(test)]
-        {
-            self.work.exact_items += compared;
-        }
-        match_id
-    }
-
-    pub(super) fn erase(&mut self, id: usize, splice: bool) -> Vec<usize> {
-        if self.nodes[&id].kind == Kind::Relay {
-            self.unindex_relay(id);
-        }
-        let entry = self.nodes.remove(&id).expect("live graph entry");
-        if entry.kind == Kind::Relay {
-            self.relays -= 1;
-        }
-        for parent in &entry.parents {
-            self.nodes
-                .get_mut(parent)
-                .expect("live predecessor")
-                .children
-                .remove(&id);
-        }
-        for child in &entry.children {
-            self.nodes
-                .get_mut(child)
-                .expect("live descendant")
-                .parents
-                .remove(&id);
-        }
-        if splice {
-            self.splice(&entry.parents, &entry.children);
-        }
-        entry.parents.into_iter().chain(entry.children).collect()
-    }
-
-    fn splice(&mut self, parents: &BTreeSet<usize>, children: &BTreeSet<usize>) {
-        for parent in parents {
-            for child in children {
-                if self
-                    .nodes
-                    .get_mut(parent)
-                    .expect("live predecessor")
-                    .children
-                    .insert(*child)
-                {
-                    self.nodes
-                        .get_mut(child)
-                        .expect("live descendant")
-                        .parents
-                        .insert(*parent);
+                let other_entry = self.nodes.get(other).expect("indexed relay");
+                if other_entry.cancelled != cancelled {
+                    continue;
+                }
+                #[cfg(test)]
+                let same = {
+                    let (same, work) = signature.same_set_counted(&other_entry.signature);
+                    comparison_work.union_items += work.union_items;
+                    comparison_work.equality_nodes += work.equality_nodes;
+                    comparison_work.allocated_nodes += work.allocated_nodes;
+                    same
+                };
+                #[cfg(not(test))]
+                let same = signature.same_set(&other_entry.signature);
+                if same {
+                    matched = Some(*other);
+                    break;
                 }
             }
         }
+        #[cfg(test)]
+        {
+            self.work.candidate_checks += candidate_checks;
+            self.record_signature_work(comparison_work);
+        }
+        matched
     }
 
-    fn merge_relays(&mut self, keep: usize, remove: usize) -> Vec<usize> {
+    fn signatures_equal(&mut self, left: &Signature, right: &Signature) -> bool {
+        #[cfg(test)]
         {
-            let retained = &self.nodes[&keep];
-            let discarded = &self.nodes[&remove];
-            assert!(retained.kind == Kind::Relay && discarded.kind == Kind::Relay);
-            assert_eq!(retained.cancelled, discarded.cancelled);
-            assert!(retained.signature.same_set(&discarded.signature));
+            let (same, work) = left.same_set_counted(right);
+            self.record_signature_work(work);
+            same
         }
-        self.unindex_relay(remove);
-        let entry = self.nodes.remove(&remove).expect("duplicate relay");
-        self.relays -= 1;
-        for parent in &entry.parents {
-            self.nodes
-                .get_mut(parent)
-                .expect("live predecessor")
-                .children
-                .remove(&remove);
+        #[cfg(not(test))]
+        {
+            left.same_set(right)
         }
-        for child in &entry.children {
-            let node = self.nodes.get_mut(child).expect("live descendant");
-            node.parents.remove(&remove);
-            node.parents.insert(keep);
-        }
-        self.nodes
-            .get_mut(&keep)
-            .expect("retained relay")
-            .children
-            .extend(&entry.children);
-        entry
-            .parents
-            .into_iter()
-            .chain(entry.children)
-            .chain([keep])
-            .collect()
     }
+}
+
+fn enqueue(pending: &mut BTreeMap<usize, SignatureState>, work: RelayWork) {
+    pending
+        .entry(work.id)
+        .and_modify(|state| {
+            if work.signature == SignatureState::Dirty {
+                *state = SignatureState::Dirty;
+            }
+        })
+        .or_insert(work.signature);
 }
 
 #[cfg(test)]

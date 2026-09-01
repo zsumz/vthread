@@ -14,6 +14,9 @@ use signature::{Candidate, Signature};
 
 #[path = "cancellation_graph_normalize.rs"]
 mod normalize;
+#[path = "cancellation_graph_rewrite.rs"]
+mod rewrite;
+use normalize::RelayWork;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Kind {
@@ -33,8 +36,12 @@ struct Entry {
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct WorkSnapshot {
-    pub(super) signature_items: usize,
-    pub(super) exact_items: usize,
+    pub(super) union_items: usize,
+    pub(super) equality_nodes: usize,
+    pub(super) allocated_nodes: usize,
+    pub(super) candidate_checks: usize,
+    pub(super) relay_checks: usize,
+    pub(super) topology_rebuilds: usize,
 }
 
 #[derive(Default)]
@@ -101,9 +108,12 @@ impl Graph {
             entry.signature = signature;
             self.relays += 1;
             self.index_relay(id);
-            self.normalize(std::iter::once(id).chain(children));
+            self.normalize(
+                std::iter::once(RelayWork::known(id))
+                    .chain(children.into_iter().map(RelayWork::dirty)),
+            );
         } else {
-            let affected = self.erase(id, true);
+            let affected = self.erase(id, true, true);
             self.normalize(affected);
         }
     }
@@ -127,7 +137,7 @@ impl Graph {
             };
             pending.extend(children);
         }
-        self.normalize(changed_relays);
+        self.normalize(changed_relays.into_iter().map(RelayWork::known));
     }
 
     pub(super) fn is_cancelled(&self, id: usize) -> bool {
@@ -148,6 +158,18 @@ impl Graph {
     #[cfg(test)]
     pub(super) fn work_snapshot(&self) -> WorkSnapshot {
         self.work
+    }
+
+    #[cfg(test)]
+    pub(super) fn reset_work(&mut self) {
+        self.work = WorkSnapshot::default();
+    }
+
+    #[cfg(test)]
+    fn record_signature_work(&mut self, work: signature::Work) {
+        self.work.union_items += work.union_items;
+        self.work.equality_nodes += work.equality_nodes;
+        self.work.allocated_nodes += work.allocated_nodes;
     }
 }
 

@@ -2,6 +2,20 @@
 
 use std::sync::Arc;
 
+#[path = "cancellation_signature_compare.rs"]
+mod compare;
+#[path = "cancellation_signature_work.rs"]
+mod work;
+use work::Counter;
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct Work {
+    pub(super) union_items: usize,
+    pub(super) equality_nodes: usize,
+    pub(super) allocated_nodes: usize,
+}
+
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) struct Candidate {
     len: usize,
@@ -31,7 +45,7 @@ enum NodeKind {
 
 impl Signature {
     pub(super) fn singleton(id: usize) -> Self {
-        Self(Some(Node::leaf(id)))
+        Self(Some(Node::leaf(id, &mut Counter::new())))
     }
 
     pub(super) fn cardinality(&self) -> usize {
@@ -54,13 +68,24 @@ impl Signature {
     }
 
     pub(super) fn union(&self, other: &Self) -> Self {
+        self.union_inner(other, &mut Counter::new())
+    }
+
+    #[cfg(test)]
+    pub(super) fn union_counted(&self, other: &Self) -> (Self, Work) {
+        let mut counter = Counter::new();
+        let result = self.union_inner(other, &mut counter);
+        (result, counter.finish())
+    }
+
+    fn union_inner(&self, other: &Self, counter: &mut Counter) -> Self {
         if self.0.is_none() {
             return other.clone();
         }
         if other.0.is_none() || self.ptr_eq(other) {
             return self.clone();
         }
-        if self.candidate() == other.candidate() && self.same_set(other) {
+        if self.candidate() == other.candidate() && self.same_set_inner(other, counter) {
             return self.clone();
         }
         let (mut result, additions) = if self.cardinality() >= other.cardinality() {
@@ -69,14 +94,27 @@ impl Signature {
             (other.clone(), self)
         };
         for id in additions.iter() {
-            result = result.insert(id);
+            counter.union_item();
+            result = result.insert(id, counter);
         }
         result
     }
 
     pub(super) fn same_set(&self, other: &Self) -> bool {
+        self.same_set_inner(other, &mut Counter::new())
+    }
+
+    #[cfg(test)]
+    pub(super) fn same_set_counted(&self, other: &Self) -> (bool, Work) {
+        let mut counter = Counter::new();
+        let result = self.same_set_inner(other, &mut counter);
+        (result, counter.finish())
+    }
+
+    fn same_set_inner(&self, other: &Self, counter: &mut Counter) -> bool {
         self.ptr_eq(other)
-            || (self.candidate() == other.candidate() && self.iter().eq(other.iter()))
+            || (self.candidate() == other.candidate()
+                && compare::same(self.0.as_ref(), other.0.as_ref(), counter))
     }
 
     fn ptr_eq(&self, other: &Self) -> bool {
@@ -87,9 +125,9 @@ impl Signature {
         }
     }
 
-    fn insert(&self, id: usize) -> Self {
+    fn insert(&self, id: usize, counter: &mut Counter) -> Self {
         let Some(root) = &self.0 else {
-            return Self::singleton(id);
+            return Self(Some(Node::leaf(id, counter)));
         };
         let routed = route(id);
         let existing = find_leaf(root, routed);
@@ -97,8 +135,14 @@ impl Signature {
             return self.clone();
         }
         let differing = highest_bit(routed ^ route(existing));
-        let leaf = Node::leaf(id);
-        Self(Some(insert_at(Arc::clone(root), leaf, routed, differing)))
+        let leaf = Node::leaf(id, counter);
+        Self(Some(insert_at(
+            Arc::clone(root),
+            leaf,
+            routed,
+            differing,
+            counter,
+        )))
     }
 
     fn iter(&self) -> Iter<'_> {
@@ -108,27 +152,11 @@ impl Signature {
         }
         iter
     }
-
-    #[cfg(test)]
-    pub(super) fn max_depth(&self) -> usize {
-        let Some(root) = &self.0 else {
-            return 0;
-        };
-        let mut depth = 0;
-        let mut pending = vec![(root.as_ref(), 1)];
-        while let Some((node, current)) = pending.pop() {
-            depth = depth.max(current);
-            if let NodeKind::Branch { left, right, .. } = &node.kind {
-                pending.push((left.as_ref(), current + 1));
-                pending.push((right.as_ref(), current + 1));
-            }
-        }
-        depth
-    }
 }
 
 impl Node {
-    fn leaf(id: usize) -> Arc<Self> {
+    fn leaf(id: usize, counter: &mut Counter) -> Arc<Self> {
+        counter.allocated_node();
         Arc::new(Self {
             kind: NodeKind::Leaf(id),
             sample: route(id),
@@ -138,9 +166,10 @@ impl Node {
         })
     }
 
-    fn branch(bit: u32, left: Arc<Self>, right: Arc<Self>) -> Arc<Self> {
+    fn branch(bit: u32, left: Arc<Self>, right: Arc<Self>, counter: &mut Counter) -> Arc<Self> {
         assert!(!bit_set(left.sample, bit));
         assert!(bit_set(right.sample, bit));
+        counter.allocated_node();
         Arc::new(Self {
             sample: left.sample,
             len: left.len + right.len,
@@ -167,7 +196,13 @@ fn find_leaf(root: &Arc<Node>, route: usize) -> usize {
     }
 }
 
-fn insert_at(root: Arc<Node>, leaf: Arc<Node>, route: usize, bit: u32) -> Arc<Node> {
+fn insert_at(
+    root: Arc<Node>,
+    leaf: Arc<Node>,
+    route: usize,
+    bit: u32,
+    counter: &mut Counter,
+) -> Arc<Node> {
     if let NodeKind::Branch {
         bit: current,
         left,
@@ -179,20 +214,22 @@ fn insert_at(root: Arc<Node>, leaf: Arc<Node>, route: usize, bit: u32) -> Arc<No
             Node::branch(
                 *current,
                 Arc::clone(left),
-                insert_at(Arc::clone(right), leaf, route, bit),
+                insert_at(Arc::clone(right), leaf, route, bit, counter),
+                counter,
             )
         } else {
             Node::branch(
                 *current,
-                insert_at(Arc::clone(left), leaf, route, bit),
+                insert_at(Arc::clone(left), leaf, route, bit, counter),
                 Arc::clone(right),
+                counter,
             )
         };
     }
     if bit_set(route, bit) {
-        Node::branch(bit, root, leaf)
+        Node::branch(bit, root, leaf, counter)
     } else {
-        Node::branch(bit, leaf, root)
+        Node::branch(bit, leaf, root, counter)
     }
 }
 

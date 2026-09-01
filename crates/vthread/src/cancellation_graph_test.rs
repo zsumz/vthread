@@ -215,17 +215,33 @@ fn unique_owner_prefix_relays_do_not_flatten_live_ancestry() {
         links <= 4 * relays,
         "{relays} relays retained {links} links"
     );
-    let work = graph.work_snapshot();
+    let build = graph.work_snapshot();
     assert!(
-        work.signature_items <= 2 * OWNERS,
-        "flattened {} ancestry items",
-        work.signature_items
+        build.union_items <= 2 * OWNERS,
+        "construction iterated {} ancestry items",
+        build.union_items
     );
-    assert_eq!(work.exact_items, 0);
+    assert!(
+        build.allocated_nodes <= (usize::BITS as usize + 2) * OWNERS,
+        "construction allocated {} Patricia nodes",
+        build.allocated_nodes
+    );
+    assert_eq!(build.equality_nodes, 0);
+    assert_eq!(build.candidate_checks, 0);
+    assert_eq!(build.topology_rebuilds, 0);
+    assert_eq!(build.relay_checks, relays);
     assert!(graph.nodes.values().all(|entry| {
         entry.kind != super::Kind::Relay || (entry.parents.len() > 1 && entry.children.len() > 1)
     }));
 
+    graph.reset_work();
     graph.cancel(owners[0]);
+    let cancellation = graph.work_snapshot();
+    assert_eq!(cancellation.union_items, 0);
+    assert_eq!(cancellation.equality_nodes, 0);
+    assert_eq!(cancellation.allocated_nodes, 0);
+    assert_eq!(cancellation.candidate_checks, 0);
+    assert_eq!(cancellation.topology_rebuilds, 0);
+    assert_eq!(cancellation.relay_checks, relays);
     assert!(leaves.iter().all(|id| graph.is_cancelled(*id)));
 }
