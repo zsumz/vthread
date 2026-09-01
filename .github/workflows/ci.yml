@@ -3,7 +3,9 @@ name: check
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, "release/**"]
+    tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -24,7 +26,7 @@ jobs:
       CARGO_TARGET_DIR: /tmp/vthread-check-build
       CARGO_HOME: ${{ github.workspace }}/target/cargo-home
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rust
         run: rustup toolchain install 1.96.1 --profile minimal --component clippy,rustfmt
       - name: Install repository tools
@@ -41,9 +43,58 @@ jobs:
         run: zcheck run check --format github --logs-dir .zcheck/logs --receipt .zcheck/receipt.json
       - name: Upload check logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: check-${{ matrix.target }}
           path: .zcheck/
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  qualification:
+    name: qualify release (${{ matrix.target }})
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      startsWith(github.ref, 'refs/heads/release/')
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: linux-x86-64
+          - runner: macos-14
+            target: macos-arm64
+    runs-on: ${{ matrix.runner }}
+    env:
+      CARGO_TARGET_DIR: /tmp/vthread-release-build
+      CARGO_HOME: ${{ github.workspace }}/target/cargo-home
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust
+        run: rustup toolchain install 1.96.1 --profile minimal
+      - name: Verify release ref
+        run: |
+          version="$(awk -F '"' '/^version = "/ { print $2; exit }' Cargo.toml)"
+          case "$GITHUB_REF" in
+            refs/tags/v*) test "$GITHUB_REF_NAME" = "v$version" ;;
+            refs/heads/release/*) test "$GITHUB_REF_NAME" = "release/$version" ;;
+            *) exit 1 ;;
+          esac
+          grep --fixed-strings "## $version - " CHANGELOG.md
+      - name: Cache locked dependencies
+        run: cargo fetch --locked
+      - name: Qualify application
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: >-
+          python3 scripts/run-application.py
+          --out .qualification/application
+          --context "GitHub release qualification ${{ matrix.target }}"
+      - name: Upload qualification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: qualification-${{ github.run_id }}-${{ matrix.target }}
+          path: .qualification/
           include-hidden-files: true
           if-no-files-found: warn
