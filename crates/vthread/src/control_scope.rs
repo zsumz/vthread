@@ -16,8 +16,12 @@ pub(super) struct ScopeState {
 }
 
 impl Shared {
+    pub(crate) fn abort_requested(&self) -> bool {
+        self.abort_requested.load(Ordering::Acquire)
+    }
+
     pub(crate) fn abort_reason(&self, scope: u64) -> Option<TaskFailure> {
-        if !self.abort_requested.load(Ordering::Acquire) {
+        if !self.abort_requested() {
             return None;
         }
         let state = lock(&self.state);

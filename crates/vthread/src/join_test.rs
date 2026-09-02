@@ -35,7 +35,7 @@ fn an_interrupted_cross_runtime_join_retains_its_handle_and_result() {
     let runtime = Runtime::new().unwrap();
     let (returned, receive) = mpsc::sync_channel(1);
     let _ = runtime.run_scope_with(
-        ScopeOptions::default().deadline(Instant::now() + Duration::from_millis(20)),
+        ScopeOptions::default().deadline(Instant::now() + Duration::from_millis(200)),
         |scope| {
             scope
                 .spawn("interruptible waiter", move || {

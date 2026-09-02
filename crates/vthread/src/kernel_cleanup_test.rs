@@ -64,3 +64,29 @@ fn delayed_abort_for_an_old_scope_preserves_every_new_scope_queue() {
     assert!(snapshot.tasks.iter().all(|task| task.failure.is_none()));
     kernel.abort(None, TaskFailure::RuntimeStopped);
 }
+
+#[test]
+fn selective_abort_keeps_a_retained_in_flight_task_located() {
+    let shared = Arc::new(Shared::new(RuntimeConfig::default()));
+    let retained = shared.begin_scope().expect("retained scope");
+    let aborted = shared
+        .begin_owned(crate::ScopeOptions::default(), true)
+        .expect("aborted scope");
+    shared
+        .submit(retained, "retained".into(), || ())
+        .expect("retained task");
+    shared
+        .submit(aborted, "aborted".into(), || ())
+        .expect("aborted task");
+    let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
+    kernel.receive();
+    kernel.in_flight = kernel.ready.pop_front();
+    let retained_key = kernel.in_flight.expect("retained in-flight task");
+
+    kernel.abort(Some(aborted), TaskFailure::ScopeStalled);
+
+    assert_eq!(kernel.in_flight, Some(retained_key));
+    assert!(kernel.ready.is_empty());
+    assert_eq!(shared.snapshot().active, 1);
+    kernel.abort(None, TaskFailure::RuntimeStopped);
+}

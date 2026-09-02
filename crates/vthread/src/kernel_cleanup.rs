@@ -30,17 +30,21 @@ impl Kernel {
             );
         }
         self.pending = retained_pending;
-        if self.in_flight.as_ref().is_some_and(|task| {
-            scope.is_none_or(|scope| task.execution.record.lock().scope == scope)
+        if self.in_flight.is_some_and(|task| {
+            scope.is_none_or(|scope| self.task(task).execution.record.lock().scope == scope)
         }) {
             self.discard_in_flight(reason);
         }
         let retained_flight = self.in_flight.take();
-        let local = self.local.take_starts();
-        self.ready.extend(local);
+        if let Some(task) = retained_flight {
+            self.ready.push_front(task);
+        }
+        for task in self.local.take_starts() {
+            self.ready.push_back(self.tasks.insert(task));
+        }
         for _ in 0..self.ready.len() {
             let task = self.ready.pop_front().expect("ready task");
-            if scope.is_none_or(|scope| task.execution.record.lock().scope == scope) {
+            if scope.is_none_or(|scope| self.task(task).execution.record.lock().scope == scope) {
                 self.in_flight = Some(task);
                 self.discard_in_flight(reason);
             } else {
@@ -51,7 +55,9 @@ impl Kernel {
             .parked
             .iter()
             .filter(|(_, parked)| {
-                scope.is_none_or(|scope| parked.task.execution.record.lock().scope == scope)
+                scope.is_none_or(|scope| {
+                    self.task(parked.task).execution.record.lock().scope == scope
+                })
             })
             .map(|(token, _)| *token)
             .collect::<Vec<_>>();
@@ -72,7 +78,11 @@ impl Kernel {
             self.in_flight = Some(parked.task);
             self.discard_in_flight(reason);
         }
-        self.in_flight = retained_flight;
+        if let Some(retained) = retained_flight {
+            let restored = self.ready.pop_front().expect("retained in-flight task");
+            assert_eq!(restored, retained, "retained in-flight task moved");
+            self.in_flight = Some(restored);
+        }
         self.refresh_borrowed();
         self.publish(CarrierStatus::Running);
     }
@@ -95,13 +105,11 @@ impl Kernel {
     }
 
     pub(super) fn discard_in_flight(&mut self, reason: TaskFailure) {
-        let task = self.in_flight.as_mut().expect("owned task");
-        task.execution
-            .progress
-            .unmount(task.execution.record.progress());
-        let execution = self.execution(self.in_flight.as_ref().expect("owned task"));
+        let task_key = self.in_flight.expect("owned task key");
+        let execution = self.execution(task_key);
+        execution.progress.unmount(execution.record.progress());
         execution.data.closing.set(true);
-        let task = self.in_flight.as_mut().expect("owned task");
+        let task = self.task_mut(task_key);
         let record = Arc::clone(&task.execution.record);
         let fiber = task.fiber.take();
         #[cfg(feature = "runtime-evidence")]
@@ -128,7 +136,7 @@ impl Kernel {
                 },
             );
         }
-        self.in_flight = None;
+        drop(self.remove_in_flight());
         self.stats.aborted += 1;
         self.publish(CarrierStatus::Running);
         self.shared.complete(&record, Some(reason));

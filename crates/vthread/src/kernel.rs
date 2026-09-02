@@ -6,12 +6,15 @@ mod kernel_cleanup;
 mod kernel_drive;
 #[path = "kernel_revoked.rs"]
 mod kernel_revoked;
+#[path = "kernel_task.rs"]
+mod kernel_task;
 
 use crate::{
     CarrierId, CarrierSnapshot, CarrierStatus, RuntimeStats, StackSnapshot, TaskFailure,
     TaskStatus,
     control::Shared,
     inbox::{Inbox, SpawnPacket},
+    task_slab::{TaskKey, TaskSlab},
     timer::TimerQueue,
     wait::WaitRegistration,
 };
@@ -30,9 +33,10 @@ pub(crate) struct Kernel {
     pub(super) shared: Arc<Shared>,
     pub(crate) inbox: Arc<Inbox>,
     pub(super) id: CarrierId,
-    pub(super) ready: VecDeque<Task>,
+    pub(super) tasks: TaskSlab<Task>,
+    pub(super) ready: VecDeque<TaskKey>,
     pub(super) parked: BTreeMap<ParkToken, ParkedTask>,
-    pub(super) in_flight: Option<Task>,
+    pub(super) in_flight: Option<TaskKey>,
     pub(super) pending: Option<SpawnPacket>,
     pub(crate) local: Rc<LocalCarrier>,
     pub(super) timers: TimerQueue,
@@ -48,7 +52,7 @@ pub(crate) struct Task {
 }
 
 pub(super) struct ParkedTask {
-    pub(super) task: Task,
+    pub(super) task: TaskKey,
     pub(super) registration: WaitRegistration,
 }
 
@@ -59,6 +63,7 @@ impl Kernel {
             inbox: Arc::clone(&shared.inboxes[id.0]),
             shared,
             id,
+            tasks: TaskSlab::new(),
             ready: VecDeque::new(),
             parked: BTreeMap::new(),
             in_flight: None,
@@ -107,7 +112,7 @@ impl Kernel {
             self.shared.transition(&task.execution.record, |record| {
                 record.status = TaskStatus::Ready
             });
-            self.ready.push_back(task);
+            self.ready.push_back(self.tasks.insert(task));
         }
         received
     }
@@ -167,10 +172,10 @@ impl Kernel {
                 data,
                 progress: crate::task_progress::TaskProgressWriter::new(),
             });
-            self.in_flight = Some(Task {
+            let task = Task {
                 fiber: Some(task_fiber),
                 execution,
-            });
+            };
             #[cfg(feature = "runtime-evidence")]
             self.shared.record(
                 crate::diagnostics::evidence::RuntimeEventKind::StackCheckedOut {
@@ -179,14 +184,26 @@ impl Kernel {
                 },
             );
             self.pending = None;
-            self.ready
-                .push_back(self.in_flight.take().expect("new task"));
+            self.ready.push_back(self.tasks.insert(task));
         }
         received
     }
 
-    pub(crate) fn execution(&self, task: &Task) -> Rc<Execution> {
-        Rc::clone(&task.execution)
+    pub(crate) fn execution(&self, task: TaskKey) -> Rc<Execution> {
+        Rc::clone(&self.task(task).execution)
+    }
+
+    pub(super) fn task(&self, key: TaskKey) -> &Task {
+        self.tasks.get(key).expect("live task key")
+    }
+
+    pub(super) fn task_mut(&mut self, key: TaskKey) -> &mut Task {
+        self.tasks.get_mut(key).expect("live task key")
+    }
+
+    pub(super) fn remove_in_flight(&mut self) -> Task {
+        let key = self.in_flight.take().expect("in-flight task key");
+        self.tasks.remove(key).expect("live in-flight task")
     }
 
     pub(crate) fn publish(&self, status: CarrierStatus) {
@@ -212,17 +229,22 @@ impl Kernel {
             && self.in_flight.is_none()
             && self.ready.is_empty()
             && self.parked.is_empty()
+            && self.tasks.is_empty()
             && self.local.pending_starts() == 0
             && self.inbox.pending() == 0
     }
 
     fn snapshot(&self, status: CarrierStatus) -> CarrierSnapshot {
+        assert_eq!(
+            self.tasks.len(),
+            self.ready.len() + self.parked.len() + usize::from(self.in_flight.is_some())
+        );
         let mut stats = self.stats;
         stats.stale_wakes += self.inbox.hub.stale();
         CarrierSnapshot {
             id: self.id,
             status,
-            active: self.ready.len() + self.parked.len() + usize::from(self.in_flight.is_some()),
+            active: self.tasks.len(),
             runnable: self.ready.len(),
             parked: self.parked.len(),
             timers: self.timers.active_count(),

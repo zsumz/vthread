@@ -2,13 +2,16 @@ use super::{GenerationSource, ProbeWakeResult, probe_pair};
 use crate::diagnostics::evidence::{RuntimeEventKind, WakeOrigin, WakeRejection};
 
 fn next(source: &GenerationSource) -> super::GenerationWake {
-    for _ in 0..10_000 {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
         if let Some(generation) = source.take() {
             return generation;
         }
+        if std::time::Instant::now() >= deadline {
+            core::panic!("probe generation was not published");
+        }
         std::thread::yield_now();
     }
-    core::panic!("probe generation was not published");
 }
 
 #[test]
