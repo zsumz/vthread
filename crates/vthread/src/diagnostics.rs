@@ -14,6 +14,8 @@
 
 #[cfg(feature = "runtime-evidence")]
 pub mod evidence;
+#[cfg(feature = "qualification")]
+pub mod qualification;
 
 pub use crate::dump::DumpReport;
 pub use crate::identity::{RuntimeId, ScopeId};
