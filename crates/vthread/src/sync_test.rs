@@ -129,9 +129,18 @@ fn forced_shutdown_drops_held_guards_and_wait_tickets() {
             let shared = Arc::clone(&mutex);
             let mut waiter = scope.spawn("waiter", move || shared.lock().map(drop))?;
             until(|| mutex.waiting() == 1);
+            until(|| scope.runtime_snapshot().parked == 2);
             runtime.shutdown()?;
-            assert!(matches!(owner.join(), Err(Error::TaskAborted { .. })));
-            assert!(matches!(waiter.join(), Err(Error::TaskAborted { .. })));
+            let owner = owner.join();
+            assert!(
+                matches!(owner, Err(Error::TaskAborted { .. })),
+                "unexpected owner outcome: {owner:?}"
+            );
+            let waiter = waiter.join();
+            assert!(
+                matches!(waiter, Err(Error::TaskAborted { .. })),
+                "unexpected waiter outcome: {waiter:?}"
+            );
             Ok(())
         })
         .unwrap();

@@ -128,10 +128,11 @@ fn revoked_parked_stacks_release_registrations_before_timer_processing() {
         let task_fiber = TaskFiber::borrowed(lease, identity);
         #[cfg(not(feature = "runtime-evidence"))]
         let task_fiber = TaskFiber::borrowed(lease);
-        kernel.ready.push_back(Task {
+        let task = kernel.tasks.insert(Task {
             execution,
             fiber: Some(task_fiber),
         });
+        kernel.ready.push_back(task);
         kernel.has_borrowed = true;
         kernel.tick(true).unwrap();
         assert_eq!(shared.snapshot().parked, 1);
