@@ -21,7 +21,8 @@ impl fmt::Display for RuntimeId {
         self.0.fmt(f)
     }
 }
-/// Scope identity within one runtime; pair it with RuntimeId for process-wide correlation.
+/// Owned root or supervisor identity within one runtime.
+/// Pair it with `RuntimeId` for process-wide correlation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ScopeId(u64);
 impl ScopeId {

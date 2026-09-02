@@ -21,7 +21,7 @@ impl crate::TaskSnapshot {
     pub fn inherited_deadline(&self) -> Option<std::time::Instant> {
         self.inherited_deadline
     }
-    /// Owning root scope identity.
+    /// Owning root or supervisor identity.
     pub fn scope(&self) -> crate::diagnostics::ScopeId {
         crate::diagnostics::ScopeId::new(self.scope)
     }

@@ -3,6 +3,8 @@
 //! Evidence producers never run consumer code and never wait for consumer capacity.
 //! Events from concurrent producers may arrive out of order; their runtime-wide sequence
 //! is authoritative. Any full or disconnected buffer is reported as incomplete evidence.
+//! Scope events cover owned roots and supervisors. Borrowed local scopes reuse their
+//! containing owned scope and remain visible through their task and suspension events.
 
 mod emitter;
 mod event;
@@ -32,8 +34,8 @@ pub struct EvidenceCapabilities(u64);
 impl EvidenceCapabilities {
     /// Runtime-wide event sequence numbers.
     pub const TOTAL_ORDER: Self = Self(1 << 0);
-    /// Scope open and close transitions.
-    pub const SCOPE_LIFECYCLE: Self = Self(1 << 1);
+    /// Owned root and supervisor scope open and close transitions.
+    pub const OWNED_SCOPE_LIFECYCLE: Self = Self(1 << 1);
     /// Task admission, mount, suspension and terminal transitions.
     pub const TASK_LIFECYCLE: Self = Self(1 << 2);
     /// Exact reusable wait identities and generations.
@@ -57,7 +59,7 @@ impl EvidenceCapabilities {
 
     fn runtime() -> Self {
         let base = Self::TOTAL_ORDER.0
-            | Self::SCOPE_LIFECYCLE.0
+            | Self::OWNED_SCOPE_LIFECYCLE.0
             | Self::TASK_LIFECYCLE.0
             | Self::WAIT_GENERATIONS.0
             | Self::WAKE_SELECTION.0

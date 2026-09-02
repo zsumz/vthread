@@ -14,15 +14,16 @@ use crate::diagnostics::{CarrierId, ScopeId, ShutdownPhase, SuspensionReason, Ta
 #[non_exhaustive]
 pub enum RuntimeEventKind {
     /// An owned root or supervisor scope became active.
+    /// Borrowed local scopes do not receive separate scope identities or events.
     ScopeOpened {
         /// New runtime-local scope identity.
         scope: ScopeId,
-        /// Parent scope when the runtime models one explicitly.
+        /// Always `None` in this release because every owned scope is top-level.
         parent: Option<ScopeId>,
         /// Whether this is a long-lived supervisor.
         supervised: bool,
     },
-    /// An owned scope drained and released its retained records.
+    /// An owned root or supervisor drained and released its retained records.
     ScopeClosed {
         /// Drained runtime-local scope identity.
         scope: ScopeId,

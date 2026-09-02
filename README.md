@@ -73,11 +73,13 @@ Use the matching vthread API or `vthread::blocking::run`.
 
 ## Runtime evidence
 
-Qualification tools can enable the `runtime-evidence` feature for a bounded, typed event
-stream covering scopes, tasks, stacks, waits, timers, queues, and shutdown. Recording remains
-off until the builder receives `evidence_capacity`; a full or disconnected buffer reports the
-exact loss instead of blocking the runtime. The `qualification` feature also exposes a
-generation-bound wake probe for proving stale wakes are rejected by the real selector.
+Qualification tools can enable the `runtime-evidence` feature for a bounded, typed event stream
+covering owned roots and supervisors, tasks, stacks, waits, wake origins, timers, queues, and
+shutdown. Borrowed local scopes reuse their containing owned scope. Recording remains off until
+the builder receives `evidence_capacity`; a full or disconnected buffer reports exact loss
+instead of blocking the runtime. Consumers can wait for one bounded batch without busy polling.
+The `qualification` feature also exposes a generation-bound wake probe for proving stale wakes
+are rejected by the real selector.
 
 ## Reference application
 

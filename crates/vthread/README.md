@@ -28,8 +28,11 @@ deadlines, virtual synchronization, bounded channels, readiness networking, nati
 delegation, diagnostics, and controlled shutdown.
 
 The optional `runtime-evidence` feature provides a bounded, typed event stream for qualification.
-The `qualification` feature adds a generation-bound wake probe for stale-wake testing. Recording
-is disabled unless the runtime builder receives an explicit evidence capacity.
+It covers owned roots and supervisors, task and wait lifecycles, wake origins, stacks, timers,
+queues, and shutdown. Borrowed local scopes reuse their containing owned scope. Consumers can
+wait for a bounded batch without polling. The `qualification` feature adds a generation-bound
+wake probe for stale-wake testing. Recording is disabled unless the runtime builder receives an
+explicit evidence capacity.
 
 Standard-library blocking calls are not automatically virtualized. Use vthread operations or
 `blocking::run` when work may block an OS thread. Cancellation is cooperative and cannot
