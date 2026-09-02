@@ -16,7 +16,7 @@ pub(crate) struct Execution {
     pub(crate) shared: Arc<Shared>,
     pub(crate) local: Rc<LocalCarrier>,
     pub(crate) data: Rc<TaskContext>,
-    pub(crate) progress: Arc<crate::task_progress::TaskProgress>,
+    pub(crate) progress: crate::task_progress::TaskProgressWriter,
 }
 
 #[derive(Clone)]
@@ -69,6 +69,7 @@ fn install(mounted: MountedTask) -> MountGuard {
 }
 
 /// Checks inherited cancellation and the earliest deadline at a cooperative boundary.
+#[inline]
 pub fn checkpoint() -> Result<()> {
     CURRENT.with(|current| {
         current

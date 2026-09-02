@@ -72,12 +72,13 @@ impl Kernel {
         }
     }
 
-    pub(crate) fn receive(&mut self) {
+    pub(crate) fn receive(&mut self) -> bool {
         let received = self.receive_local_tasks();
         let received = self.receive_remote_tasks() || received;
         if received {
             self.publish(CarrierStatus::Running);
         }
+        self.inbox.pending() != 0
     }
 
     pub(crate) fn receive_local(&mut self) {
@@ -148,14 +149,9 @@ impl Kernel {
             let task_fiber = TaskFiber::owned(fiber);
             self.shared
                 .transition(&packet.record, |record| record.status = TaskStatus::Ready);
-            let (id, scope, options, progress) = {
-                let record = crate::signal::lock(&packet.record);
-                (
-                    record.id,
-                    record.scope,
-                    record.options.clone(),
-                    Arc::clone(&record.progress),
-                )
+            let (id, scope, options) = {
+                let record = packet.record.lock();
+                (record.id, record.scope, record.options.clone())
             };
             let data = Rc::new(TaskContext::new(
                 options,
@@ -169,7 +165,7 @@ impl Kernel {
                 shared: Arc::clone(&self.shared),
                 local: Rc::clone(&self.local),
                 data,
-                progress,
+                progress: crate::task_progress::TaskProgressWriter::new(),
             });
             self.in_flight = Some(Task {
                 fiber: Some(task_fiber),

@@ -1,9 +1,6 @@
 //! Typed results for borrowed children that cannot escape their lexical owner.
 
-use crate::{
-    Error, Result, SuspensionReason, join::JoinCell, join_wait, signal::lock,
-    task::SharedTaskRecord,
-};
+use crate::{Error, Result, SuspensionReason, join::JoinCell, join_wait, task::SharedTaskRecord};
 use std::{cell::RefCell, marker::PhantomData, rc::Rc};
 
 /// A non-Send borrowed child's result, usable only inside its local scope.
@@ -23,11 +20,11 @@ pub struct LocalJoinHandle<'scope, T> {
 impl<T> LocalJoinHandle<'_, T> {
     /// Returns the child's identity.
     pub fn task_id(&self) -> crate::TaskId {
-        lock(&self.record).id
+        self.record.lock().id
     }
     /// Returns this child's token; its parent and siblings are unaffected by cancellation.
     pub fn cancellation_token(&self) -> crate::CancellationToken {
-        lock(&self.record).options.cancellation.clone()
+        self.record.lock().options.cancellation.clone()
     }
     /// Requests cooperative cancellation while preserving child ownership and its result.
     pub fn cancel(&self) {
@@ -35,7 +32,7 @@ impl<T> LocalJoinHandle<'_, T> {
     }
     /// Whether the owner has reclaimed the child stack.
     pub fn is_finished(&self) -> bool {
-        lock(&self.record).completion.done()
+        self.record.completion().done()
     }
     /// Parks until reclamation without consuming observation ownership on interruption.
     /// Completed children succeed immediately and idempotently, even after result
@@ -70,7 +67,7 @@ impl<T> LocalJoinHandle<'_, T> {
             return Err(Error::WouldBlock);
         }
         self.taken = true;
-        let mut record = lock(&self.record);
+        let mut record = self.record.lock();
         record.outcome_observed = true;
         if let Some(reason) = record.failure {
             return Err(Error::TaskAborted {

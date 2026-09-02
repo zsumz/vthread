@@ -6,6 +6,30 @@ use std::{
 use crate::{ParkOutcome, Runtime, WakeReason, park_pair};
 
 #[test]
+fn wake_processing_follows_the_observed_signal_epoch() {
+    use crate::{CarrierId, RuntimeConfig, control::Shared, kernel::Kernel};
+
+    let shared = Arc::new(Shared::new(RuntimeConfig::default()));
+    let scope = shared.begin_scope().expect("scope");
+    let (parker, waker) = park_pair();
+    shared
+        .submit(scope, "signalled".into(), move || parker.park())
+        .expect("submit");
+    let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
+    kernel.receive();
+    assert!(kernel.tick(true).expect("park task"));
+
+    waker.unpark();
+    assert_eq!(kernel.inbox.hub.pending(), 1);
+    assert!(!kernel.tick(false).expect("unchanged signal"));
+    assert_eq!(kernel.inbox.hub.pending(), 1);
+
+    assert!(kernel.tick(true).expect("changed signal"));
+    assert_eq!(kernel.inbox.hub.pending(), 0);
+    shared.finish_scope(scope);
+}
+
+#[test]
 fn timeout_updates_task_and_runtime_ledgers() {
     let runtime = Runtime::new().expect("build runtime");
     runtime
@@ -83,7 +107,7 @@ fn reclaiming_a_selected_but_unresumed_park_releases_the_active_generation() {
         .unwrap();
     let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
     kernel.receive();
-    kernel.tick().unwrap();
+    kernel.tick(true).unwrap();
     waker.unpark();
     kernel.process_wakes().unwrap();
     kernel.abort(None, TaskFailure::RuntimeStopped);

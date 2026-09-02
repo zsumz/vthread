@@ -2,16 +2,18 @@
 
 use super::{Kernel, ParkedTask};
 use crate::{
-    CarrierStatus, Error, Result, SuspensionReason, TaskStatus, WakeReason, context, signal::lock,
+    CarrierStatus, Error, Result, SuspensionReason, TaskStatus, WakeReason, context,
     wait::WakeCause,
 };
 use std::{sync::Arc, time::Instant};
 use vthread_stack::{FiberState, ParkRequest, Suspension};
 
 impl Kernel {
-    pub(crate) fn tick(&mut self) -> Result<bool> {
+    pub(crate) fn tick(&mut self, signal_changed: bool) -> Result<bool> {
         self.sweep_revoked();
-        self.process_wakes()?;
+        if signal_changed {
+            self.process_wakes()?;
+        }
         if self.timers.active_count() != 0 {
             for token in self.timers.pop_expired(Instant::now()) {
                 #[cfg(feature = "runtime-evidence")]
@@ -36,7 +38,10 @@ impl Kernel {
             self.discard_in_flight(reason);
             return Ok(true);
         }
-        let first_mount = task.execution.progress.mount();
+        let first_mount = task
+            .execution
+            .progress
+            .mount(task.execution.record.progress());
         if self.shared.config.stall_policy().timeout().is_some() {
             self.shared.transition(&task.execution.record, |record| {
                 record.status = TaskStatus::Running;
@@ -57,7 +62,7 @@ impl Kernel {
             let _mounted = context::mount_execution(execution);
             self.in_flight
                 .as_mut()
-                .expect("mounted task")
+                .expect("mounted stack")
                 .fiber
                 .as_mut()
                 .expect("mounted stack")
@@ -76,7 +81,9 @@ impl Kernel {
                 let task = self.in_flight.take().expect("yielded task");
                 #[cfg(feature = "runtime-evidence")]
                 let task_id = task.execution.id;
-                task.execution.progress.yield_now();
+                task.execution
+                    .progress
+                    .yield_now(task.execution.record.progress());
                 if self.shared.config.stall_policy().timeout().is_some() {
                     self.shared.transition(&task.execution.record, |record| {
                         record.status = TaskStatus::Ready;
@@ -94,32 +101,26 @@ impl Kernel {
                 false
             }
             Some(FiberState::Suspended(Suspension::Park(request))) => {
-                self.in_flight
-                    .as_ref()
-                    .expect("parking task")
-                    .execution
+                let task = self.in_flight.as_mut().expect("parking task");
+                task.execution
                     .progress
-                    .unmount();
+                    .park(task.execution.record.progress());
                 self.park_task(request)?;
                 true
             }
             Some(FiberState::Complete) => {
-                self.in_flight
-                    .as_ref()
-                    .expect("completed task")
-                    .execution
+                let task = self.in_flight.as_mut().expect("completed task");
+                task.execution
                     .progress
-                    .unmount();
+                    .unmount(task.execution.record.progress());
                 self.complete_task();
                 false
             }
             None => {
-                self.in_flight
-                    .as_ref()
-                    .expect("revoked task")
-                    .execution
+                let task = self.in_flight.as_mut().expect("revoked task");
+                task.execution
                     .progress
-                    .unmount();
+                    .unmount(task.execution.record.progress());
                 self.discard_in_flight(crate::TaskFailure::ScopeClosed);
                 false
             }
@@ -213,7 +214,6 @@ impl Kernel {
         #[cfg(feature = "runtime-evidence")]
         let task_id = task.execution.id;
         let reason = task.execution.data.reason.get();
-        task.execution.progress.clear_yield();
         self.shared.transition(&task.execution.record, |record| {
             record.status = TaskStatus::Suspended(reason);
             record.deadline = request.deadline();
@@ -237,7 +237,7 @@ impl Kernel {
         let execution = self.execution(self.in_flight.as_ref().expect("completed task"));
         let record = Arc::clone(&execution.record);
         #[cfg(feature = "runtime-evidence")]
-        let task = lock(&record).id;
+        let task = record.lock().id;
         {
             let _cleanup = crate::task_context::TaskCleanup::new(execution);
             #[cfg(feature = "runtime-evidence")]
@@ -270,7 +270,7 @@ impl Kernel {
                 },
             );
         }
-        if lock(&record).panic.is_some() {
+        if record.lock().panic.is_some() {
             self.stats.panicked += 1;
         } else {
             self.stats.completed += 1;

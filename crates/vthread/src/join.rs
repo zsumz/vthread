@@ -50,7 +50,7 @@ impl<T> JoinHandle<T> {
 
     /// Returns this child's token; cancelling it affects descendants, not its siblings.
     pub fn cancellation_token(&self) -> crate::CancellationToken {
-        lock(&self.record).options.cancellation.clone()
+        self.record.lock().options.cancellation.clone()
     }
 
     /// Requests cooperative child cancellation without consuming its result handle.
@@ -60,7 +60,7 @@ impl<T> JoinHandle<T> {
 
     /// Returns whether the task has reached a terminal state.
     pub fn is_finished(&self) -> bool {
-        lock(&self.record).status.is_terminal()
+        self.record.lock().status.is_terminal()
     }
 
     /// Waits without consuming observation ownership. Cancellation/deadlines are retryable.
@@ -79,7 +79,7 @@ impl<T> JoinHandle<T> {
                 false,
             )?;
         } else {
-            let scope = lock(&self.record).scope;
+            let scope = self.record.lock().scope;
             self.shared.wait(scope, Some(self.id))?;
         }
         Ok(())
@@ -105,7 +105,7 @@ impl<T> JoinHandle<T> {
         }
         self.taken = true;
         let (failure, panic) = {
-            let mut record = lock(&self.record);
+            let mut record = self.record.lock();
             record.outcome_observed = true;
             (record.failure, record.panic.clone())
         };
@@ -132,7 +132,7 @@ impl<T> fmt::Debug for JoinHandle<T> {
             .debug_struct("JoinHandle")
             .field("id", &self.id)
             .field("name", &self.name)
-            .field("status", &lock(&self.record).status)
+            .field("status", &self.record.lock().status)
             .finish_non_exhaustive()
     }
 }

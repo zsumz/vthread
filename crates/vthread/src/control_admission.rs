@@ -3,12 +3,11 @@
 use super::Shared;
 use crate::{
     CarrierId, Error, Result, TaskId, TaskStatus,
-    completion::Completion,
     inbox::SpawnPacket,
     join::JoinCell,
     options::{SpawnOptions, SpawnParent, TaskOptions},
     signal::lock,
-    task::{SharedTaskRecord, TaskRecord},
+    task::{SharedTaskRecord, TaskCell, TaskRecord},
 };
 use std::sync::{Arc, Mutex};
 
@@ -64,7 +63,7 @@ impl Shared {
         options.check()?;
         if state.records.len() >= self.config.max_vthreads() {
             state.records.retain(|_, record| {
-                let record = lock(record);
+                let record = record.lock();
                 !(record.status.is_terminal() && record.outcome_observed)
             });
         }
@@ -108,26 +107,27 @@ impl Shared {
             crate::error::FaultComponent::Scheduler,
             "task id space exhausted",
         ))?;
-        let record = Arc::new(Mutex::new(TaskRecord {
-            id,
-            scope,
-            parent: local
-                .map(|local| local.1)
-                .or_else(|| parent.map(|parent| parent.id)),
-            options,
-            completion: Arc::new(Completion::new(self.config.max_vthreads())),
-            name: Arc::from(name),
-            carrier: CarrierId(owner),
-            deadline: None,
-            failure: None,
-            status: TaskStatus::Queued,
-            progress: Arc::new(crate::task_progress::TaskProgress::new()),
-            parks: 0,
-            last_suspension: None,
-            last_wake: None,
-            outcome_observed: false,
-            panic: None,
-        }));
+        let record = Arc::new(TaskCell::new(
+            TaskRecord {
+                id,
+                scope,
+                parent: local
+                    .map(|local| local.1)
+                    .or_else(|| parent.map(|parent| parent.id)),
+                options,
+                name: Arc::from(name),
+                carrier: CarrierId(owner),
+                deadline: None,
+                failure: None,
+                status: TaskStatus::Queued,
+                parks: 0,
+                last_suspension: None,
+                last_wake: None,
+                outcome_observed: false,
+                panic: None,
+            },
+            self.config.max_vthreads(),
+        ));
         state.records.insert(id, Arc::clone(&record));
         state.active += 1;
         state.loads[owner] += 1;
@@ -143,7 +143,7 @@ impl Shared {
 
     pub(crate) fn release_reservation(&self, record: &SharedTaskRecord) {
         let mut state = lock(&self.state);
-        let record = lock(record);
+        let record = record.lock();
         state.records.remove(&record.id);
         state.active -= 1;
         state.loads[record.carrier.0] -= 1;
@@ -177,7 +177,7 @@ impl Shared {
     ) -> Result<Spawned<T>> {
         let record = self.reserve_with(scope, name, None, options, parent)?;
         let (id, name, owner) = {
-            let record = lock(&record);
+            let record = record.lock();
             (record.id, Arc::clone(&record.name), record.carrier.0)
         };
         let cell = Arc::new(Mutex::new(JoinCell { outcome: None }));

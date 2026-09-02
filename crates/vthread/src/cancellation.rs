@@ -99,6 +99,10 @@ impl CancellationToken {
         self.0.cancelled.load(Ordering::Acquire)
     }
 
+    pub(crate) fn cancellation_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.0.cancelled)
+    }
+
     pub(crate) fn register(
         &self,
         token: ParkToken,

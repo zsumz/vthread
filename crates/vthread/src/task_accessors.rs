@@ -41,11 +41,13 @@ impl crate::TaskSnapshot {
     pub fn status(&self) -> crate::TaskStatus {
         self.status
     }
-    /// Number of times the task stack was mounted.
+    /// Published stack mounts, with at most 64 mounts of lag while runnable.
+    /// The count is exact whenever the task parks or terminates.
     pub fn mounts(&self) -> u64 {
         self.mounts
     }
-    /// Number of cooperative yields.
+    /// Published cooperative yields, with at most 64 yields of lag while runnable.
+    /// The count is exact whenever the task parks or terminates.
     pub fn yields(&self) -> u64 {
         self.yields
     }

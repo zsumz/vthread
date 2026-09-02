@@ -60,6 +60,17 @@ fn cleanup_cannot_suspend_even_when_cancellation_is_masked() {
 }
 
 #[test]
+fn cached_cancellation_flag_observes_later_requests() {
+    let options = TaskOptions::root(ScopeOptions::default(), 1);
+    let cancellation = options.cancellation.clone();
+    let context = TaskContext::new(options, 1);
+    assert!(context.check().is_ok());
+
+    cancellation.cancel();
+    assert!(matches!(context.check(), Err(Error::Cancelled)));
+}
+
+#[test]
 fn task_local_destructors_keep_task_identity_and_finish_before_join() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static DROPS: AtomicUsize = AtomicUsize::new(0);

@@ -55,12 +55,12 @@ fn nested_local_groups_reuse_owned_scope_records_but_children_consume_task_capac
                 .spawn("local parent", move || {
                     let mounted = crate::context::current().unwrap();
                     let parent = mounted.execution().unwrap();
-                    let owned = crate::signal::lock(&parent.record).scope;
+                    let owned = parent.record.lock().scope;
                     crate::local_scope(|_| {
                         crate::local_scope(|local| {
                             assert_eq!(crate::signal::lock(&shared.state).scopes.len(), 2);
                             let mut child = local.spawn("local child", || 42)?;
-                            assert_eq!(crate::signal::lock(&child.record).scope, owned);
+                            assert_eq!(child.record.lock().scope, owned);
                             assert_eq!(crate::signal::lock(&shared.state).scopes.len(), 2);
                             assert!(matches!(
                                 local.spawn("over task limit", || ()),

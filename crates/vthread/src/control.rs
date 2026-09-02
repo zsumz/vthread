@@ -270,11 +270,11 @@ impl Shared {
         update: impl FnOnce(&mut TaskRecord),
     ) {
         if self.config.stall_policy().timeout().is_none() {
-            update(&mut lock(record));
+            update(&mut record.lock());
             return;
         }
         let mut state = lock(&self.state);
-        let mut record = lock(record);
+        let mut record = record.lock();
         update(&mut record);
         if let Some(scope) = state.scopes.get_mut(&record.scope) {
             scope.activity = scope.activity.wrapping_add(1);

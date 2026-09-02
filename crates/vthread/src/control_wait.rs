@@ -33,7 +33,7 @@ impl Shared {
             let mut quiescent = true;
             let mut target_done = target.is_none();
             for record in state.records.values() {
-                let record = lock(record);
+                let record = record.lock();
                 if record.scope != scope {
                     continue;
                 }
@@ -64,7 +64,7 @@ impl Shared {
                     state
                         .records
                         .get(task)
-                        .is_some_and(|record| lock(record).scope == scope)
+                        .is_some_and(|record| record.lock().scope == scope)
                 })
             });
             let deadline =
@@ -89,9 +89,11 @@ impl Shared {
                         .records
                         .values()
                         .filter_map(|record| {
-                            let record = lock(record);
-                            (record.scope == scope && !record.status.is_terminal())
-                                .then(|| record.snapshot())
+                            let include = {
+                                let task = record.lock();
+                                task.scope == scope && !task.status.is_terminal()
+                            };
+                            include.then(|| record.snapshot())
                         })
                         .collect(),
                 }));

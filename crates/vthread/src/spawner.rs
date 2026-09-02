@@ -2,7 +2,6 @@
 
 use crate::{
     Error, JoinHandle, Result, SpawnOptions, context, control::Shared, options::SpawnParent,
-    signal::lock,
 };
 use std::sync::{Arc, Weak};
 
@@ -66,7 +65,7 @@ impl Spawner {
             let execution = mounted.execution()?;
             execution.data.check()?;
             Arc::ptr_eq(&shared, &execution.shared).then(|| {
-                let record = lock(&execution.record);
+                let record = execution.record.lock();
                 SpawnParent {
                     id: record.id,
                     scope: record.scope,

@@ -30,7 +30,7 @@ fn self_join_is_typed_misuse_without_corrupting_completion() {
                     .spawn("self wait", || {
                         let mounted = crate::context::current().unwrap();
                         let execution = mounted.execution().unwrap();
-                        let id = execution.record.lock().unwrap().id;
+                        let id = execution.record.lock().id;
                         assert!(matches!(
                             super::wait_for(
                                 &execution.record,

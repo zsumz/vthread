@@ -69,7 +69,7 @@ fn already_admitted_tasks_yield_to_the_tail_of_the_owner_queue() {
     }
     let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
     kernel.receive();
-    while kernel.tick().expect("tick") {}
+    while kernel.tick(true).expect("tick") {}
     assert_eq!(
         &*trace.lock().expect("trace"),
         &["left", "right", "left", "right"]

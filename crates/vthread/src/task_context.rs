@@ -6,10 +6,15 @@ use std::{
     cell::{Cell, RefCell},
     collections::BTreeMap,
     rc::Rc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 pub(crate) struct TaskContext {
     pub(crate) options: TaskOptions,
+    cancellation: Arc<AtomicBool>,
     pub(crate) reason: Cell<SuspensionReason>,
     pub(crate) masked: Cell<usize>,
     pub(crate) closing: Cell<bool>,
@@ -38,8 +43,10 @@ impl Drop for Initializing<'_> {
 
 impl TaskContext {
     pub(crate) fn new(options: TaskOptions, capacity: usize) -> Self {
+        let cancellation = options.cancellation.cancellation_flag();
         Self {
             options,
+            cancellation,
             capacity,
             reason: Cell::new(SuspensionReason::Park),
             masked: Cell::new(0),
@@ -53,7 +60,16 @@ impl TaskContext {
             return Err(Error::RuntimeStopped);
         }
         if self.masked.get() == 0 {
-            self.options.check()?;
+            if self.cancellation.load(Ordering::Acquire) {
+                return Err(Error::Cancelled);
+            }
+            if self
+                .options
+                .deadline
+                .is_some_and(|deadline| deadline <= std::time::Instant::now())
+            {
+                return Err(Error::DeadlineExceeded);
+            }
         }
         Ok(())
     }
@@ -92,9 +108,7 @@ impl TaskCleanup {
 impl Drop for TaskCleanup {
     fn drop(&mut self) {
         if let Some(panic) = self.execution.data.clear() {
-            crate::signal::lock(&self.execution.record)
-                .panic
-                .get_or_insert(panic);
+            self.execution.record.lock().panic.get_or_insert(panic);
         }
     }
 }

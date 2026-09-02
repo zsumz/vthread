@@ -1,7 +1,7 @@
 //! Virtual completion waits park on registered generations without blocking the carrier.
 
 use crate::{
-    Error, Parker, Result, SuspensionReason, context, signal::lock, task::SharedTaskRecord,
+    Error, Parker, Result, SuspensionReason, context, task::SharedTaskRecord,
     task_context::TaskContext, wait::WaitCell,
 };
 use std::{rc::Rc, sync::Arc};
@@ -28,10 +28,9 @@ pub(crate) fn wait_for(
     if !shielded {
         execution.data.check()?;
     }
-    if mounted.task_id() == lock(record).id && Arc::ptr_eq(&execution.record, record) {
+    if mounted.task_id() == record.lock().id && Arc::ptr_eq(&execution.record, record) {
         return Err(Error::JoinSelf);
     }
-    let completion = Arc::clone(&lock(record).completion);
     let data = Rc::clone(&execution.data);
     let _guard = WaitGuard {
         reason: data.reason.replace(reason),
@@ -44,8 +43,8 @@ pub(crate) fn wait_for(
     let parker = Parker {
         wait: WaitCell::new(),
     };
-    let _subscription = completion.subscribe(&parker.wait)?;
-    while !completion.done() {
+    let _subscription = record.subscribe_completion(&parker.wait)?;
+    while !record.completion().done() {
         parker.park()?;
     }
     // Completion commits this wait; later policy belongs to the next boundary.

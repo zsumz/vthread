@@ -2,8 +2,8 @@
 
 use crate::{
     CancellationToken, Error, LocalJoinHandle, Result, SuspensionReason, context::Execution,
-    join::JoinCell, join_wait, kernel::Task, options::TaskOptions, signal::lock,
-    task::SharedTaskRecord, task_context::TaskContext, task_fiber::TaskFiber,
+    join::JoinCell, join_wait, kernel::Task, options::TaskOptions, task::SharedTaskRecord,
+    task_context::TaskContext, task_fiber::TaskFiber,
 };
 use std::{cell::RefCell, marker::PhantomData, rc::Rc, sync::Arc, time::Instant};
 use vthread_stack::FiberScope;
@@ -52,7 +52,7 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
         #[cfg(not(feature = "runtime-evidence"))]
         self.execution.local.check_capacity()?;
         let (root, parent, carrier) = {
-            let record = lock(&self.execution.record);
+            let record = self.execution.record.lock();
             (record.scope, record.id, record.carrier)
         };
         let record = self.execution.shared.reserve(
@@ -106,12 +106,12 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
             }
         };
         let data = Rc::new(TaskContext::new(
-            lock(&record).options.clone(),
+            record.lock().options.clone(),
             self.execution.shared.config.task_local_capacity(),
         ));
-        let (id, root, progress) = {
-            let record = lock(&record);
-            (record.id, record.scope, Arc::clone(&record.progress))
+        let (id, root) = {
+            let record = record.lock();
+            (record.id, record.scope)
         };
         let execution = Rc::new(Execution {
             id,
@@ -121,14 +121,14 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
             data: Rc::clone(&data),
             shared: Arc::clone(&self.execution.shared),
             local: Rc::clone(&self.execution.local),
-            progress,
+            progress: crate::task_progress::TaskProgressWriter::new(),
         });
         let cleanup = Rc::clone(&execution);
         lease.cleanup_context(move || {
             Box::new(crate::task_context::TaskCleanup::new(Rc::clone(&cleanup)))
         });
         self.records.borrow_mut().retain(|record| {
-            let record = lock(record);
+            let record = record.lock();
             !(record.status.is_terminal() && record.outcome_observed)
         });
         self.records.borrow_mut().push(Arc::clone(&record));
@@ -145,7 +145,7 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
             self.execution.shared.record_task_accepted(&record);
             self.execution.shared.record(
                 crate::diagnostics::evidence::RuntimeEventKind::StackCheckedOut {
-                    task: lock(&record).id,
+                    task: record.lock().id,
                     stack: crate::diagnostics::evidence::StackId::new(carrier, stack_identity),
                 },
             );
@@ -186,7 +186,7 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
             if let Err(error) = join_wait::wait_for(&record, SuspensionReason::ScopeDrain, true) {
                 failure.cleanup_failed(error);
             }
-            let mut record = lock(&record);
+            let mut record = record.lock();
             if !record.outcome_observed {
                 if let Some(reason) = record.failure {
                     failure.child_failed(Error::TaskAborted {
@@ -212,7 +212,7 @@ impl Drop for LocalScope<'_, '_> {
         // Descendant failures belong to this owner, including when the owner is
         // forcibly unwound. Do not report them again as unobserved root children.
         for record in self.records.get_mut() {
-            lock(record).outcome_observed = true;
+            record.lock().outcome_observed = true;
         }
     }
 }
