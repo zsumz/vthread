@@ -20,8 +20,128 @@ facades = "allow"
 entrypoints = "allow"
 tests = "sibling"
 
+[[source.rust.feature_worlds]]
+name = "default"
+reason = "The repository qualifies the default runtime without evidence instrumentation."
+
+[[source.rust.feature_worlds.packages]]
+package = "vthread"
+default_features = true
+features = []
+
+[[source.rust.feature_worlds.packages]]
+package = "vthread-lab"
+default_features = true
+features = []
+
+[[source.rust.feature_worlds.packages]]
+package = "vthread-stack"
+default_features = true
+features = []
+
+[[source.rust.feature_worlds.packages]]
+package = "vthreads"
+default_features = true
+features = []
+
+[[source.rust.feature_worlds]]
+name = "runtime-evidence"
+reason = "The supported evidence build records bounded runtime transitions."
+
+[[source.rust.feature_worlds.packages]]
+package = "vthread"
+default_features = false
+features = ["runtime-evidence"]
+
+[[source.rust.feature_worlds.packages]]
+package = "vthread-lab"
+default_features = false
+features = []
+
+[[source.rust.feature_worlds.packages]]
+package = "vthread-stack"
+default_features = false
+features = ["runtime-evidence"]
+
+[[source.rust.feature_worlds.packages]]
+package = "vthreads"
+default_features = false
+features = ["runtime-evidence"]
+
+[[source.rust.feature_worlds]]
+name = "qualification"
+reason = "The qualification build adds the real stale-generation wake probe."
+
+[[source.rust.feature_worlds.packages]]
+package = "vthread"
+default_features = false
+features = ["qualification"]
+
+[[source.rust.feature_worlds.packages]]
+package = "vthread-lab"
+default_features = false
+features = []
+
+[[source.rust.feature_worlds.packages]]
+package = "vthread-stack"
+default_features = false
+features = ["runtime-evidence"]
+
+[[source.rust.feature_worlds.packages]]
+package = "vthreads"
+default_features = false
+features = ["qualification"]
+
 [source.rust.macros]
 mode = "deny-unreviewed"
+
+[[source.rust.macros.allow]]
+name = "core::clone::Clone"
+reason = "Approved: exact compiler derive for owned evidence handles and value records."
+
+[[source.rust.macros.allow]]
+name = "core::marker::Copy"
+reason = "Approved: exact compiler derive for small immutable evidence identities and enums."
+
+[[source.rust.macros.allow]]
+name = "core::fmt::Debug"
+reason = "Approved: exact compiler derive for evidence diagnostics."
+
+[[source.rust.macros.allow]]
+name = "core::cmp::Eq"
+reason = "Approved: exact compiler derive for evidence value equality."
+
+[[source.rust.macros.allow]]
+name = "core::cmp::PartialEq"
+reason = "Approved: exact compiler derive for evidence field comparisons."
+
+[[source.rust.macros.allow]]
+name = "core::cmp::Ord"
+reason = "Approved: exact compiler derive for evidence sequence and identity ordering."
+
+[[source.rust.macros.allow]]
+name = "core::cmp::PartialOrd"
+reason = "Approved: exact compiler derive paired with total ordering of evidence keys."
+
+[[source.rust.macros.allow]]
+name = "core::hash::Hash"
+reason = "Approved: exact compiler derive for opaque evidence correlation identities."
+
+[[source.rust.macros.allow]]
+name = "core::assert"
+reason = "Approved: exact standard boolean assertions in evidence regression tests."
+
+[[source.rust.macros.allow]]
+name = "core::assert_eq"
+reason = "Approved: exact standard equality assertions in evidence regression tests."
+
+[[source.rust.macros.allow]]
+name = "core::matches"
+reason = "Approved: exact standard pattern matching for terminal state and evidence assertions."
+
+[[source.rust.macros.allow]]
+name = "core::panic"
+reason = "Approved: exact standard test failure when a probe generation is not published."
 
 [[source.rust.macros.allow]]
 name = "Clone"

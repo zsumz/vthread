@@ -2,30 +2,30 @@
 schema = 3
 semantics = 4
 producer = "0.0.3-rc.5"
-contract_sha256 = "5148db58e10b05e972f6ea9916b90d3259b7eeb2ff314b58f8769475ec2c24d3"
+contract_sha256 = "cdb54337ffe0ba3fb2a75dde376971356cb9a930a7e8c6e07268d219a3d43798"
 ratchet = []
 
 [analysis]
-inventory_sha256 = "fb490fa805c5485ab160fcccac41ec9d3616ce861516d8920733c2b9ee811cce"
+inventory_sha256 = "1bac1339ac2e9ee689519740f7ca1e9a29726775d3d5c7a7464c6975ed37c14a"
 exclusions_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-cargo_lock_sha256 = "da8e958417ac5d9a2c7750372b22a7e73d7a2850f98d49b554c02c6b26fad5f8"
-cargo_features_sha256 = "b7c6aaf3a163d2f10da67d14626b8040a623ec7b3c5af478eb06ceb9334688ab"
-feature_worlds_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-feature_worlds = 0
+cargo_lock_sha256 = "cf4cc2232f0fb9963334d06b2b6a5f2a3bad167393361685ef0859d0e3777aa0"
+cargo_features_sha256 = "33c0367bc1eac16334324514dba138d7d7608247f2cd4b3663b1e0133ad3deb6"
+feature_worlds_sha256 = "fb1b90e7a142562c451c462dc6abe2c29ee3942edb81baf97a5dd72f6a72aff4"
+feature_worlds = 3
 packages = 4
 targets = 5
-physical_rust_files = 251
-base_source_contexts = 367
+physical_rust_files = 267
+base_source_contexts = 1152
 derived_source_contexts = 0
-source_facts = 71758
-projection_queries = 443885
+source_facts = 75721
+projection_queries = 1415623
 projected_facts = 13
 unresolved_bindings = 0
 analyzer_semantics = 4
 
 [[analysis.contract_source]]
 path = "zrail.toml"
-sha256 = "5e6d5c71880a4109bf156f7f4ac34023eac5749f5442ee2cc0b04e049af90cd1"
+sha256 = "ba5df26a64b979f56c5ac90f1d8d28ece45800480b21310ec817a357b4d6c462"
 
 [[package]]
 name = "vthread"
@@ -66,7 +66,7 @@ default_features = true
 [package.dependency.source]
 kind = "workspace-member"
 directory = "crates/vthread-stack"
-requirement = "0.0.1"
+requirement = "=0.0.2-rc.1"
 
 [[package.dependency]]
 alias = "zio"
@@ -95,7 +95,7 @@ default_features = true
 [package.dependency.source]
 kind = "workspace-member"
 directory = "crates/vthread"
-requirement = "0.0.1"
+requirement = "=0.0.2-rc.1"
 
 [[package]]
 name = "vthread-stack"
@@ -127,4 +127,4 @@ default_features = true
 [package.dependency.source]
 kind = "workspace-member"
 directory = "crates/vthread"
-requirement = "=0.0.1"
+requirement = "=0.0.2-rc.1"
