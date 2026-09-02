@@ -42,12 +42,13 @@ impl Kernel {
         }
         self.stats.mounts += 1;
         let shared = &self.shared;
+        let carrier_progress = &shared.carrier_progress[self.id.0];
         let dispatched = {
             let task = self.tasks.get_mut(task_key).expect("ready task key");
             let first_mount = task
                 .execution
                 .progress
-                .mount(task.execution.record.progress());
+                .mount(carrier_progress, task.execution.id);
             if shared.config.stall_policy().timeout().is_some() {
                 shared.transition(&task.execution.record, |record| {
                     record.status = TaskStatus::Running;
@@ -58,14 +59,14 @@ impl Kernel {
                 task: task.execution.id,
                 carrier: self.id,
             });
-            (!first_mount).then(|| task.dispatch(shared))
+            (!first_mount).then(|| task.dispatch(shared, carrier_progress))
         };
         let state = if let Some(state) = dispatched {
             state
         } else {
             self.publish(CarrierStatus::Running);
             let task = self.tasks.get_mut(task_key).expect("mounted task key");
-            task.dispatch(shared)
+            task.dispatch(shared, carrier_progress)
         };
         let publish = match state {
             Some(FiberState::Suspended(Suspension::YieldNow)) => {

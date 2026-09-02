@@ -80,6 +80,11 @@ impl Shared {
                 };
             if deadline.is_some_and(|deadline| deadline <= Instant::now()) {
                 let detected_at = Instant::now();
+                let mounted = self
+                    .carrier_progress
+                    .iter()
+                    .map(crate::task_progress::CarrierProgress::mounted)
+                    .collect::<Vec<_>>();
                 state.last_stall = Some(std::sync::Arc::new(crate::StallSnapshot {
                     policy: self.config.stall_policy(),
                     scope,
@@ -93,7 +98,7 @@ impl Shared {
                                 let task = record.lock();
                                 task.scope == scope && !task.status.is_terminal()
                             };
-                            include.then(|| record.snapshot())
+                            include.then(|| record.snapshot(&mounted))
                         })
                         .collect(),
                 }));

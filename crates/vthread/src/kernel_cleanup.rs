@@ -107,7 +107,11 @@ impl Kernel {
     pub(super) fn discard_in_flight(&mut self, reason: TaskFailure) {
         let task_key = self.in_flight.expect("owned task key");
         let execution = self.execution(task_key);
-        execution.progress.unmount(execution.record.progress());
+        execution.progress.unmount(
+            execution.record.progress(),
+            &self.shared.carrier_progress[self.id.0],
+            execution.id,
+        );
         execution.data.closing.set(true);
         let task = self.task_mut(task_key);
         let record = Arc::clone(&task.execution.record);

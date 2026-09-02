@@ -63,6 +63,34 @@ fn round_robin_mounts_are_visible() {
 }
 
 #[test]
+fn snapshots_resolve_the_task_mounted_on_its_owner_carrier() {
+    use std::{sync::mpsc, time::Duration};
+
+    let runtime = Runtime::new().expect("build runtime");
+    runtime
+        .run_scope(|scope| {
+            let (started, mounted) = mpsc::sync_channel(0);
+            let (release, gate) = mpsc::sync_channel(0);
+            let mut task = scope.spawn("mounted", move || {
+                started.send(()).unwrap();
+                gate.recv_timeout(Duration::from_secs(5)).unwrap();
+            })?;
+            mounted.recv_timeout(Duration::from_secs(5)).unwrap();
+            let status = runtime
+                .snapshot()
+                .tasks
+                .into_iter()
+                .find(|snapshot| snapshot.id == task.task_id())
+                .map(|snapshot| snapshot.status);
+            release.send(()).unwrap();
+            task.join()?;
+            assert_eq!(status, Some(TaskStatus::Running));
+            Ok(())
+        })
+        .expect("scope succeeds");
+}
+
+#[test]
 fn a_task_panic_does_not_stop_the_carrier() {
     let runtime = Runtime::new().expect("build runtime");
     runtime

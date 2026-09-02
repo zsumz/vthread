@@ -27,6 +27,7 @@ use crate::{
     inbox::Inbox,
     signal::{Signal, lock},
     task::{SharedTaskRecord, TaskRecord},
+    task_progress::CarrierProgress,
 };
 
 #[cfg(feature = "runtime-evidence")]
@@ -51,6 +52,7 @@ pub(crate) struct Shared {
     abort_requested: AtomicBool,
     #[cfg(feature = "runtime-evidence")]
     pub(crate) evidence: Option<crate::diagnostics::evidence::Recorder>,
+    pub(crate) carrier_progress: Vec<CarrierProgress>,
     pub(crate) inboxes: Vec<Arc<Inbox>>,
     pub(crate) changed: Signal,
     pub(crate) failures: Mutex<crate::ThreadFailures>,
@@ -149,6 +151,9 @@ impl Shared {
             abort_requested: AtomicBool::new(false),
             #[cfg(feature = "runtime-evidence")]
             evidence,
+            carrier_progress: (0..config.carriers())
+                .map(|_| CarrierProgress::new())
+                .collect(),
             changed: Signal::default(),
             failures: Mutex::new(crate::ThreadFailures::default()),
             last_scope_failure: Mutex::new(None),

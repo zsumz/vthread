@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{SuspensionReason, TaskId, TaskStatus, WakeReason};
 use crate::{
     task::{TaskCell, TaskRecord},
-    task_progress::TaskProgressWriter,
+    task_progress::{CarrierProgress, TaskProgressWriter},
 };
 
 #[test]
@@ -27,12 +27,13 @@ fn snapshots_copy_operator_visible_state() {
         },
         4,
     );
+    let carrier = CarrierProgress::new();
     let writer = TaskProgressWriter::new();
-    assert!(writer.mount(task.progress()));
-    writer.yield_now(task.progress());
-    assert!(!writer.mount(task.progress()));
-    writer.park(task.progress());
-    let snapshot = task.snapshot();
+    assert!(writer.mount(&carrier, TaskId::new(3)));
+    writer.yield_now(task.progress(), &carrier);
+    assert!(!writer.mount(&carrier, TaskId::new(3)));
+    writer.park(task.progress(), &carrier);
+    let snapshot = task.snapshot(&[carrier.mounted()]);
 
     assert_eq!(snapshot.id.to_string(), "3");
     assert_eq!(snapshot.name, "query");
