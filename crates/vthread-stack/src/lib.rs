@@ -16,7 +16,7 @@ const _: () = {
     all(target_os = "macos", target_arch = "aarch64"),
 )))]
 const _: () = {
-    compile_error!("vthread-stack 0.0.1 supports Linux x86_64 and macOS ARM64");
+    compile_error!("vthread-stack 0.0.2-rc.1 supports Linux x86_64 and macOS ARM64");
 };
 
 mod fiber;

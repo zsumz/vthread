@@ -2,7 +2,7 @@
 
 ## Product rules
 
-- Every package stays at version `0.0.1` and uses the Apache License 2.0 only.
+- Every package uses the shared workspace version and the Apache License 2.0 only.
 - A started virtual thread never migrates between carrier threads.
 - The public `vthread` crate contains no unsafe Rust.
 - Unsafe stack mechanics stay inside `vthread-stack` and require a `SAFETY:` comment.

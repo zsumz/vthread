@@ -2,14 +2,14 @@
 
 Carrier-affine virtual threads for Rust.
 
-Version 0.0.1 supports Linux x86_64 and macOS ARM64 with Rust 1.96 or newer. It requires
+Version 0.0.2-rc.1 supports Linux x86_64 and macOS ARM64 with Rust 1.96 or newer. It requires
 unwinding panics; applications configured with `panic = "abort"` are rejected at compile time.
 
 Install from crates.io:
 
 ```toml
 [dependencies]
-vthread = "0.0.1"
+vthread = "0.0.2-rc.1"
 ```
 
 ```rust
@@ -26,6 +26,10 @@ A started task stays on one carrier thread. Scopes own their children, dropping 
 not detach work, and runtime resources have explicit bounds. The crate includes cancellation,
 deadlines, virtual synchronization, bounded channels, readiness networking, native blocking
 delegation, diagnostics, and controlled shutdown.
+
+The optional `runtime-evidence` feature provides a bounded, typed event stream for qualification.
+The `qualification` feature adds a generation-bound wake probe for stale-wake testing. Recording
+is disabled unless the runtime builder receives an explicit evidence capacity.
 
 Standard-library blocking calls are not automatically virtualized. Use vthread operations or
 `blocking::run` when work may block an OS thread. Cancellation is cooperative and cannot

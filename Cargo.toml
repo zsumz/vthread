@@ -3,7 +3,7 @@ members = ["crates/vthread", "crates/vthreads", "crates/vthread-stack", "crates/
 resolver = "3"
 
 [workspace.package]
-version = "0.0.1"
+version = "0.0.2-rc.1"
 edition = "2024"
 rust-version = "1.96"
 license = "Apache-2.0"
@@ -11,9 +11,9 @@ repository = "https://github.com/zsumz/vthread"
 authors = ["vthread contributors"]
 
 [workspace.dependencies]
-vthread = { path = "crates/vthread", version = "0.0.1" }
+vthread = { path = "crates/vthread", version = "=0.0.2-rc.1" }
 corosensei = { version = "=0.3.4", default-features = true }
-vthread-stack = { path = "crates/vthread-stack", version = "0.0.1" }
+vthread-stack = { path = "crates/vthread-stack", version = "=0.0.2-rc.1" }
 zio = { version = "=0.0.1-dev.1", default-features = false }
 socket2 = { version = "=0.6.5", default-features = false }
 libc = "=0.2.189"

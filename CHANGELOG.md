@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.0.2-rc.1 - 2026-09-01
+
+- Added opt-in bounded runtime evidence with sequenced task, stack, wait, timer, queue, scope,
+  and shutdown transitions.
+- Added exact reusable wait generations, reusable stack identities, and explicit evidence-loss
+  reporting for external qualification tools.
+- Added an opt-in generation-bound probe that exercises the real wake selector and proves stale
+  generations are rejected.
+
 ## 0.0.1 - 2026-09-01
 
 - Added carrier-affine stackful virtual threads with structured scope ownership.

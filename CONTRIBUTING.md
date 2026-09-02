@@ -18,4 +18,4 @@ affinity, structured ownership, bounded resources, and explicit blocking boundar
 
 Inspect every zrail grant and approve or deny it with a concrete reason. Use small PGP-signed
 conventional commits with the `zsumz <shawn@zsumz.com>` identity, subject only, and no
-coauthors. Keep the repository Apache-2.0 only and every package at version `0.0.1`.
+coauthors. Keep the repository Apache-2.0 only and every package on the shared workspace version.

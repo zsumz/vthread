@@ -86,7 +86,7 @@ dependencies = [
 
 [[package]]
 name = "vthread"
-version = "0.0.1"
+version = "0.0.2-rc.1"
 dependencies = [
  "libc",
  "socket2",
@@ -96,14 +96,14 @@ dependencies = [
 
 [[package]]
 name = "vthread-reference"
-version = "0.0.1"
+version = "0.0.2-rc.1"
 dependencies = [
  "vthread",
 ]
 
 [[package]]
 name = "vthread-stack"
-version = "0.0.1"
+version = "0.0.2-rc.1"
 dependencies = [
  "corosensei",
 ]

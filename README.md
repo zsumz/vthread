@@ -40,7 +40,7 @@ fn main() -> vthread::Result<()> {
 
 ## Requirements
 
-vthread 0.0.1 supports Linux x86_64 and macOS ARM64 with Rust 1.96 or newer. It
+vthread 0.0.2-rc.1 supports Linux x86_64 and macOS ARM64 with Rust 1.96 or newer. It
 requires unwinding panics; applications configured with `panic = "abort"` are rejected at
 compile time.
 
@@ -48,7 +48,7 @@ Install from crates.io:
 
 ```toml
 [dependencies]
-vthread = "0.0.1"
+vthread = "0.0.2-rc.1"
 ```
 
 ## What it provides
@@ -58,6 +58,7 @@ vthread = "0.0.1"
 - TCP, UDP, Unix sockets, DNS, and filesystem operations that suspend virtual threads.
 - A bounded native pool for blocking functions that cannot run on a carrier.
 - Named tasks, park reasons, runtime snapshots, stall policies, and explicit shutdown reports.
+- Opt-in bounded runtime evidence with exact wait generations and reusable stack identities.
 - Bounded task admission, queues, stacks, waiters, timers, readiness registrations, and native jobs.
 
 ## How it behaves
@@ -69,6 +70,14 @@ Cancellation is cooperative and is observed at checkpoints and vthread operation
 Standard-library blocking calls are not virtualized. Calling `std::fs`, `std::net`,
 `std::thread::sleep`, a native mutex, or unknown FFI from a virtual thread blocks its carrier.
 Use the matching vthread API or `vthread::blocking::run`.
+
+## Runtime evidence
+
+Qualification tools can enable the `runtime-evidence` feature for a bounded, typed event
+stream covering scopes, tasks, stacks, waits, timers, queues, and shutdown. Recording remains
+off until the builder receives `evidence_capacity`; a full or disconnected buffer reports the
+exact loss instead of blocking the runtime. The `qualification` feature also exposes a
+generation-bound wake probe for proving stale wakes are rejected by the real selector.
 
 ## Reference application
 
