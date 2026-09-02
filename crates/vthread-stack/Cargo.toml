@@ -10,6 +10,10 @@ authors.workspace = true
 readme = "README.md"
 publish = ["crates-io"]
 
+[features]
+default = []
+runtime-evidence = []
+
 [dependencies]
 corosensei.workspace = true
 
