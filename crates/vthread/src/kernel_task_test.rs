@@ -13,15 +13,12 @@ fn checkpointing_dispatch_keeps_its_task_slot_and_progress() {
     kernel.receive();
     let key = *kernel.ready.front().expect("ready task");
     let address = std::ptr::from_ref(kernel.tasks.get(key).expect("task slot"));
+    let carrier = &kernel.shared.carrier_progress[kernel.id.0];
 
     let task = kernel.tasks.get_mut(key).expect("task slot");
-    assert!(
-        task.execution
-            .progress
-            .mount(task.execution.record.progress())
-    );
+    assert!(task.execution.progress.mount(carrier, task.execution.id));
     assert!(matches!(
-        task.dispatch(&shared),
+        task.dispatch(&shared, carrier),
         Some(FiberState::Suspended(Suspension::YieldNow))
     ));
 
@@ -35,7 +32,7 @@ fn checkpointing_dispatch_keeps_its_task_slot_and_progress() {
         .expect("task slot")
         .execution
         .record
-        .snapshot();
+        .snapshot(&[carrier.mounted()]);
     assert_eq!(
         snapshot.last_suspension,
         Some(crate::SuspensionReason::YieldNow)

@@ -16,7 +16,12 @@ pub struct TaskId(u64);
 
 impl TaskId {
     pub(crate) fn new(value: u64) -> Self {
+        assert_ne!(value, 0, "task identity zero is reserved");
         Self(value)
+    }
+
+    pub(crate) fn get(self) -> u64 {
+        self.0
     }
 }
 
@@ -211,8 +216,9 @@ impl TaskCell {
         self.completion.subscribe(Arc::clone(self), wait)
     }
 
-    pub(crate) fn snapshot(&self) -> TaskSnapshot {
+    pub(crate) fn snapshot(&self, mounted: &[Option<TaskId>]) -> TaskSnapshot {
         let record = self.lock();
+        let running = mounted.get(record.carrier.0).copied().flatten() == Some(record.id);
         TaskSnapshot {
             id: record.id,
             name: record.name.to_string(),
@@ -223,7 +229,7 @@ impl TaskCell {
             parent: record.parent,
             cancellation_requested: record.options.cancellation.is_cancelled(),
             failure: record.failure,
-            status: self.progress.status(record.status),
+            status: self.progress.status(record.status, running),
             mounts: self.progress.mounts(),
             yields: self.progress.yields(),
             parks: record.parks,

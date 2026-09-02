@@ -230,6 +230,7 @@ impl Kernel {
             && self.ready.is_empty()
             && self.parked.is_empty()
             && self.tasks.is_empty()
+            && self.shared.carrier_progress[self.id.0].mounted().is_none()
             && self.local.pending_starts() == 0
             && self.inbox.pending() == 0
     }

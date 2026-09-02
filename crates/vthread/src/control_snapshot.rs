@@ -36,6 +36,11 @@ impl Shared {
             .get()
             .map(|services| services.snapshot())
             .unwrap_or_default();
+        let mounted = self
+            .carrier_progress
+            .iter()
+            .map(crate::task_progress::CarrierProgress::mounted)
+            .collect::<Vec<_>>();
         for (carrier, inbox) in snapshot.carriers.iter_mut().zip(&self.inboxes) {
             carrier.pending_starts = inbox.pending();
             carrier.pending_wakes = inbox.hub.pending();
@@ -45,7 +50,10 @@ impl Shared {
             snapshot.stats.add(carrier.stats);
             snapshot.stacks.add(carrier.stacks);
         }
-        snapshot.tasks = records.iter().map(|record| record.snapshot()).collect();
+        snapshot.tasks = records
+            .iter()
+            .map(|record| record.snapshot(&mounted))
+            .collect();
         snapshot
     }
 }

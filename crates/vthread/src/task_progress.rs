@@ -1,16 +1,41 @@
 //! Bounded-lag scheduler progress for one carrier-affine task.
 
-use crate::{SuspensionReason, TaskStatus};
+use crate::{SuspensionReason, TaskId, TaskStatus};
 use std::cell::Cell;
-use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-const RUNNING: u8 = 1 << 0;
-const YIELDED: u8 = 1 << 1;
 const COUNTER_BATCH: u64 = 64;
+
+/// The mounted task identity stays hot on its single writer carrier.
+#[repr(align(64))]
+pub(crate) struct CarrierProgress {
+    mounted: AtomicU64,
+}
+
+impl CarrierProgress {
+    pub(crate) fn new() -> Self {
+        Self {
+            mounted: AtomicU64::new(0),
+        }
+    }
+
+    fn mount(&self, task: TaskId) {
+        self.mounted.store(task.get(), Ordering::Release);
+    }
+
+    fn unmount(&self) {
+        self.mounted.store(0, Ordering::Release);
+    }
+
+    pub(crate) fn mounted(&self) -> Option<TaskId> {
+        let task = self.mounted.load(Ordering::Acquire);
+        (task != 0).then(|| TaskId::new(task))
+    }
+}
 
 #[repr(align(64))]
 pub(crate) struct TaskProgress {
-    state: AtomicU8,
+    yielded: AtomicBool,
     mounts: AtomicU64,
     yields: AtomicU64,
 }
@@ -18,28 +43,18 @@ pub(crate) struct TaskProgress {
 impl TaskProgress {
     pub(crate) fn new() -> Self {
         Self {
-            state: AtomicU8::new(0),
+            yielded: AtomicBool::new(false),
             mounts: AtomicU64::new(0),
             yields: AtomicU64::new(0),
         }
     }
 
-    fn mount(&self, yielded: bool) {
-        let yielded = if yielded { YIELDED } else { 0 };
-        self.state.store(RUNNING | yielded, Ordering::Release);
-    }
-
     fn yield_now(&self) {
-        self.state.store(YIELDED, Ordering::Release);
-    }
-
-    fn unmount(&self, yielded: bool) {
-        self.state
-            .store(if yielded { YIELDED } else { 0 }, Ordering::Release);
+        self.yielded.store(true, Ordering::Release);
     }
 
     fn park(&self) {
-        self.state.store(0, Ordering::Release);
+        self.yielded.store(false, Ordering::Release);
     }
 
     fn publish(&self, mounts: u64, yields: u64) {
@@ -47,9 +62,9 @@ impl TaskProgress {
         self.yields.store(yields, Ordering::Relaxed);
     }
 
-    pub(crate) fn status(&self, retained: TaskStatus) -> TaskStatus {
+    pub(crate) fn status(&self, retained: TaskStatus, running: bool) -> TaskStatus {
         if matches!(retained, TaskStatus::Ready | TaskStatus::Running) {
-            if self.state.load(Ordering::Acquire) & RUNNING != 0 {
+            if running {
                 TaskStatus::Running
             } else {
                 TaskStatus::Ready
@@ -71,7 +86,7 @@ impl TaskProgress {
         &self,
         retained: Option<SuspensionReason>,
     ) -> Option<SuspensionReason> {
-        if self.state.load(Ordering::Acquire) & YIELDED != 0 {
+        if self.yielded.load(Ordering::Acquire) {
             Some(SuspensionReason::YieldNow)
         } else {
             retained
@@ -80,46 +95,68 @@ impl TaskProgress {
 }
 
 pub(crate) struct TaskProgressWriter {
-    mounts: Cell<u64>,
+    non_yield_mounts: Cell<u64>,
     yields: Cell<u64>,
     yielded: Cell<bool>,
+    started: Cell<bool>,
 }
 
 impl TaskProgressWriter {
     pub(crate) fn new() -> Self {
         Self {
-            mounts: Cell::new(0),
+            non_yield_mounts: Cell::new(0),
             yields: Cell::new(0),
             yielded: Cell::new(false),
+            started: Cell::new(false),
         }
     }
 
-    pub(crate) fn mount(&self, progress: &TaskProgress) -> bool {
-        let mounts = self.mounts.get();
-        self.mounts.set(mounts.wrapping_add(1));
-        progress.mount(self.yielded.get());
-        mounts == 0
+    pub(crate) fn mount(&self, carrier: &CarrierProgress, task: TaskId) -> bool {
+        let first = !self.started.get();
+        if first {
+            self.started.set(true);
+        }
+        carrier.mount(task);
+        first
     }
 
-    pub(crate) fn yield_now(&self, progress: &TaskProgress) {
+    pub(crate) fn yield_now(&self, progress: &TaskProgress, carrier: &CarrierProgress) {
         let yields = self.yields.get().wrapping_add(1);
         self.yields.set(yields);
-        self.yielded.set(true);
         if yields.is_multiple_of(COUNTER_BATCH) {
-            progress.publish(self.mounts.get(), yields);
+            progress.publish(self.mounts(), yields);
         }
-        progress.yield_now();
+        if !self.yielded.replace(true) {
+            progress.yield_now();
+        }
+        carrier.unmount();
     }
 
-    pub(crate) fn unmount(&self, progress: &TaskProgress) {
-        progress.publish(self.mounts.get(), self.yields.get());
-        progress.unmount(self.yielded.get());
+    pub(crate) fn unmount(&self, progress: &TaskProgress, carrier: &CarrierProgress, task: TaskId) {
+        if carrier.mounted() == Some(task) {
+            self.finish_non_yield_mount();
+        }
+        progress.publish(self.mounts(), self.yields.get());
+        carrier.unmount();
     }
 
-    pub(crate) fn park(&self, progress: &TaskProgress) {
-        progress.publish(self.mounts.get(), self.yields.get());
-        self.yielded.set(false);
-        progress.park();
+    pub(crate) fn park(&self, progress: &TaskProgress, carrier: &CarrierProgress) {
+        self.finish_non_yield_mount();
+        progress.publish(self.mounts(), self.yields.get());
+        if self.yielded.replace(false) {
+            progress.park();
+        }
+        carrier.unmount();
+    }
+
+    fn finish_non_yield_mount(&self) {
+        self.non_yield_mounts
+            .set(self.non_yield_mounts.get().wrapping_add(1));
+    }
+
+    fn mounts(&self) -> u64 {
+        // Every finished mount either yields or takes one non-yield transition.
+        self.yields.get().wrapping_add(self.non_yield_mounts.get())
     }
 }
 
