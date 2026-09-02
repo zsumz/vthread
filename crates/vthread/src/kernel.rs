@@ -69,7 +69,19 @@ impl Kernel {
     }
 
     pub(crate) fn receive(&mut self) {
-        while let Some(task) = self.local.starts.borrow_mut().pop_front() {
+        loop {
+            let task = self.local.starts.borrow_mut().pop_front();
+            let Some(task) = task else {
+                break;
+            };
+            #[cfg(feature = "runtime-evidence")]
+            self.shared
+                .record(crate::diagnostics::evidence::RuntimeEventKind::QueueDepth {
+                    carrier: self.id,
+                    queue: crate::diagnostics::evidence::QueueKind::LocalStart,
+                    depth: self.local.starts.borrow().len(),
+                    capacity: self.shared.config.carrier_queue_capacity(),
+                });
             self.shared
                 .transition(&task.record, |record| record.status = TaskStatus::Ready);
             self.ready.push_back(task);
@@ -79,7 +91,19 @@ impl Kernel {
             if self.pending.is_none() {
                 break;
             }
+            #[cfg(feature = "runtime-evidence")]
+            let acquired = self.local.stacks.borrow_mut().acquire_identified();
+            #[cfg(not(feature = "runtime-evidence"))]
             let acquired = self.local.stacks.borrow_mut().acquire();
+            #[cfg(feature = "runtime-evidence")]
+            let (stack_identity, stack) = match acquired {
+                Ok(stack) => stack,
+                Err(_) => {
+                    self.discard_pending(TaskFailure::StackAllocation);
+                    continue;
+                }
+            };
+            #[cfg(not(feature = "runtime-evidence"))]
             let stack = match acquired {
                 Ok(stack) => stack,
                 Err(_) => {
@@ -90,16 +114,29 @@ impl Kernel {
             let packet = self.pending.as_mut().expect("pending packet");
             let entry = packet.entry.take().expect("unstarted packet entry");
             let fiber = Fiber::new(stack, entry);
+            #[cfg(feature = "runtime-evidence")]
+            let task_fiber = TaskFiber::owned(fiber, stack_identity);
+            #[cfg(not(feature = "runtime-evidence"))]
+            let task_fiber = TaskFiber::owned(fiber);
+            #[cfg(feature = "runtime-evidence")]
+            let task_id = crate::signal::lock(&packet.record).id;
             self.shared
                 .transition(&packet.record, |record| record.status = TaskStatus::Ready);
             self.in_flight = Some(Task {
-                fiber: Some(TaskFiber::Owned(Some(fiber))),
+                fiber: Some(task_fiber),
                 data: Rc::new(TaskContext::new(
                     crate::signal::lock(&packet.record).options.clone(),
                     self.shared.config.task_local_capacity(),
                 )),
                 record: Arc::clone(&packet.record),
             });
+            #[cfg(feature = "runtime-evidence")]
+            self.shared.record(
+                crate::diagnostics::evidence::RuntimeEventKind::StackCheckedOut {
+                    task: task_id,
+                    stack: crate::diagnostics::evidence::StackId::new(self.id, stack_identity),
+                },
+            );
             self.pending = None;
             self.ready
                 .push_back(self.in_flight.take().expect("new task"));

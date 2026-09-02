@@ -139,3 +139,16 @@ fn native_capacity_and_worker_errors_identify_the_selected_field() {
     }
     assert_eq!(BlockingCapacity.to_string(), "blocking_capacity");
 }
+
+#[cfg(feature = "runtime-evidence")]
+#[test]
+fn evidence_capacity_must_be_positive() {
+    let error = Runtime::builder().evidence_capacity(0).build().unwrap_err();
+    assert!(matches!(
+        error,
+        Error::InvalidConfiguration {
+            field: crate::error::ConfigurationField::EvidenceCapacity,
+            ..
+        }
+    ));
+}

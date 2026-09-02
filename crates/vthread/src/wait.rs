@@ -1,10 +1,13 @@
 //! Modeled wait generations and scheduler registration.
 
+#[path = "wait_evidence.rs"]
+mod wait_evidence;
 #[path = "wait_select.rs"]
 mod wait_select;
 
 use crate::signal::lock;
 pub(crate) use crate::wait_hub::WaitHub;
+use wait_evidence::SelectionRejection;
 pub(crate) use wait_select::NotifyResult;
 
 use std::{
@@ -30,6 +33,21 @@ pub(crate) enum WakeCause {
     Closed,
 }
 
+#[cfg(feature = "runtime-evidence")]
+impl WakeCause {
+    pub(crate) fn evidence(self) -> crate::diagnostics::evidence::EvidenceWakeCause {
+        match self {
+            Self::Ready => crate::diagnostics::evidence::EvidenceWakeCause::Ready,
+            Self::TimedOut => crate::diagnostics::evidence::EvidenceWakeCause::TimedOut,
+            Self::Cancelled => crate::diagnostics::evidence::EvidenceWakeCause::Cancelled,
+            Self::InheritedCancelled => {
+                crate::diagnostics::evidence::EvidenceWakeCause::InheritedCancelled
+            }
+            Self::Closed => crate::diagnostics::evidence::EvidenceWakeCause::Closed,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct WakeNotice {
     pub(crate) token: ParkToken,
@@ -45,6 +63,10 @@ pub(crate) enum WaitBegin {
 #[derive(Clone)]
 pub(crate) struct WaitRegistration {
     pub(crate) state: Weak<Mutex<WaitState>>,
+    #[cfg(feature = "runtime-evidence")]
+    pub(crate) task: Option<TaskId>,
+    #[cfg(feature = "runtime-evidence")]
+    pub(crate) evidence: Option<crate::diagnostics::evidence::Emitter>,
 }
 
 #[derive(Clone)]
@@ -72,6 +94,8 @@ struct ActiveWait {
     token: ParkToken,
     task: TaskId,
     hub: Weak<WaitHub>,
+    #[cfg(feature = "runtime-evidence")]
+    evidence: Option<crate::diagnostics::evidence::Emitter>,
 }
 
 pub(crate) struct WaitState {
@@ -96,8 +120,16 @@ impl WaitCell {
     }
 
     pub(crate) fn registration(&self) -> WaitRegistration {
+        #[cfg(feature = "runtime-evidence")]
+        let state = lock(&self.state);
+        #[cfg(feature = "runtime-evidence")]
+        let active = state.active.as_ref();
         WaitRegistration {
             state: Arc::downgrade(&self.state),
+            #[cfg(feature = "runtime-evidence")]
+            task: active.map(|active| active.task),
+            #[cfg(feature = "runtime-evidence")]
+            evidence: active.and_then(|active| active.evidence.clone()),
         }
     }
 
@@ -150,13 +182,24 @@ impl WaitCell {
             token,
             task,
             hub: Arc::downgrade(hub),
+            #[cfg(feature = "runtime-evidence")]
+            evidence: hub.evidence(),
         });
         state.selected = None;
-        if let Err(error) = hub.register(token, Arc::downgrade(&self.state)) {
+        if let Err(error) = hub.register(token, Arc::downgrade(&self.state), task) {
             state.active = None;
             state.selected = None;
             return Err(error);
         }
+        #[cfg(feature = "runtime-evidence")]
+        hub.record(
+            crate::diagnostics::evidence::RuntimeEventKind::WaitPublished {
+                task,
+                wait: crate::diagnostics::evidence::WaitKey::from_token(token),
+                has_deadline: deadline.is_some(),
+            },
+        );
+        drop(state);
         Ok(WaitBegin::Park(ParkRequest::new(token, deadline)))
     }
 
@@ -172,11 +215,24 @@ impl WaitCell {
                 "resumed parker generation changed",
             ));
         }
+        #[cfg(feature = "runtime-evidence")]
+        let task = active.task;
+        #[cfg(feature = "runtime-evidence")]
+        let evidence = active.evidence.clone();
         let cause = state.selected.take().ok_or(Error::fault(
             crate::error::FaultComponent::Scheduler,
             "resumed parker has no selected wake",
         ))?;
         state.active = None;
+        drop(state);
+        #[cfg(feature = "runtime-evidence")]
+        if let Some(evidence) = evidence {
+            evidence.record(crate::diagnostics::evidence::RuntimeEventKind::Resumed {
+                task,
+                wait: crate::diagnostics::evidence::WaitKey::from_token(token),
+                cause: cause.evidence(),
+            });
+        }
         Ok(cause)
     }
 

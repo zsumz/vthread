@@ -30,7 +30,16 @@ impl Kernel {
             let parked = self.parked.remove(&token).expect("revoked park");
             parked.registration.abandon(token);
             self.inbox.hub.unregister(token);
-            self.timers.cancel(token);
+            if self.timers.cancel(token) {
+                #[cfg(feature = "runtime-evidence")]
+                self.shared.record(
+                    crate::diagnostics::evidence::RuntimeEventKind::TimerRetired {
+                        wait: crate::diagnostics::evidence::WaitKey::from_token(token),
+                        carrier: self.id,
+                        reason: crate::diagnostics::evidence::TimerRetirement::TaskReclaimed,
+                    },
+                );
+            }
             self.in_flight = Some(parked.task);
             self.discard_in_flight(TaskFailure::ScopeClosed);
         }

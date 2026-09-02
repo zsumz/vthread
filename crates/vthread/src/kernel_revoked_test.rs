@@ -15,17 +15,30 @@ fn revoked_parked_stacks_release_registrations_before_timer_processing() {
     let record = shared.reserve(scope, "revoked".into(), None).unwrap();
     let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
     vthread_stack::fiber_scope(1, |fibers| {
+        #[cfg(feature = "runtime-evidence")]
+        let (identity, stack) = kernel
+            .local
+            .stacks
+            .borrow_mut()
+            .acquire_identified()
+            .unwrap();
+        #[cfg(not(feature = "runtime-evidence"))]
+        let stack = kernel.local.stacks.borrow_mut().acquire().unwrap();
         let lease = fibers
-            .spawn(kernel.local.stacks.borrow_mut().acquire().unwrap(), || {
+            .spawn(stack, || {
                 let (parker, _waker) = crate::park_pair();
                 parker.park_timeout(Duration::from_secs(5)).unwrap();
             })
             .unwrap();
         let data = Rc::new(TaskContext::new(lock(&record).options.clone(), 1));
+        #[cfg(feature = "runtime-evidence")]
+        let task_fiber = TaskFiber::borrowed(lease, identity);
+        #[cfg(not(feature = "runtime-evidence"))]
+        let task_fiber = TaskFiber::borrowed(lease);
         kernel.ready.push_back(Task {
             record: Arc::clone(&record),
             data,
-            fiber: Some(TaskFiber::Borrowed(lease)),
+            fiber: Some(task_fiber),
         });
         kernel.tick().unwrap();
         assert_eq!(shared.snapshot().parked, 1);

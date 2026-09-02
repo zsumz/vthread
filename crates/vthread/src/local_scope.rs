@@ -41,6 +41,15 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
     ) -> Result<LocalJoinHandle<'scope, T>> {
         self.execution.data.check()?;
         self.options.check()?;
+        #[cfg(feature = "runtime-evidence")]
+        if let Err(error) = self.execution.local.check_capacity() {
+            self.execution.shared.record_admission_rejected(
+                crate::error::CapacityResource::CarrierQueue,
+                self.execution.shared.config.carrier_queue_capacity(),
+            );
+            return Err(error);
+        }
+        #[cfg(not(feature = "runtime-evidence"))]
         self.execution.local.check_capacity()?;
         let (root, parent, carrier) = {
             let record = lock(&self.execution.record);
@@ -51,7 +60,24 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
             name.into(),
             Some((carrier, parent, self.options.child(options.deadline))),
         )?;
+        #[cfg(feature = "runtime-evidence")]
+        let acquired = self
+            .execution
+            .local
+            .stacks
+            .borrow_mut()
+            .acquire_identified();
+        #[cfg(not(feature = "runtime-evidence"))]
         let acquired = self.execution.local.stacks.borrow_mut().acquire();
+        #[cfg(feature = "runtime-evidence")]
+        let (stack_identity, stack) = match acquired {
+            Ok(stack) => stack,
+            Err(error) => {
+                self.execution.shared.release_reservation(&record);
+                return Err(Error::StackAllocation(error));
+            }
+        };
+        #[cfg(not(feature = "runtime-evidence"))]
         let stack = match acquired {
             Ok(stack) => stack,
             Err(error) => {
@@ -69,6 +95,12 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
         }) {
             Ok(lease) => lease,
             Err(error) => {
+                #[cfg(feature = "runtime-evidence")]
+                self.execution
+                    .local
+                    .stacks
+                    .borrow_mut()
+                    .retire(stack_identity);
                 self.execution.shared.release_reservation(&record);
                 return Err(Error::StackAllocation(error));
             }
@@ -95,11 +127,33 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
             !(record.status.is_terminal() && record.outcome_observed)
         });
         self.records.borrow_mut().push(Arc::clone(&record));
+        #[cfg(feature = "runtime-evidence")]
+        let task_fiber = TaskFiber::borrowed(lease, stack_identity);
+        #[cfg(not(feature = "runtime-evidence"))]
+        let task_fiber = TaskFiber::borrowed(lease);
         self.execution.local.starts.borrow_mut().push_back(Task {
             record: Arc::clone(&record),
             data,
-            fiber: Some(TaskFiber::Borrowed(lease)),
+            fiber: Some(task_fiber),
         });
+        #[cfg(feature = "runtime-evidence")]
+        {
+            self.execution.shared.record_task_accepted(&record);
+            self.execution.shared.record(
+                crate::diagnostics::evidence::RuntimeEventKind::StackCheckedOut {
+                    task: lock(&record).id,
+                    stack: crate::diagnostics::evidence::StackId::new(carrier, stack_identity),
+                },
+            );
+            self.execution.shared.record(
+                crate::diagnostics::evidence::RuntimeEventKind::QueueDepth {
+                    carrier,
+                    queue: crate::diagnostics::evidence::QueueKind::LocalStart,
+                    depth: self.execution.local.starts.borrow().len(),
+                    capacity: self.execution.shared.config.carrier_queue_capacity(),
+                },
+            );
+        }
         Ok(LocalJoinHandle {
             record,
             cell,

@@ -70,6 +70,11 @@ impl Shared {
         }
         if state.records.len() >= self.config.max_vthreads() {
             state.rejected += 1;
+            #[cfg(feature = "runtime-evidence")]
+            self.record_admission_rejected(
+                crate::error::CapacityResource::Tasks,
+                self.config.max_vthreads(),
+            );
             return Err(Error::Capacity {
                 resource: crate::error::CapacityResource::Tasks,
                 limit: self.config.max_vthreads(),
@@ -88,6 +93,11 @@ impl Shared {
         };
         let Some(owner) = owner else {
             state.rejected += 1;
+            #[cfg(feature = "runtime-evidence")]
+            self.record_admission_rejected(
+                crate::error::CapacityResource::CarrierQueue,
+                self.config.carrier_queue_capacity(),
+            );
             return Err(Error::Capacity {
                 resource: crate::error::CapacityResource::CarrierQueue,
                 limit: self.config.carrier_queue_capacity(),
@@ -185,14 +195,20 @@ impl Shared {
         if let Err(packet) = self.inboxes[owner].push(packet) {
             self.release_reservation(&record);
             drop(packet);
-            return Err(if self.inboxes[owner].stopped() {
+            let error = if self.inboxes[owner].stopped() {
                 Error::RuntimeStopped
             } else {
+                #[cfg(feature = "runtime-evidence")]
+                self.record_admission_rejected(
+                    crate::error::CapacityResource::CarrierQueue,
+                    self.config.carrier_queue_capacity(),
+                );
                 Error::Capacity {
                     resource: crate::error::CapacityResource::CarrierQueue,
                     limit: self.config.carrier_queue_capacity(),
                 }
-            });
+            };
+            return Err(error);
         }
         Ok(Spawned {
             id,

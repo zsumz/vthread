@@ -13,6 +13,14 @@ publish = ["crates-io"]
 keywords = ["virtual-thread", "runtime", "coroutine", "concurrency"]
 categories = ["asynchronous", "concurrency"]
 
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+default = []
+runtime-evidence = ["vthread/runtime-evidence"]
+qualification = ["vthread/qualification"]
+
 [dependencies]
 vthread = { path = "../vthread", version = "=0.0.1" }
 

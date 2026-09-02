@@ -2,6 +2,11 @@
 
 #[path = "control_admission.rs"]
 mod control_admission;
+#[path = "control_completion.rs"]
+mod control_completion;
+#[cfg(feature = "runtime-evidence")]
+#[path = "control_evidence.rs"]
+mod control_evidence;
 #[path = "control_scope.rs"]
 mod control_scope;
 #[path = "control_snapshot.rs"]
@@ -15,11 +20,16 @@ use std::{
 };
 
 use crate::{
-    CarrierId, CarrierSnapshot, CarrierStatus, RuntimeConfig, TaskFailure, TaskId, TaskStatus,
+    CarrierId, CarrierSnapshot, CarrierStatus, RuntimeConfig, TaskId,
     inbox::Inbox,
     signal::{Signal, lock},
     task::{SharedTaskRecord, TaskRecord},
 };
+
+#[cfg(feature = "runtime-evidence")]
+type EvidenceRecorder = crate::diagnostics::evidence::Recorder;
+#[cfg(not(feature = "runtime-evidence"))]
+type EvidenceRecorder = ();
 
 pub(crate) struct Shared {
     pub(crate) resources: Arc<crate::lifecycle_resources::CoordinatorResources>,
@@ -35,6 +45,8 @@ pub(crate) struct Shared {
     pub(crate) services: OnceLock<crate::services::Services>,
     pub(crate) config: RuntimeConfig,
     pub(crate) cancellation: crate::CancellationToken,
+    #[cfg(feature = "runtime-evidence")]
+    pub(crate) evidence: Option<crate::diagnostics::evidence::Recorder>,
     pub(crate) inboxes: Vec<Arc<Inbox>>,
     pub(crate) changed: Signal,
     pub(crate) failures: Mutex<crate::ThreadFailures>,
@@ -72,9 +84,53 @@ struct State {
 
 impl Shared {
     pub(crate) fn new(config: RuntimeConfig) -> Self {
+        Self::construct(config, None)
+    }
+
+    #[cfg(feature = "runtime-evidence")]
+    pub(crate) fn with_evidence(
+        config: RuntimeConfig,
+        evidence: crate::diagnostics::evidence::Recorder,
+    ) -> Self {
+        Self::construct(config, Some(evidence))
+    }
+
+    fn construct(config: RuntimeConfig, evidence: Option<EvidenceRecorder>) -> Self {
+        #[cfg(not(feature = "runtime-evidence"))]
+        let _ = evidence;
+        let id = crate::identity::RuntimeId::next();
+        #[cfg(feature = "runtime-evidence")]
+        let inboxes = (0..config.carriers())
+            .map(|index| {
+                let inbox = evidence.as_ref().map_or_else(
+                    || Inbox::new(config.carrier_queue_capacity(), config.max_vthreads()),
+                    |recorder| {
+                        Inbox::with_evidence(
+                            config.carrier_queue_capacity(),
+                            config.max_vthreads(),
+                            crate::diagnostics::evidence::Emitter::new(
+                                id,
+                                CarrierId(index),
+                                recorder.clone(),
+                            ),
+                        )
+                    },
+                );
+                Arc::new(inbox)
+            })
+            .collect();
+        #[cfg(not(feature = "runtime-evidence"))]
+        let inboxes = (0..config.carriers())
+            .map(|_| {
+                Arc::new(Inbox::new(
+                    config.carrier_queue_capacity(),
+                    config.max_vthreads(),
+                ))
+            })
+            .collect();
         Self {
             resources: Arc::default(),
-            id: crate::identity::RuntimeId::next(),
+            id,
             #[cfg(test)]
             fail_coordinator_start: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
@@ -86,6 +142,8 @@ impl Shared {
             services: OnceLock::new(),
             config,
             cancellation: crate::CancellationToken::root(config.max_vthreads()),
+            #[cfg(feature = "runtime-evidence")]
+            evidence,
             changed: Signal::default(),
             failures: Mutex::new(crate::ThreadFailures::default()),
             last_scope_failure: Mutex::new(None),
@@ -99,14 +157,7 @@ impl Shared {
             scope_drain_hook: Mutex::new(None),
             #[cfg(test)]
             snapshot_observe_hook: Mutex::new(None),
-            inboxes: (0..config.carriers())
-                .map(|_| {
-                    Arc::new(Inbox::new(
-                        config.carrier_queue_capacity(),
-                        config.max_vthreads(),
-                    ))
-                })
-                .collect(),
+            inboxes,
             state: Mutex::new(State {
                 shutdown_phase: crate::ShutdownPhase::NotRequested,
                 last_stall: None,
@@ -137,7 +188,16 @@ impl Shared {
         let tokens = {
             let mut state = lock(&self.state);
             state.accepting = false;
+            let _advanced = state.shutdown_phase < crate::ShutdownPhase::Requested;
             state.shutdown_phase = state.shutdown_phase.max(crate::ShutdownPhase::Requested);
+            #[cfg(feature = "runtime-evidence")]
+            if _advanced {
+                self.record(
+                    crate::diagnostics::evidence::RuntimeEventKind::ShutdownAdvanced {
+                        phase: crate::ShutdownPhase::Requested,
+                    },
+                );
+            }
             state
                 .scopes
                 .values()
@@ -178,7 +238,12 @@ impl Shared {
 
     pub(crate) fn advance_shutdown(&self, phase: crate::ShutdownPhase) {
         let mut state = lock(&self.state);
+        let _advanced = state.shutdown_phase < phase;
         state.shutdown_phase = state.shutdown_phase.max(phase);
+        #[cfg(feature = "runtime-evidence")]
+        if _advanced {
+            self.record(crate::diagnostics::evidence::RuntimeEventKind::ShutdownAdvanced { phase });
+        }
         drop(state);
         self.changed.notify();
     }
@@ -202,38 +267,6 @@ impl Shared {
         }
         drop(record);
         drop(state);
-        self.changed.notify();
-    }
-
-    pub(crate) fn complete(&self, record: &SharedTaskRecord, failure: Option<TaskFailure>) {
-        let mut state = lock(&self.state);
-        let mut record = lock(record);
-        if record.status.is_terminal() {
-            return;
-        }
-        record.failure = failure;
-        record.deadline = None;
-        record.status = if failure.is_some() {
-            TaskStatus::Aborted
-        } else if record.panic.is_some() {
-            TaskStatus::Panicked
-        } else {
-            TaskStatus::Completed
-        };
-        if let Some(scope) = state.scopes.get_mut(&record.scope) {
-            scope.activity = scope.activity.wrapping_add(1);
-            match record.status {
-                TaskStatus::Aborted => scope.aborted += 1,
-                TaskStatus::Panicked => scope.panicked += 1,
-                _ => scope.completed += 1,
-            }
-        }
-        let completion = Arc::clone(&record.completion);
-        state.active -= 1;
-        state.loads[record.carrier.0] -= 1;
-        drop(record);
-        drop(state);
-        completion.complete();
         self.changed.notify();
     }
 }

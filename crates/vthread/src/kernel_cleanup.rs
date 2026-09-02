@@ -61,7 +61,16 @@ impl Kernel {
             let parked = self.parked.remove(&token).expect("owned park");
             parked.registration.abandon(token);
             self.inbox.hub.unregister(token);
-            self.timers.cancel(token);
+            if self.timers.cancel(token) {
+                #[cfg(feature = "runtime-evidence")]
+                self.shared.record(
+                    crate::diagnostics::evidence::RuntimeEventKind::TimerRetired {
+                        wait: crate::diagnostics::evidence::WaitKey::from_token(token),
+                        carrier: self.id,
+                        reason: crate::diagnostics::evidence::TimerRetirement::TaskReclaimed,
+                    },
+                );
+            }
             self.in_flight = Some(parked.task);
             self.discard_in_flight(reason);
         }
@@ -92,6 +101,10 @@ impl Kernel {
         let task = self.in_flight.as_mut().expect("owned task");
         let record = Arc::clone(&task.record);
         let fiber = task.fiber.take();
+        #[cfg(feature = "runtime-evidence")]
+        let stack = fiber
+            .as_ref()
+            .map(crate::task_fiber::TaskFiber::stack_identity);
         {
             // Destructors still belong to this task and must not block its carrier
             // through scope entry, joins, or explicit runtime shutdown.
@@ -101,6 +114,17 @@ impl Kernel {
                 let panic = crate::PanicReport::capture(payload);
                 lock(&record).panic.get_or_insert(panic);
             }
+        }
+        #[cfg(feature = "runtime-evidence")]
+        if let Some(identity) = stack {
+            self.local.stacks.borrow_mut().retire(identity);
+            self.shared.record(
+                crate::diagnostics::evidence::RuntimeEventKind::StackReleased {
+                    task: lock(&record).id,
+                    stack: crate::diagnostics::evidence::StackId::new(self.id, identity),
+                    disposition: crate::diagnostics::evidence::StackDisposition::Discarded,
+                },
+            );
         }
         self.in_flight = None;
         self.stats.aborted += 1;

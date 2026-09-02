@@ -31,7 +31,8 @@ fn capacity_is_reserved_before_parking_and_released_on_rollback() {
 fn duplicates_and_stale_generations_cannot_fill_the_inbox() {
     let hub = WaitHub::new(1, Arc::default());
     let token = ParkToken::new(1, 2);
-    hub.register(token, Weak::new()).expect("reserve");
+    hub.register(token, Weak::new(), crate::TaskId::new(1))
+        .expect("reserve");
     let notice = WakeNotice {
         token,
         task: TaskId::new(1),

@@ -12,12 +12,25 @@ impl Runtime {
         if crate::worker_context::is_managed() {
             return Err(Error::InsideManagedWorker);
         }
+        #[cfg(feature = "runtime-evidence")]
+        let (evidence, stream) = config.evidence_capacity().map_or((None, None), |capacity| {
+            let (recorder, stream) = crate::diagnostics::evidence::bounded(capacity);
+            (Some(recorder), Some(stream))
+        });
+        #[cfg(feature = "runtime-evidence")]
+        let shared = Arc::new(match evidence {
+            Some(evidence) => Shared::with_evidence(config, evidence),
+            None => Shared::new(config),
+        });
+        #[cfg(not(feature = "runtime-evidence"))]
         let shared = Arc::new(Shared::new(config));
         let shutdown_driver = runtime_lifecycle::ShutdownDriver::new(&shared)?;
         let runtime = Self {
             config,
             shared,
             shutdown_driver,
+            #[cfg(feature = "runtime-evidence")]
+            evidence: std::sync::Mutex::new(stream),
         };
         let initialized = runtime
             .initialize()

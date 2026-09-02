@@ -12,6 +12,9 @@
 //! } }
 //! ```
 
+#[cfg(feature = "runtime-evidence")]
+pub mod evidence;
+
 pub use crate::dump::DumpReport;
 pub use crate::identity::{RuntimeId, ScopeId};
 pub use crate::services::ServiceSnapshot;

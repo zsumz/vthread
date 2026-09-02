@@ -26,6 +26,8 @@ pub struct Runtime {
     config: RuntimeConfig,
     pub(crate) shared: Arc<Shared>,
     shutdown_driver: runtime_lifecycle::ShutdownDriver,
+    #[cfg(feature = "runtime-evidence")]
+    evidence: std::sync::Mutex<Option<crate::diagnostics::evidence::EvidenceStream>>,
 }
 
 impl Runtime {
@@ -58,6 +60,13 @@ impl Runtime {
     /// service observation does not hold the global admission/completion lock.
     pub fn snapshot(&self) -> RuntimeSnapshot {
         self.shared.snapshot()
+    }
+
+    /// Takes the single-consumer evidence stream when recording was configured.
+    /// Subsequent calls return `None`.
+    #[cfg(feature = "runtime-evidence")]
+    pub fn take_evidence(&self) -> Option<crate::diagnostics::evidence::EvidenceStream> {
+        crate::signal::lock(&self.evidence).take()
     }
 
     #[cfg(test)]

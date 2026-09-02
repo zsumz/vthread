@@ -45,7 +45,7 @@ fn duplicate_registration_does_not_replace_the_original_wait() {
     let token = parked(&cell, &hub);
 
     let duplicate = hub
-        .register(token, Weak::new())
+        .register(token, Weak::new(), TaskId::new(1))
         .expect_err("duplicate token must be rejected");
     assert!(matches!(duplicate, Error::Fault(_)));
 

@@ -27,7 +27,8 @@ fn a_pending_wake_for_another_scope_does_not_mask_a_stall() {
     let other = shared.reserve(other_scope, "other".into(), None).unwrap();
     let token = vthread_stack::ParkToken::new(100, 1);
     let hub = &shared.inboxes[0].hub;
-    hub.register(token, Weak::new()).unwrap();
+    hub.register(token, Weak::new(), crate::TaskId::new(100))
+        .unwrap();
     hub.enqueue(WakeNotice {
         token,
         task: lock(&other).id,

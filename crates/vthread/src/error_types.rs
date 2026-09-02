@@ -48,6 +48,8 @@ pub enum ConfigurationField {
     StackSize,
     /// Retained stacks per carrier.
     StackCacheCapacity,
+    /// Undrained runtime evidence records.
+    EvidenceCapacity,
     /// Operator-visible task name.
     TaskName,
     /// Maximum resolved address count.
@@ -75,6 +77,7 @@ impl fmt::Display for ConfigurationField {
             Self::CarrierQueueCapacity => "carrier_queue_capacity",
             Self::StackSize => "stack_size",
             Self::StackCacheCapacity => "stack_cache_capacity",
+            Self::EvidenceCapacity => "evidence_capacity",
             Self::TaskName => "task name",
             Self::AddressLimit => "address_limit",
             Self::ChannelCapacity => "channel capacity",

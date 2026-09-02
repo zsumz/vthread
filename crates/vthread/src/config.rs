@@ -22,6 +22,8 @@ pub struct RuntimeConfig {
     task_local_capacity: usize,
     carrier_queue_capacity: usize,
     stall_policy: StallPolicy,
+    #[cfg(feature = "runtime-evidence")]
+    evidence_capacity: Option<usize>,
 }
 
 impl RuntimeConfig {
@@ -75,6 +77,12 @@ impl RuntimeConfig {
     pub fn stack_cache_capacity(self) -> usize {
         self.stack_cache_capacity
     }
+
+    /// Maximum undrained evidence events, or `None` when recording is disabled.
+    #[cfg(feature = "runtime-evidence")]
+    pub fn evidence_capacity(self) -> Option<usize> {
+        self.evidence_capacity
+    }
 }
 
 impl Default for RuntimeConfig {
@@ -91,6 +99,8 @@ impl Default for RuntimeConfig {
             task_local_capacity: 64,
             carrier_queue_capacity: 256,
             stall_policy: StallPolicy::Disabled,
+            #[cfg(feature = "runtime-evidence")]
+            evidence_capacity: None,
         }
     }
 }
@@ -177,6 +187,13 @@ impl RuntimeBuilder {
         self
     }
 
+    /// Enables a bounded, nonblocking runtime evidence stream.
+    #[cfg(feature = "runtime-evidence")]
+    pub fn evidence_capacity(mut self, capacity: usize) -> Self {
+        self.config.evidence_capacity = Some(capacity);
+        self
+    }
+
     /// Validates the configuration and constructs a runtime.
     /// Native/OS initialization, including readiness startup, has no elapsed-time bound.
     /// Use a process-level startup watchdog where bounded service startup is required.
@@ -253,6 +270,13 @@ impl RuntimeBuilder {
             return Err(Error::invalid_configuration(
                 crate::error::ConfigurationField::StackCacheCapacity,
                 "cannot exceed max_vthreads",
+            ));
+        }
+        #[cfg(feature = "runtime-evidence")]
+        if self.config.evidence_capacity == Some(0) {
+            return Err(Error::invalid_configuration(
+                crate::error::ConfigurationField::EvidenceCapacity,
+                "must be greater than zero",
             ));
         }
         Runtime::from_config(self.config)

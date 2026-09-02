@@ -55,6 +55,11 @@ impl Shared {
             return Err(Error::RootScopeActive);
         }
         if state.scopes.len() >= self.config.max_owned_scopes() {
+            #[cfg(feature = "runtime-evidence")]
+            self.record_admission_rejected(
+                crate::error::CapacityResource::Scopes,
+                self.config.max_owned_scopes(),
+            );
             return Err(Error::Capacity {
                 resource: crate::error::CapacityResource::Scopes,
                 limit: self.config.max_owned_scopes(),
@@ -84,6 +89,15 @@ impl Shared {
                 aborted: 0,
             },
         );
+        #[cfg(feature = "runtime-evidence")]
+        self.record(
+            crate::diagnostics::evidence::RuntimeEventKind::ScopeOpened {
+                scope: crate::diagnostics::ScopeId::new(id),
+                parent: None,
+                supervised,
+            },
+        );
+        drop(state);
         Ok(id)
     }
 
@@ -129,6 +143,13 @@ impl Shared {
         if state.active_scope == Some(scope) {
             state.active_scope = None;
         }
+        #[cfg(feature = "runtime-evidence")]
+        self.record(
+            crate::diagnostics::evidence::RuntimeEventKind::ScopeClosed {
+                scope: crate::diagnostics::ScopeId::new(scope),
+            },
+        );
+        drop(state);
         for inbox in &self.inboxes {
             inbox.clear_abort(scope);
         }
