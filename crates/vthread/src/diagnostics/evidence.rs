@@ -6,19 +6,15 @@
 
 mod emitter;
 mod event;
+mod recorder;
+mod stream;
 pub(crate) use emitter::Emitter;
 pub use event::{
     EventSequence, EvidenceWakeCause, QueueKind, RuntimeEvent, RuntimeEventKind, StackDisposition,
     StackId, TaskOutcome, TimerRetirement, WaitKey, WakeOrigin, WakeRejection,
 };
-
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
-    mpsc::{Receiver, SyncSender, TrySendError},
-};
-
-const NO_DROPPED_SEQUENCE: u64 = u64::MAX;
+pub(crate) use recorder::{Recorder, bounded};
+pub use stream::{EvidenceRecvError, EvidenceStatus, EvidenceStream};
 
 /// Evidence schema emitted by this release candidate.
 pub const SCHEMA_VERSION: u16 = 1;
@@ -99,188 +95,6 @@ impl std::ops::BitOrAssign for EvidenceCapabilities {
     fn bitor_assign(&mut self, rhs: Self) {
         self.0 |= rhs.0;
     }
-}
-
-/// Weakly consistent evidence-buffer counters.
-#[derive(
-    ::core::clone::Clone,
-    ::core::marker::Copy,
-    ::core::fmt::Debug,
-    ::core::cmp::PartialEq,
-    ::core::cmp::Eq,
-)]
-pub struct EvidenceStatus {
-    capacity: usize,
-    pending: usize,
-    recorded: u64,
-    dropped: u64,
-    first_dropped: Option<EventSequence>,
-    runtime_terminal: bool,
-}
-
-impl EvidenceStatus {
-    /// Configured maximum number of undrained events.
-    pub fn capacity(self) -> usize {
-        self.capacity
-    }
-
-    /// Events currently waiting for the consumer.
-    pub fn pending(self) -> usize {
-        self.pending
-    }
-
-    /// Events successfully admitted to the evidence buffer.
-    pub fn recorded(self) -> u64 {
-        self.recorded
-    }
-
-    /// Events rejected because the buffer was full or disconnected.
-    pub fn dropped(self) -> u64 {
-        self.dropped
-    }
-
-    /// First sequence that could not be recorded.
-    pub fn first_dropped(self) -> Option<EventSequence> {
-        self.first_dropped
-    }
-
-    /// Whether runtime shutdown reached a terminal phase.
-    pub fn runtime_terminal(self) -> bool {
-        self.runtime_terminal
-    }
-
-    /// Whether the evidence admitted so far has no known loss.
-    pub fn is_complete(self) -> bool {
-        self.dropped == 0
-    }
-}
-
-struct Status {
-    capacity: usize,
-    next_sequence: AtomicU64,
-    pending: AtomicUsize,
-    recorded: AtomicU64,
-    dropped: AtomicU64,
-    first_dropped: AtomicU64,
-    runtime_terminal: AtomicBool,
-}
-
-impl Status {
-    fn snapshot(&self) -> EvidenceStatus {
-        let first = self.first_dropped.load(Ordering::Acquire);
-        EvidenceStatus {
-            capacity: self.capacity,
-            pending: self.pending.load(Ordering::Acquire),
-            recorded: self.recorded.load(Ordering::Acquire),
-            dropped: self.dropped.load(Ordering::Acquire),
-            first_dropped: (first != NO_DROPPED_SEQUENCE).then(|| EventSequence::new(first)),
-            runtime_terminal: self.runtime_terminal.load(Ordering::Acquire),
-        }
-    }
-
-    fn dropped(&self, sequence: u64) {
-        self.dropped.fetch_add(1, Ordering::Relaxed);
-        let _ = self.first_dropped.compare_exchange(
-            NO_DROPPED_SEQUENCE,
-            sequence,
-            Ordering::Release,
-            Ordering::Relaxed,
-        );
-    }
-}
-
-/// Single-consumer handle for draining sequenced runtime evidence.
-pub struct EvidenceStream {
-    receiver: Receiver<RuntimeEvent>,
-    status: Arc<Status>,
-}
-
-impl EvidenceStream {
-    /// Returns the independent evidence schema version.
-    pub fn schema_version(&self) -> u16 {
-        SCHEMA_VERSION
-    }
-
-    /// Returns the exact evidence capabilities compiled into this stream.
-    pub fn capabilities(&self) -> EvidenceCapabilities {
-        EvidenceCapabilities::runtime()
-    }
-
-    /// Drains the events currently available and orders this batch by sequence.
-    /// Consumers merging concurrent batches must continue to use sequence values.
-    pub fn drain(&mut self) -> Vec<RuntimeEvent> {
-        let mut events = self.receiver.try_iter().collect::<Vec<_>>();
-        self.status
-            .pending
-            .fetch_sub(events.len(), Ordering::AcqRel);
-        events.sort_by_key(|event| event.sequence());
-        events
-    }
-
-    /// Returns current buffer and loss counters.
-    pub fn status(&self) -> EvidenceStatus {
-        self.status.snapshot()
-    }
-}
-
-#[derive(::core::clone::Clone)]
-pub(crate) struct Recorder {
-    sender: SyncSender<RuntimeEvent>,
-    status: Arc<Status>,
-}
-
-impl Recorder {
-    pub(crate) fn record(&self, runtime: crate::diagnostics::RuntimeId, kind: RuntimeEventKind) {
-        let sequence = self
-            .status
-            .next_sequence
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-                value.checked_add(1)
-            })
-            .expect("runtime evidence sequence exhausted");
-        let terminal = core::matches!(
-            kind,
-            RuntimeEventKind::ShutdownAdvanced {
-                phase: crate::ShutdownPhase::Complete | crate::ShutdownPhase::Failed
-            }
-        );
-        self.status.pending.fetch_add(1, Ordering::AcqRel);
-        match self
-            .sender
-            .try_send(RuntimeEvent::new(sequence, runtime, kind))
-        {
-            Ok(()) => {
-                self.status.recorded.fetch_add(1, Ordering::Relaxed);
-                if terminal {
-                    self.status.runtime_terminal.store(true, Ordering::Release);
-                }
-            }
-            Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
-                self.status.pending.fetch_sub(1, Ordering::AcqRel);
-                self.status.dropped(sequence);
-            }
-        }
-    }
-}
-
-pub(crate) fn bounded(capacity: usize) -> (Recorder, EvidenceStream) {
-    let (sender, receiver) = std::sync::mpsc::sync_channel(capacity);
-    let status = Arc::new(Status {
-        capacity,
-        next_sequence: AtomicU64::new(0),
-        pending: AtomicUsize::new(0),
-        recorded: AtomicU64::new(0),
-        dropped: AtomicU64::new(0),
-        first_dropped: AtomicU64::new(NO_DROPPED_SEQUENCE),
-        runtime_terminal: AtomicBool::new(false),
-    });
-    (
-        Recorder {
-            sender,
-            status: Arc::clone(&status),
-        },
-        EvidenceStream { receiver, status },
-    )
 }
 
 #[cfg(test)]
