@@ -5,6 +5,12 @@ use crate::{SuspensionReason, TaskId, TaskStatus, WakeReason};
 
 #[test]
 fn snapshots_copy_operator_visible_state() {
+    let progress = Arc::new(crate::task_progress::TaskProgress::new());
+    assert!(progress.mount());
+    progress.yield_now();
+    assert!(!progress.mount());
+    progress.unmount();
+    progress.clear_yield();
     let record = TaskRecord {
         id: TaskId::new(3),
         scope: 1,
@@ -16,8 +22,7 @@ fn snapshots_copy_operator_visible_state() {
         failure: None,
         name: Arc::from("query"),
         status: TaskStatus::Suspended(SuspensionReason::Park),
-        mounts: 2,
-        yields: 1,
+        progress,
         parks: 1,
         last_suspension: Some(SuspensionReason::Park),
         last_wake: Some(WakeReason::Ready),

@@ -6,7 +6,9 @@ use std::{
     time::Instant,
 };
 
-use crate::{PanicReport, completion::Completion, options::TaskOptions};
+use crate::{
+    PanicReport, completion::Completion, options::TaskOptions, task_progress::TaskProgress,
+};
 
 /// Stable identity assigned by one runtime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -183,8 +185,7 @@ pub(crate) struct TaskRecord {
     pub(crate) deadline: Option<Instant>,
     pub(crate) failure: Option<TaskFailure>,
     pub(crate) status: TaskStatus,
-    pub(crate) mounts: u64,
-    pub(crate) yields: u64,
+    pub(crate) progress: Arc<TaskProgress>,
     pub(crate) parks: u64,
     pub(crate) last_suspension: Option<SuspensionReason>,
     pub(crate) last_wake: Option<WakeReason>,
@@ -204,11 +205,11 @@ impl TaskRecord {
             parent: self.parent,
             cancellation_requested: self.options.cancellation.is_cancelled(),
             failure: self.failure,
-            status: self.status,
-            mounts: self.mounts,
-            yields: self.yields,
+            status: self.progress.status(self.status),
+            mounts: self.progress.mounts(),
+            yields: self.progress.yields(),
             parks: self.parks,
-            last_suspension: self.last_suspension,
+            last_suspension: self.progress.last_suspension(self.last_suspension),
             last_wake: self.last_wake,
             outcome_observed: self.outcome_observed,
         }

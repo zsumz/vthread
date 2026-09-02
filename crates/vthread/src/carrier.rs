@@ -64,16 +64,22 @@ fn record_failure(shared: &Shared, panic: crate::PanicReport) {
 }
 
 fn drive(kernel: &mut Kernel) -> Result<()> {
+    let mut handled = None;
     loop {
         let observed = kernel.inbox.signal.version();
-        if kernel.inbox.stopped() {
-            kernel.abort(None, TaskFailure::RuntimeStopped);
-            return Ok(());
+        if handled != Some(observed) {
+            if kernel.inbox.stopped() {
+                kernel.abort(None, TaskFailure::RuntimeStopped);
+                return Ok(());
+            }
+            while let Some((scope, reason)) = kernel.inbox.take_abort() {
+                kernel.abort(Some(scope), reason);
+            }
+            kernel.receive();
+            handled = Some(observed);
+        } else {
+            kernel.receive_local();
         }
-        if let Some((scope, reason)) = kernel.inbox.take_abort() {
-            kernel.abort(Some(scope), reason);
-        }
-        kernel.receive();
         if !kernel.tick()? {
             kernel.wait_for_work(observed);
         }

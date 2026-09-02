@@ -4,7 +4,7 @@ use std::{
     collections::{BTreeMap, VecDeque},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
@@ -38,6 +38,9 @@ pub(crate) struct Inbox {
     pub(crate) reclaimed: AtomicBool,
     capacity: usize,
     state: Mutex<InboxState>,
+    pending_starts: AtomicUsize,
+    stopped: AtomicBool,
+    abort_pending: AtomicBool,
     pub(crate) signal: Arc<Signal>,
     pub(crate) hub: Arc<WaitHub>,
     #[cfg(feature = "runtime-evidence")]
@@ -75,6 +78,9 @@ impl Inbox {
             reclaimed: AtomicBool::new(false),
             capacity,
             state: Mutex::default(),
+            pending_starts: AtomicUsize::new(0),
+            stopped: AtomicBool::new(false),
+            abort_pending: AtomicBool::new(false),
             hub: Arc::new(hub),
             signal,
             #[cfg(feature = "runtime-evidence")]
@@ -95,6 +101,7 @@ impl Inbox {
             return Err(packet);
         }
         state.starts.push_back(packet);
+        self.pending_starts.fetch_add(1, Ordering::Release);
         let _depth = state.starts.len();
         #[cfg(feature = "runtime-evidence")]
         {
@@ -107,8 +114,14 @@ impl Inbox {
     }
 
     pub(crate) fn pop(&self) -> Option<SpawnPacket> {
+        if self.pending_starts.load(Ordering::Acquire) == 0 {
+            return None;
+        }
         let mut state = lock(&self.state);
         let packet = state.starts.pop_front();
+        if packet.is_some() {
+            self.pending_starts.fetch_sub(1, Ordering::Release);
+        }
         let _depth = state.starts.len();
         #[cfg(feature = "runtime-evidence")]
         if packet.is_some() {
@@ -119,12 +132,16 @@ impl Inbox {
     }
 
     pub(crate) fn pop_scope(&self, scope: Option<u64>) -> Option<SpawnPacket> {
+        if self.pending_starts.load(Ordering::Acquire) == 0 {
+            return None;
+        }
         let mut state = lock(&self.state);
         let index = state
             .starts
             .iter()
             .position(|packet| scope.is_none_or(|scope| lock(&packet.record).scope == scope))?;
         let packet = state.starts.remove(index);
+        self.pending_starts.fetch_sub(1, Ordering::Release);
         let _depth = state.starts.len();
         #[cfg(feature = "runtime-evidence")]
         self.record_depth(_depth);
@@ -140,29 +157,43 @@ impl Inbox {
     }
 
     pub(crate) fn pending(&self) -> usize {
-        lock(&self.state).starts.len()
+        self.pending_starts.load(Ordering::Acquire)
     }
 
     pub(crate) fn stop(&self) {
         lock(&self.state).stopped = true;
+        self.stopped.store(true, Ordering::Release);
         self.signal.notify();
     }
 
     pub(crate) fn stopped(&self) -> bool {
-        lock(&self.state).stopped
+        self.stopped.load(Ordering::Acquire)
     }
 
     pub(crate) fn abort(&self, scope: u64, reason: TaskFailure) {
-        lock(&self.state).abort.insert(scope, reason);
+        let mut state = lock(&self.state);
+        state.abort.insert(scope, reason);
+        self.abort_pending.store(true, Ordering::Release);
+        drop(state);
         self.signal.notify();
     }
 
     pub(crate) fn clear_abort(&self, scope: u64) {
-        lock(&self.state).abort.remove(&scope);
+        let mut state = lock(&self.state);
+        state.abort.remove(&scope);
+        self.abort_pending
+            .store(!state.abort.is_empty(), Ordering::Release);
     }
 
     pub(crate) fn take_abort(&self) -> Option<(u64, TaskFailure)> {
-        lock(&self.state).abort.pop_first()
+        if !self.abort_pending.load(Ordering::Acquire) {
+            return None;
+        }
+        let mut state = lock(&self.state);
+        let abort = state.abort.pop_first();
+        self.abort_pending
+            .store(!state.abort.is_empty(), Ordering::Release);
+        abort
     }
 
     #[cfg(feature = "runtime-evidence")]

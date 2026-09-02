@@ -1,4 +1,5 @@
 /target
+/benchmarks/target
 /.zcheck
 .DS_Store
 *.profraw

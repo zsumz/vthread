@@ -1,6 +1,6 @@
 //! Completion waits and explicit quiescent-scope recovery policy.
 
-use std::time::Instant;
+use std::{sync::atomic::Ordering, time::Instant};
 
 use super::Shared;
 use crate::{Error, Result, SuspensionReason, TaskFailure, TaskId, TaskStatus, signal::lock};
@@ -105,6 +105,7 @@ impl Shared {
                 if let Some(scope) = state.scopes.get_mut(&scope) {
                     scope.aborting = Some(TaskFailure::ScopeStalled);
                 }
+                self.abort_requested.store(true, Ordering::Release);
                 drop(state);
                 for inbox in &self.inboxes {
                     inbox.abort(scope, TaskFailure::ScopeStalled);

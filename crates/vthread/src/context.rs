@@ -8,31 +8,42 @@ use crate::{
 };
 use crate::{TaskId, wait::WaitHub};
 
-#[derive(Clone)]
 pub(crate) struct Execution {
+    pub(crate) id: TaskId,
+    pub(crate) scope: u64,
+    pub(crate) hub: Arc<WaitHub>,
     pub(crate) record: SharedTaskRecord,
     pub(crate) shared: Arc<Shared>,
     pub(crate) local: Rc<LocalCarrier>,
     pub(crate) data: Rc<TaskContext>,
+    pub(crate) progress: Arc<crate::task_progress::TaskProgress>,
 }
 
 #[derive(Clone)]
-pub(crate) struct MountedTask {
-    task: TaskId,
-    hub: Arc<WaitHub>,
-    execution: Option<Execution>,
+pub(crate) enum MountedTask {
+    Execution(Rc<Execution>),
+    Cleanup { task: TaskId, hub: Arc<WaitHub> },
 }
 
 impl MountedTask {
-    pub(crate) fn execution(&self) -> Result<&Execution> {
-        self.execution.as_ref().ok_or(Error::OutsideVThread)
+    pub(crate) fn execution(&self) -> Result<&Rc<Execution>> {
+        match self {
+            Self::Execution(execution) => Ok(execution),
+            Self::Cleanup { .. } => Err(Error::OutsideVThread),
+        }
     }
     pub(crate) fn task_id(&self) -> TaskId {
-        self.task
+        match self {
+            Self::Execution(execution) => execution.id,
+            Self::Cleanup { task, .. } => *task,
+        }
     }
 
     pub(crate) fn hub(&self) -> Arc<WaitHub> {
-        Arc::clone(&self.hub)
+        match self {
+            Self::Execution(execution) => Arc::clone(&execution.hub),
+            Self::Cleanup { hub, .. } => Arc::clone(hub),
+        }
     }
 }
 
@@ -45,19 +56,11 @@ pub(crate) fn current() -> Option<MountedTask> {
 }
 
 pub(crate) fn mount(task: TaskId, hub: Arc<WaitHub>) -> MountGuard {
-    install(MountedTask {
-        task,
-        hub,
-        execution: None,
-    })
+    install(MountedTask::Cleanup { task, hub })
 }
 
-pub(crate) fn mount_execution(task: TaskId, hub: Arc<WaitHub>, execution: Execution) -> MountGuard {
-    install(MountedTask {
-        task,
-        hub,
-        execution: Some(execution),
-    })
+pub(crate) fn mount_execution(execution: Rc<Execution>) -> MountGuard {
+    install(MountedTask::Execution(execution))
 }
 
 fn install(mounted: MountedTask) -> MountGuard {
@@ -67,11 +70,15 @@ fn install(mounted: MountedTask) -> MountGuard {
 
 /// Checks inherited cancellation and the earliest deadline at a cooperative boundary.
 pub fn checkpoint() -> Result<()> {
-    current()
-        .ok_or(Error::OutsideVThread)?
-        .execution()?
-        .data
-        .check()
+    CURRENT.with(|current| {
+        current
+            .borrow()
+            .as_ref()
+            .ok_or(Error::OutsideVThread)?
+            .execution()?
+            .data
+            .check()
+    })
 }
 
 /// Returns the current task's inherited cancellation token.

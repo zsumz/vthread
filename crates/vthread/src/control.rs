@@ -16,7 +16,10 @@ mod control_wait;
 
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use crate::{
@@ -45,6 +48,7 @@ pub(crate) struct Shared {
     pub(crate) services: OnceLock<crate::services::Services>,
     pub(crate) config: RuntimeConfig,
     pub(crate) cancellation: crate::CancellationToken,
+    abort_requested: AtomicBool,
     #[cfg(feature = "runtime-evidence")]
     pub(crate) evidence: Option<crate::diagnostics::evidence::Recorder>,
     pub(crate) inboxes: Vec<Arc<Inbox>>,
@@ -142,6 +146,7 @@ impl Shared {
             services: OnceLock::new(),
             config,
             cancellation: crate::CancellationToken::root(config.max_vthreads()),
+            abort_requested: AtomicBool::new(false),
             #[cfg(feature = "runtime-evidence")]
             evidence,
             changed: Signal::default(),
@@ -190,6 +195,7 @@ impl Shared {
             state.accepting = false;
             let _advanced = state.shutdown_phase < crate::ShutdownPhase::Requested;
             state.shutdown_phase = state.shutdown_phase.max(crate::ShutdownPhase::Requested);
+            self.abort_requested.store(true, Ordering::Release);
             #[cfg(feature = "runtime-evidence")]
             if _advanced {
                 self.record(
@@ -217,6 +223,8 @@ impl Shared {
     }
 
     pub(crate) fn publish(&self, snapshot: CarrierSnapshot) {
+        let notify = snapshot.status != CarrierStatus::Running
+            || self.config.stall_policy().timeout().is_some();
         let index = snapshot.id.0;
         let mut state = lock(&self.state);
         state.carriers[index] = snapshot;
@@ -229,7 +237,9 @@ impl Shared {
             state.accepting = false;
         }
         drop(state);
-        self.changed.notify();
+        if notify {
+            self.changed.notify();
+        }
     }
 
     pub(crate) fn shutdown_phase(&self) -> crate::ShutdownPhase {
@@ -259,6 +269,10 @@ impl Shared {
         record: &SharedTaskRecord,
         update: impl FnOnce(&mut TaskRecord),
     ) {
+        if self.config.stall_policy().timeout().is_none() {
+            update(&mut lock(record));
+            return;
+        }
         let mut state = lock(&self.state);
         let mut record = lock(record);
         update(&mut record);
