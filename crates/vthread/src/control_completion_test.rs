@@ -1,4 +1,4 @@
-use crate::{RuntimeConfig, TaskStatus, control::Shared, signal::lock};
+use crate::{RuntimeConfig, TaskStatus, control::Shared};
 
 #[test]
 fn completion_is_committed_once() {
@@ -7,5 +7,5 @@ fn completion_is_committed_once() {
     let record = shared.reserve(scope, "done".into(), None).unwrap();
     shared.complete(&record, None);
     shared.complete(&record, None);
-    assert_eq!(lock(&record).status, TaskStatus::Completed);
+    assert_eq!(record.lock().status, TaskStatus::Completed);
 }

@@ -65,9 +65,12 @@ fn record_failure(shared: &Shared, panic: crate::PanicReport) {
 
 fn drive(kernel: &mut Kernel) -> Result<()> {
     let mut handled = None;
+    // One empty-to-nonempty signal covers every bounded receive batch until drained.
+    let mut remote_pending = false;
     loop {
         let observed = kernel.inbox.signal.version();
-        if handled != Some(observed) {
+        let signal_changed = handled != Some(observed);
+        if signal_changed {
             if kernel.inbox.stopped() {
                 kernel.abort(None, TaskFailure::RuntimeStopped);
                 return Ok(());
@@ -75,12 +78,14 @@ fn drive(kernel: &mut Kernel) -> Result<()> {
             while let Some((scope, reason)) = kernel.inbox.take_abort() {
                 kernel.abort(Some(scope), reason);
             }
-            kernel.receive();
+            remote_pending = kernel.receive();
             handled = Some(observed);
+        } else if remote_pending {
+            remote_pending = kernel.receive();
         } else {
             kernel.receive_local();
         }
-        if !kernel.tick()? {
+        if !kernel.tick(signal_changed)? {
             kernel.wait_for_work(observed);
         }
     }

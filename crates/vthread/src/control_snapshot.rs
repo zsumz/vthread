@@ -45,10 +45,7 @@ impl Shared {
             snapshot.stats.add(carrier.stats);
             snapshot.stacks.add(carrier.stacks);
         }
-        snapshot.tasks = records
-            .iter()
-            .map(|record| lock(record).snapshot())
-            .collect();
+        snapshot.tasks = records.iter().map(|record| record.snapshot()).collect();
         snapshot
     }
 }

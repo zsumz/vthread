@@ -3,7 +3,6 @@ use crate::{
     control::Shared,
     kernel::{Kernel, Task},
     options::TaskOptions,
-    signal::lock,
     task_context::TaskContext,
     task_fiber::TaskFiber,
 };
@@ -57,10 +56,10 @@ fn selective_abort_retains_borrowed_scan_tracking() {
                 )),
             )
             .unwrap();
-        let data = Rc::new(TaskContext::new(lock(&record).options.clone(), 1));
-        let (id, scope, progress) = {
-            let record = lock(&record);
-            (record.id, record.scope, Arc::clone(&record.progress))
+        let data = Rc::new(TaskContext::new(record.lock().options.clone(), 1));
+        let (id, scope) = {
+            let record = record.lock();
+            (record.id, record.scope)
         };
         let execution = Rc::new(crate::context::Execution {
             id,
@@ -70,7 +69,7 @@ fn selective_abort_retains_borrowed_scan_tracking() {
             shared: Arc::clone(&shared),
             local: Rc::clone(&kernel.local),
             data,
-            progress,
+            progress: crate::task_progress::TaskProgressWriter::new(),
         });
         #[cfg(feature = "runtime-evidence")]
         let fiber = TaskFiber::borrowed(lease, identity);
@@ -110,10 +109,10 @@ fn revoked_parked_stacks_release_registrations_before_timer_processing() {
                 parker.park_timeout(Duration::from_secs(5)).unwrap();
             })
             .unwrap();
-        let data = Rc::new(TaskContext::new(lock(&record).options.clone(), 1));
-        let (id, root, progress) = {
-            let record = lock(&record);
-            (record.id, record.scope, Arc::clone(&record.progress))
+        let data = Rc::new(TaskContext::new(record.lock().options.clone(), 1));
+        let (id, root) = {
+            let record = record.lock();
+            (record.id, record.scope)
         };
         let execution = Rc::new(crate::context::Execution {
             id,
@@ -123,7 +122,7 @@ fn revoked_parked_stacks_release_registrations_before_timer_processing() {
             shared: Arc::clone(&shared),
             local: Rc::clone(&kernel.local),
             data,
-            progress,
+            progress: crate::task_progress::TaskProgressWriter::new(),
         });
         #[cfg(feature = "runtime-evidence")]
         let task_fiber = TaskFiber::borrowed(lease, identity);
@@ -134,10 +133,10 @@ fn revoked_parked_stacks_release_registrations_before_timer_processing() {
             fiber: Some(task_fiber),
         });
         kernel.has_borrowed = true;
-        kernel.tick().unwrap();
+        kernel.tick(true).unwrap();
         assert_eq!(shared.snapshot().parked, 1);
     });
-    kernel.tick().unwrap();
+    kernel.tick(true).unwrap();
     let snapshot = shared.snapshot();
     assert_eq!(snapshot.active, 0);
     assert_eq!(snapshot.timers, 0);

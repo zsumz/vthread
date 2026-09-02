@@ -26,16 +26,16 @@ fn after_completion(record: &SharedTaskRecord, deadline: Option<Instant>) -> Arc
     let execution = mounted.execution().unwrap();
     let parent = Arc::clone(&execution.record);
     let cancellation = execution.data.options.cancellation.clone();
-    let child = lock(record).id;
+    let child = record.lock().id;
     let checked = Arc::new(AtomicBool::new(false));
     let observed = Arc::clone(&checked);
-    *lock(&lock(record).completion.after_notify) = Some(Box::new(move |selected| {
+    *lock(&record.completion().after_notify) = Some(Box::new(move |selected| {
         assert_eq!(
             selected, 1,
             "completion must select the parked join generation"
         );
         assert_eq!(
-            lock(&parent).status,
+            parent.lock().status,
             TaskStatus::Suspended(SuspensionReason::Join(child)),
             "the single carrier has not resumed the joiner"
         );

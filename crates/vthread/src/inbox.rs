@@ -89,8 +89,8 @@ impl Inbox {
     }
 
     pub(crate) fn can_accept(&self) -> bool {
-        let state = lock(&self.state);
-        !state.stopped && state.starts.len() < self.capacity
+        !self.stopped.load(Ordering::Acquire)
+            && self.pending_starts.load(Ordering::Acquire) < self.capacity
     }
 
     pub(crate) fn push(&self, packet: SpawnPacket) -> std::result::Result<(), SpawnPacket> {
@@ -101,7 +101,7 @@ impl Inbox {
             return Err(packet);
         }
         state.starts.push_back(packet);
-        self.pending_starts.fetch_add(1, Ordering::Release);
+        let was_empty = self.pending_starts.fetch_add(1, Ordering::Release) == 0;
         let _depth = state.starts.len();
         #[cfg(feature = "runtime-evidence")]
         {
@@ -109,7 +109,9 @@ impl Inbox {
             self.record_depth(_depth);
         }
         drop(state);
-        self.signal.notify();
+        if was_empty {
+            self.signal.notify();
+        }
         Ok(())
     }
 
@@ -139,7 +141,7 @@ impl Inbox {
         let index = state
             .starts
             .iter()
-            .position(|packet| scope.is_none_or(|scope| lock(&packet.record).scope == scope))?;
+            .position(|packet| scope.is_none_or(|scope| packet.record.lock().scope == scope))?;
         let packet = state.starts.remove(index);
         self.pending_starts.fetch_sub(1, Ordering::Release);
         let _depth = state.starts.len();
@@ -213,7 +215,7 @@ impl Inbox {
         let Some(evidence) = &self.evidence else {
             return;
         };
-        let record = lock(record);
+        let record = record.lock();
         evidence.record(
             crate::diagnostics::evidence::RuntimeEventKind::TaskAccepted {
                 task: record.id,

@@ -33,8 +33,8 @@ fn high_cardinality_snapshots_allow_concurrent_admission_and_completion() {
             let new = shared.reserve(scope, "replacement".into(), None).unwrap();
             shared.complete(record, None);
             shared.complete(&new, None);
-            lock(record).outcome_observed = true;
-            lock(&new).outcome_observed = true;
+            record.lock().outcome_observed = true;
+            new.lock().outcome_observed = true;
         }
     });
     assert!(observations.load(Ordering::Relaxed) >= 16 * 8_192);

@@ -143,7 +143,7 @@ impl Shared {
         let mut state = lock(&self.state);
         state
             .records
-            .retain(|_, record| lock(record).scope != scope);
+            .retain(|_, record| record.lock().scope != scope);
         state.scopes.remove(&scope);
         if state.active_scope == Some(scope) {
             state.active_scope = None;
@@ -167,7 +167,7 @@ impl Shared {
     pub(crate) fn unobserved(&self, scope: u64) -> crate::ScopeFailure {
         let mut failures = crate::ScopeFailure::default();
         for record in lock(&self.state).records.values() {
-            let record = lock(record);
+            let record = record.lock();
             if record.scope != scope || record.outcome_observed {
                 continue;
             }

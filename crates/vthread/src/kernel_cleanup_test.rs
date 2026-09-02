@@ -51,7 +51,7 @@ fn delayed_abort_for_an_old_scope_preserves_every_new_scope_queue() {
         .expect("ready");
     let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
     kernel.receive();
-    kernel.tick().expect("park the first task");
+    kernel.tick(true).expect("park the first task");
     shared
         .submit(current, "queued".into(), || ())
         .expect("queued");

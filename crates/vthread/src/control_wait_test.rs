@@ -5,7 +5,6 @@ use std::time::Duration;
 fn a_pending_wake_for_another_scope_does_not_mask_a_stall() {
     use crate::{
         ScopeOptions, SuspensionReason, TaskFailure, TaskStatus,
-        signal::lock,
         wait::{WakeCause, WakeNotice},
     };
     use std::{
@@ -31,7 +30,7 @@ fn a_pending_wake_for_another_scope_does_not_mask_a_stall() {
         .unwrap();
     hub.enqueue(WakeNotice {
         token,
-        task: lock(&other).id,
+        task: other.lock().id,
         cause: WakeCause::Ready,
     });
     let observer = Arc::clone(&shared);

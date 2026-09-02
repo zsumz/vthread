@@ -2,7 +2,7 @@
 
 use std::{
     fmt,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard},
     time::Instant,
 };
 
@@ -158,9 +158,11 @@ pub struct TaskSnapshot {
     pub(crate) failure: Option<TaskFailure>,
     /// Current state.
     pub(crate) status: TaskStatus,
-    /// Number of times the task stack was mounted.
+    /// Published stack mounts. While runnable this trails by at most 64 mounts;
+    /// it is exact whenever the task parks or terminates.
     pub(crate) mounts: u64,
-    /// Number of cooperative yields.
+    /// Published cooperative yields. While runnable this trails by at most 64 yields;
+    /// it is exact whenever the task parks or terminates.
     pub(crate) yields: u64,
     /// Number of modeled park operations.
     pub(crate) parks: u64,
@@ -172,48 +174,81 @@ pub struct TaskSnapshot {
     pub(crate) outcome_observed: bool,
 }
 
-pub(crate) type SharedTaskRecord = Arc<Mutex<TaskRecord>>;
+pub(crate) type SharedTaskRecord = Arc<TaskCell>;
+
+/// Cache-isolated progress, completion, and mutable metadata in one shared allocation.
+pub(crate) struct TaskCell {
+    progress: TaskProgress,
+    completion: Completion,
+    record: Mutex<TaskRecord>,
+}
+
+impl TaskCell {
+    pub(crate) fn new(record: TaskRecord, wait_capacity: usize) -> Self {
+        Self {
+            progress: TaskProgress::new(),
+            completion: Completion::new(wait_capacity),
+            record: Mutex::new(record),
+        }
+    }
+
+    pub(crate) fn lock(&self) -> MutexGuard<'_, TaskRecord> {
+        crate::signal::lock(&self.record)
+    }
+
+    pub(crate) fn progress(&self) -> &TaskProgress {
+        &self.progress
+    }
+
+    pub(crate) fn completion(&self) -> &Completion {
+        &self.completion
+    }
+
+    pub(crate) fn subscribe_completion(
+        self: &Arc<Self>,
+        wait: &crate::wait::WaitCell,
+    ) -> crate::Result<crate::completion::CompletionWait> {
+        self.completion.subscribe(Arc::clone(self), wait)
+    }
+
+    pub(crate) fn snapshot(&self) -> TaskSnapshot {
+        let record = self.lock();
+        TaskSnapshot {
+            id: record.id,
+            name: record.name.to_string(),
+            carrier: record.carrier,
+            deadline: record.deadline,
+            inherited_deadline: record.options.deadline,
+            scope: record.scope,
+            parent: record.parent,
+            cancellation_requested: record.options.cancellation.is_cancelled(),
+            failure: record.failure,
+            status: self.progress.status(record.status),
+            mounts: self.progress.mounts(),
+            yields: self.progress.yields(),
+            parks: record.parks,
+            last_suspension: self.progress.last_suspension(record.last_suspension),
+            last_wake: record.last_wake,
+            outcome_observed: record.outcome_observed,
+        }
+    }
+}
 
 pub(crate) struct TaskRecord {
     pub(crate) id: TaskId,
     pub(crate) scope: u64,
     pub(crate) parent: Option<TaskId>,
     pub(crate) options: TaskOptions,
-    pub(crate) completion: Arc<Completion>,
     pub(crate) name: Arc<str>,
     pub(crate) carrier: CarrierId,
     pub(crate) deadline: Option<Instant>,
     pub(crate) failure: Option<TaskFailure>,
     pub(crate) status: TaskStatus,
-    pub(crate) progress: Arc<TaskProgress>,
     pub(crate) parks: u64,
     pub(crate) last_suspension: Option<SuspensionReason>,
     pub(crate) last_wake: Option<WakeReason>,
     pub(crate) outcome_observed: bool,
     pub(crate) panic: Option<PanicReport>,
-}
-
-impl TaskRecord {
-    pub(crate) fn snapshot(&self) -> TaskSnapshot {
-        TaskSnapshot {
-            id: self.id,
-            name: self.name.to_string(),
-            carrier: self.carrier,
-            deadline: self.deadline,
-            inherited_deadline: self.options.deadline,
-            scope: self.scope,
-            parent: self.parent,
-            cancellation_requested: self.options.cancellation.is_cancelled(),
-            failure: self.failure,
-            status: self.progress.status(self.status),
-            mounts: self.progress.mounts(),
-            yields: self.progress.yields(),
-            parks: self.parks,
-            last_suspension: self.progress.last_suspension(self.last_suspension),
-            last_wake: self.last_wake,
-            outcome_observed: self.outcome_observed,
-        }
-    }
 }
 
 #[cfg(test)]

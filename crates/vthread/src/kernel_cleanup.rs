@@ -1,7 +1,7 @@
 //! Reclaim every carrier-owned stack before publishing task failure.
 
 use super::Kernel;
-use crate::{CarrierStatus, TaskFailure, context, signal::lock};
+use crate::{CarrierStatus, TaskFailure, context};
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     sync::Arc,
@@ -12,7 +12,7 @@ impl Kernel {
         if self
             .pending
             .as_ref()
-            .is_some_and(|packet| scope.is_none_or(|scope| lock(&packet.record).scope == scope))
+            .is_some_and(|packet| scope.is_none_or(|scope| packet.record.lock().scope == scope))
         {
             self.discard_pending(reason);
         }
@@ -31,7 +31,7 @@ impl Kernel {
         }
         self.pending = retained_pending;
         if self.in_flight.as_ref().is_some_and(|task| {
-            scope.is_none_or(|scope| lock(&task.execution.record).scope == scope)
+            scope.is_none_or(|scope| task.execution.record.lock().scope == scope)
         }) {
             self.discard_in_flight(reason);
         }
@@ -40,7 +40,7 @@ impl Kernel {
         self.ready.extend(local);
         for _ in 0..self.ready.len() {
             let task = self.ready.pop_front().expect("ready task");
-            if scope.is_none_or(|scope| lock(&task.execution.record).scope == scope) {
+            if scope.is_none_or(|scope| task.execution.record.lock().scope == scope) {
                 self.in_flight = Some(task);
                 self.discard_in_flight(reason);
             } else {
@@ -51,7 +51,7 @@ impl Kernel {
             .parked
             .iter()
             .filter(|(_, parked)| {
-                scope.is_none_or(|scope| lock(&parked.task.execution.record).scope == scope)
+                scope.is_none_or(|scope| parked.task.execution.record.lock().scope == scope)
             })
             .map(|(token, _)| *token)
             .collect::<Vec<_>>();
@@ -82,10 +82,10 @@ impl Kernel {
         let record = Arc::clone(&packet.record);
         let entry = packet.entry.take();
         {
-            let _mounted = context::mount(lock(&record).id, Arc::clone(&self.inbox.hub));
+            let _mounted = context::mount(record.lock().id, Arc::clone(&self.inbox.hub));
             if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(entry))) {
                 let panic = crate::PanicReport::capture(payload);
-                lock(&record).panic.get_or_insert(panic);
+                record.lock().panic.get_or_insert(panic);
             }
         }
         self.pending = None;
@@ -95,8 +95,11 @@ impl Kernel {
     }
 
     pub(super) fn discard_in_flight(&mut self, reason: TaskFailure) {
+        let task = self.in_flight.as_mut().expect("owned task");
+        task.execution
+            .progress
+            .unmount(task.execution.record.progress());
         let execution = self.execution(self.in_flight.as_ref().expect("owned task"));
-        execution.progress.unmount();
         execution.data.closing.set(true);
         let task = self.in_flight.as_mut().expect("owned task");
         let record = Arc::clone(&task.execution.record);
@@ -111,7 +114,7 @@ impl Kernel {
             let _cleanup = crate::task_context::TaskCleanup::new(execution);
             if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(fiber))) {
                 let panic = crate::PanicReport::capture(payload);
-                lock(&record).panic.get_or_insert(panic);
+                record.lock().panic.get_or_insert(panic);
             }
         }
         #[cfg(feature = "runtime-evidence")]
@@ -119,7 +122,7 @@ impl Kernel {
             self.local.stacks.borrow_mut().retire(identity);
             self.shared.record(
                 crate::diagnostics::evidence::RuntimeEventKind::StackReleased {
-                    task: lock(&record).id,
+                    task: record.lock().id,
                     stack: crate::diagnostics::evidence::StackId::new(self.id, identity),
                     disposition: crate::diagnostics::evidence::StackDisposition::Discarded,
                 },

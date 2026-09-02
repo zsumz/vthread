@@ -1,35 +1,38 @@
 use std::sync::Arc;
 
-use crate::task::TaskRecord;
 use crate::{SuspensionReason, TaskId, TaskStatus, WakeReason};
+use crate::{
+    task::{TaskCell, TaskRecord},
+    task_progress::TaskProgressWriter,
+};
 
 #[test]
 fn snapshots_copy_operator_visible_state() {
-    let progress = Arc::new(crate::task_progress::TaskProgress::new());
-    assert!(progress.mount());
-    progress.yield_now();
-    assert!(!progress.mount());
-    progress.unmount();
-    progress.clear_yield();
-    let record = TaskRecord {
-        id: TaskId::new(3),
-        scope: 1,
-        parent: None,
-        options: crate::options::TaskOptions::root(crate::ScopeOptions::default(), 4),
-        completion: Arc::new(crate::completion::Completion::new(4)),
-        carrier: crate::CarrierId(0),
-        deadline: None,
-        failure: None,
-        name: Arc::from("query"),
-        status: TaskStatus::Suspended(SuspensionReason::Park),
-        progress,
-        parks: 1,
-        last_suspension: Some(SuspensionReason::Park),
-        last_wake: Some(WakeReason::Ready),
-        outcome_observed: false,
-        panic: None,
-    };
-    let snapshot = record.snapshot();
+    let task = TaskCell::new(
+        TaskRecord {
+            id: TaskId::new(3),
+            scope: 1,
+            parent: None,
+            options: crate::options::TaskOptions::root(crate::ScopeOptions::default(), 4),
+            carrier: crate::CarrierId(0),
+            deadline: None,
+            failure: None,
+            name: Arc::from("query"),
+            status: TaskStatus::Suspended(SuspensionReason::Park),
+            parks: 1,
+            last_suspension: Some(SuspensionReason::Park),
+            last_wake: Some(WakeReason::Ready),
+            outcome_observed: false,
+            panic: None,
+        },
+        4,
+    );
+    let writer = TaskProgressWriter::new();
+    assert!(writer.mount(task.progress()));
+    writer.yield_now(task.progress());
+    assert!(!writer.mount(task.progress()));
+    writer.park(task.progress());
+    let snapshot = task.snapshot();
 
     assert_eq!(snapshot.id.to_string(), "3");
     assert_eq!(snapshot.name, "query");

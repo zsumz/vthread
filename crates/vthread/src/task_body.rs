@@ -1,6 +1,6 @@
 //! Task panic isolation includes storing and dropping an unjoined result.
 
-use crate::{PanicReport, signal::lock, task::SharedTaskRecord};
+use crate::{PanicReport, task::SharedTaskRecord};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub(crate) fn run<T>(
@@ -10,10 +10,10 @@ pub(crate) fn run<T>(
 ) {
     let outcome = catch_unwind(AssertUnwindSafe(entry)).map_err(PanicReport::capture);
     if let Err(panic) = &outcome {
-        lock(record).panic = Some(panic.clone());
+        record.lock().panic = Some(panic.clone());
     }
     if let Err(payload) = catch_unwind(AssertUnwindSafe(|| store(outcome))) {
-        lock(record).panic = Some(PanicReport::capture(payload));
+        record.lock().panic = Some(PanicReport::capture(payload));
     }
 }
 

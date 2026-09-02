@@ -1,10 +1,7 @@
 //! Bounded completion subscriptions; publication follows physical stack reclamation.
 
-use crate::{Error, Result, signal::lock, wait::WaitCell};
-use std::{
-    collections::BTreeMap,
-    sync::{Arc, Mutex},
-};
+use crate::{Error, Result, signal::lock, task::SharedTaskRecord, wait::WaitCell};
+use std::{collections::BTreeMap, sync::Mutex};
 
 #[derive(Default)]
 struct State {
@@ -58,7 +55,11 @@ impl Completion {
         }
     }
 
-    pub(crate) fn subscribe(self: &Arc<Self>, wait: &WaitCell) -> Result<CompletionWait> {
+    pub(crate) fn subscribe(
+        &self,
+        task: SharedTaskRecord,
+        wait: &WaitCell,
+    ) -> Result<CompletionWait> {
         let mut state = lock(&self.state);
         if state.done {
             wait.notify();
@@ -72,19 +73,19 @@ impl Completion {
             state.waiters.insert(wait.identity(), wait.clone());
         }
         Ok(CompletionWait {
-            completion: Arc::clone(self),
+            task,
             id: wait.identity(),
         })
     }
 }
 
 pub(crate) struct CompletionWait {
-    completion: Arc<Completion>,
+    task: SharedTaskRecord,
     id: u64,
 }
 impl Drop for CompletionWait {
     fn drop(&mut self) {
-        lock(&self.completion.state).waiters.remove(&self.id);
+        lock(&self.task.completion().state).waiters.remove(&self.id);
     }
 }
 

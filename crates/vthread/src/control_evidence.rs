@@ -8,7 +8,7 @@ impl super::Shared {
     }
 
     pub(crate) fn record_task_accepted(&self, record: &crate::task::SharedTaskRecord) {
-        let record = crate::signal::lock(record);
+        let record = record.lock();
         self.record(
             crate::diagnostics::evidence::RuntimeEventKind::TaskAccepted {
                 task: record.id,
