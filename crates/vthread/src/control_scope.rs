@@ -2,6 +2,7 @@
 
 use super::Shared;
 use crate::{Error, Result, ScopeOptions, TaskFailure, options::TaskOptions, signal::lock};
+use std::sync::atomic::Ordering;
 
 pub(super) struct ScopeState {
     pub(super) admitting: bool,
@@ -16,6 +17,9 @@ pub(super) struct ScopeState {
 
 impl Shared {
     pub(crate) fn abort_reason(&self, scope: u64) -> Option<TaskFailure> {
+        if !self.abort_requested.load(Ordering::Acquire) {
+            return None;
+        }
         let state = lock(&self.state);
         if !state.accepting {
             return Some(TaskFailure::RuntimeStopped);
@@ -117,6 +121,7 @@ impl Shared {
             };
             scope.aborting = Some(reason);
             scope.admitting = false;
+            self.abort_requested.store(true, Ordering::Release);
             scope.options.cancellation.clone()
         };
         for inbox in &self.inboxes {
@@ -143,6 +148,10 @@ impl Shared {
         if state.active_scope == Some(scope) {
             state.active_scope = None;
         }
+        let abort_requested =
+            !state.accepting || state.scopes.values().any(|scope| scope.aborting.is_some());
+        self.abort_requested
+            .store(abort_requested, Ordering::Release);
         #[cfg(feature = "runtime-evidence")]
         self.record(
             crate::diagnostics::evidence::RuntimeEventKind::ScopeClosed {

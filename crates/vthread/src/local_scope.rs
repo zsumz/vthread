@@ -17,7 +17,7 @@ pub use local_scope_run::{
 /// A lexical owner of borrowed, non-Send children on the current carrier.
 pub struct LocalScope<'scope, 'env: 'scope> {
     fibers: &'scope FiberScope<'scope, 'env>,
-    execution: Execution,
+    execution: Rc<Execution>,
     options: TaskOptions,
     records: RefCell<Vec<SharedTaskRecord>>,
 }
@@ -109,18 +109,23 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
             lock(&record).options.clone(),
             self.execution.shared.config.task_local_capacity(),
         ));
-        let cleanup = Execution {
+        let (id, root, progress) = {
+            let record = lock(&record);
+            (record.id, record.scope, Arc::clone(&record.progress))
+        };
+        let execution = Rc::new(Execution {
+            id,
+            scope: root,
+            hub: Arc::clone(&self.execution.hub),
             record: Arc::clone(&record),
             data: Rc::clone(&data),
             shared: Arc::clone(&self.execution.shared),
             local: Rc::clone(&self.execution.local),
-        };
-        let hub = Arc::clone(&self.execution.shared.inboxes[carrier.0].hub);
+            progress,
+        });
+        let cleanup = Rc::clone(&execution);
         lease.cleanup_context(move || {
-            Box::new(crate::task_context::TaskCleanup::new(
-                cleanup.clone(),
-                Arc::clone(&hub),
-            ))
+            Box::new(crate::task_context::TaskCleanup::new(Rc::clone(&cleanup)))
         });
         self.records.borrow_mut().retain(|record| {
             let record = lock(record);
@@ -131,9 +136,8 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
         let task_fiber = TaskFiber::borrowed(lease, stack_identity);
         #[cfg(not(feature = "runtime-evidence"))]
         let task_fiber = TaskFiber::borrowed(lease);
-        self.execution.local.starts.borrow_mut().push_back(Task {
-            record: Arc::clone(&record),
-            data,
+        self.execution.local.push_start(Task {
+            execution,
             fiber: Some(task_fiber),
         });
         #[cfg(feature = "runtime-evidence")]
@@ -149,7 +153,7 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
                 crate::diagnostics::evidence::RuntimeEventKind::QueueDepth {
                     carrier,
                     queue: crate::diagnostics::evidence::QueueKind::LocalStart,
-                    depth: self.execution.local.starts.borrow().len(),
+                    depth: self.execution.local.pending_starts(),
                     capacity: self.execution.shared.config.carrier_queue_capacity(),
                 },
             );

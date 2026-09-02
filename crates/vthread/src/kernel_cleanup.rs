@@ -30,19 +30,17 @@ impl Kernel {
             );
         }
         self.pending = retained_pending;
-        if self
-            .in_flight
-            .as_ref()
-            .is_some_and(|task| scope.is_none_or(|scope| lock(&task.record).scope == scope))
-        {
+        if self.in_flight.as_ref().is_some_and(|task| {
+            scope.is_none_or(|scope| lock(&task.execution.record).scope == scope)
+        }) {
             self.discard_in_flight(reason);
         }
         let retained_flight = self.in_flight.take();
-        let local = self.local.starts.take();
+        let local = self.local.take_starts();
         self.ready.extend(local);
         for _ in 0..self.ready.len() {
             let task = self.ready.pop_front().expect("ready task");
-            if scope.is_none_or(|scope| lock(&task.record).scope == scope) {
+            if scope.is_none_or(|scope| lock(&task.execution.record).scope == scope) {
                 self.in_flight = Some(task);
                 self.discard_in_flight(reason);
             } else {
@@ -53,7 +51,7 @@ impl Kernel {
             .parked
             .iter()
             .filter(|(_, parked)| {
-                scope.is_none_or(|scope| lock(&parked.task.record).scope == scope)
+                scope.is_none_or(|scope| lock(&parked.task.execution.record).scope == scope)
             })
             .map(|(token, _)| *token)
             .collect::<Vec<_>>();
@@ -75,6 +73,7 @@ impl Kernel {
             self.discard_in_flight(reason);
         }
         self.in_flight = retained_flight;
+        self.refresh_borrowed();
         self.publish(CarrierStatus::Running);
     }
 
@@ -97,9 +96,10 @@ impl Kernel {
 
     pub(super) fn discard_in_flight(&mut self, reason: TaskFailure) {
         let execution = self.execution(self.in_flight.as_ref().expect("owned task"));
+        execution.progress.unmount();
         execution.data.closing.set(true);
         let task = self.in_flight.as_mut().expect("owned task");
-        let record = Arc::clone(&task.record);
+        let record = Arc::clone(&task.execution.record);
         let fiber = task.fiber.take();
         #[cfg(feature = "runtime-evidence")]
         let stack = fiber
@@ -108,8 +108,7 @@ impl Kernel {
         {
             // Destructors still belong to this task and must not block its carrier
             // through scope entry, joins, or explicit runtime shutdown.
-            let _cleanup =
-                crate::task_context::TaskCleanup::new(execution, Arc::clone(&self.inbox.hub));
+            let _cleanup = crate::task_context::TaskCleanup::new(execution);
             if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(fiber))) {
                 let panic = crate::PanicReport::capture(payload);
                 lock(&record).panic.get_or_insert(panic);

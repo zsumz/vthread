@@ -73,6 +73,7 @@ mod task_accessors;
 mod task_body;
 mod task_context;
 mod task_fiber;
+mod task_progress;
 mod thread_failure;
 mod time;
 mod timer;

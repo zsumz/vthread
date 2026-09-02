@@ -50,6 +50,10 @@ impl TaskFiber {
         matches!(self, Self::Borrowed { fiber, .. } if !fiber.live())
     }
 
+    pub(crate) fn is_borrowed(&self) -> bool {
+        matches!(self, Self::Borrowed { .. })
+    }
+
     pub(crate) fn resume(&mut self) -> Option<FiberState> {
         match self {
             Self::Owned { fiber, .. } => Some(fiber.as_mut().expect("owned fiber").resume()),

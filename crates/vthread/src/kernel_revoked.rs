@@ -5,8 +5,15 @@ use crate::TaskFailure;
 
 impl Kernel {
     pub(super) fn sweep_revoked(&mut self) {
+        if !self.has_borrowed {
+            return;
+        }
         for _ in 0..self.ready.len() {
             let task = self.ready.pop_front().expect("ready task");
+            #[cfg(test)]
+            {
+                self.revocation_inspections += 1;
+            }
             if task.fiber.as_ref().is_some_and(|fiber| fiber.revoked()) {
                 self.in_flight = Some(task);
                 self.discard_in_flight(TaskFailure::ScopeClosed);
@@ -43,6 +50,25 @@ impl Kernel {
             self.in_flight = Some(parked.task);
             self.discard_in_flight(TaskFailure::ScopeClosed);
         }
+        self.refresh_borrowed();
+    }
+
+    pub(super) fn refresh_borrowed(&mut self) {
+        self.has_borrowed = self.in_flight.as_ref().is_some_and(|task| {
+            task.fiber
+                .as_ref()
+                .is_some_and(crate::task_fiber::TaskFiber::is_borrowed)
+        }) || self.ready.iter().any(|task| {
+            task.fiber
+                .as_ref()
+                .is_some_and(crate::task_fiber::TaskFiber::is_borrowed)
+        }) || self.parked.values().any(|parked| {
+            parked
+                .task
+                .fiber
+                .as_ref()
+                .is_some_and(crate::task_fiber::TaskFiber::is_borrowed)
+        });
     }
 }
 

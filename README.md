@@ -87,6 +87,11 @@ The standalone [reference application](reference/README.md) uses only the public
 shows structured services, virtual networking, notifications, blocking delegation, and
 controlled shutdown.
 
+## Performance
+
+The standalone [scheduler harness](benchmarks/README.md) provides matched `vthread` and May
+yield and spawn measurements with explicit worker, task, stack, warm-up, and sample settings.
+
 ## Check
 
 ```sh

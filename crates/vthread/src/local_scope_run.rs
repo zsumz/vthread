@@ -69,7 +69,7 @@ fn run_local<'env, R, E, O>(
     finish: impl FnOnce(crate::ScopeFailure, std::result::Result<R, E>, Result<()>, &Shared) -> O,
 ) -> Result<O> {
     let mounted = context::current().ok_or(Error::OutsideVThread)?;
-    let execution = mounted.execution()?.clone();
+    let execution = std::rc::Rc::clone(mounted.execution()?);
     execution.data.check()?;
     let options = execution.data.options.child(deadline);
     Ok(vthread_stack::fiber_scope(

@@ -74,18 +74,14 @@ impl TaskContext {
 }
 
 pub(crate) struct TaskCleanup {
-    execution: context::Execution,
+    execution: Rc<context::Execution>,
     _mounted: context::MountGuard,
 }
 
 impl TaskCleanup {
-    pub(crate) fn new(
-        execution: context::Execution,
-        hub: std::sync::Arc<crate::wait::WaitHub>,
-    ) -> Self {
+    pub(crate) fn new(execution: Rc<context::Execution>) -> Self {
         execution.data.closing.set(true);
-        let id = crate::signal::lock(&execution.record).id;
-        let mounted = context::mount_execution(id, hub, execution.clone());
+        let mounted = context::mount_execution(Rc::clone(&execution));
         Self {
             execution,
             _mounted: mounted,

@@ -12,7 +12,6 @@ use crate::{
     TaskStatus,
     control::Shared,
     inbox::{Inbox, SpawnPacket},
-    task::SharedTaskRecord,
     timer::TimerQueue,
     wait::WaitRegistration,
 };
@@ -38,12 +37,14 @@ pub(crate) struct Kernel {
     pub(crate) local: Rc<LocalCarrier>,
     pub(super) timers: TimerQueue,
     pub(super) stats: RuntimeStats,
+    pub(super) has_borrowed: bool,
+    #[cfg(test)]
+    pub(super) revocation_inspections: usize,
 }
 
 pub(crate) struct Task {
     pub(crate) fiber: Option<TaskFiber>,
-    pub(crate) data: Rc<TaskContext>,
-    pub(crate) record: SharedTaskRecord,
+    pub(crate) execution: Rc<Execution>,
 }
 
 pub(super) struct ParkedTask {
@@ -65,27 +66,53 @@ impl Kernel {
             local: Rc::new(LocalCarrier::new(config)),
             timers: TimerQueue::new(),
             stats: RuntimeStats::default(),
+            has_borrowed: false,
+            #[cfg(test)]
+            revocation_inspections: 0,
         }
     }
 
     pub(crate) fn receive(&mut self) {
+        let received = self.receive_local_tasks();
+        let received = self.receive_remote_tasks() || received;
+        if received {
+            self.publish(CarrierStatus::Running);
+        }
+    }
+
+    pub(crate) fn receive_local(&mut self) {
+        if self.receive_local_tasks() {
+            self.publish(CarrierStatus::Running);
+        }
+    }
+
+    fn receive_local_tasks(&mut self) -> bool {
+        let mut received = false;
         loop {
-            let task = self.local.starts.borrow_mut().pop_front();
+            let task = self.local.pop_start();
             let Some(task) = task else {
                 break;
             };
+            received = true;
+            self.has_borrowed = true;
             #[cfg(feature = "runtime-evidence")]
             self.shared
                 .record(crate::diagnostics::evidence::RuntimeEventKind::QueueDepth {
                     carrier: self.id,
                     queue: crate::diagnostics::evidence::QueueKind::LocalStart,
-                    depth: self.local.starts.borrow().len(),
+                    depth: self.local.pending_starts(),
                     capacity: self.shared.config.carrier_queue_capacity(),
                 });
-            self.shared
-                .transition(&task.record, |record| record.status = TaskStatus::Ready);
+            self.shared.transition(&task.execution.record, |record| {
+                record.status = TaskStatus::Ready
+            });
             self.ready.push_back(task);
         }
+        received
+    }
+
+    fn receive_remote_tasks(&mut self) -> bool {
+        let mut received = false;
         for _ in 0..self.shared.config.carrier_queue_capacity() {
             self.pending = self.inbox.pop();
             if self.pending.is_none() {
@@ -112,28 +139,46 @@ impl Kernel {
                 }
             };
             let packet = self.pending.as_mut().expect("pending packet");
+            received = true;
             let entry = packet.entry.take().expect("unstarted packet entry");
             let fiber = Fiber::new(stack, entry);
             #[cfg(feature = "runtime-evidence")]
             let task_fiber = TaskFiber::owned(fiber, stack_identity);
             #[cfg(not(feature = "runtime-evidence"))]
             let task_fiber = TaskFiber::owned(fiber);
-            #[cfg(feature = "runtime-evidence")]
-            let task_id = crate::signal::lock(&packet.record).id;
             self.shared
                 .transition(&packet.record, |record| record.status = TaskStatus::Ready);
+            let (id, scope, options, progress) = {
+                let record = crate::signal::lock(&packet.record);
+                (
+                    record.id,
+                    record.scope,
+                    record.options.clone(),
+                    Arc::clone(&record.progress),
+                )
+            };
+            let data = Rc::new(TaskContext::new(
+                options,
+                self.shared.config.task_local_capacity(),
+            ));
+            let execution = Rc::new(Execution {
+                id,
+                scope,
+                hub: Arc::clone(&self.inbox.hub),
+                record: Arc::clone(&packet.record),
+                shared: Arc::clone(&self.shared),
+                local: Rc::clone(&self.local),
+                data,
+                progress,
+            });
             self.in_flight = Some(Task {
                 fiber: Some(task_fiber),
-                data: Rc::new(TaskContext::new(
-                    crate::signal::lock(&packet.record).options.clone(),
-                    self.shared.config.task_local_capacity(),
-                )),
-                record: Arc::clone(&packet.record),
+                execution,
             });
             #[cfg(feature = "runtime-evidence")]
             self.shared.record(
                 crate::diagnostics::evidence::RuntimeEventKind::StackCheckedOut {
-                    task: task_id,
+                    task: id,
                     stack: crate::diagnostics::evidence::StackId::new(self.id, stack_identity),
                 },
             );
@@ -141,16 +186,11 @@ impl Kernel {
             self.ready
                 .push_back(self.in_flight.take().expect("new task"));
         }
-        self.publish(CarrierStatus::Running);
+        received
     }
 
-    pub(crate) fn execution(&self, task: &Task) -> Execution {
-        Execution {
-            record: Arc::clone(&task.record),
-            shared: Arc::clone(&self.shared),
-            local: Rc::clone(&self.local),
-            data: Rc::clone(&task.data),
-        }
+    pub(crate) fn execution(&self, task: &Task) -> Rc<Execution> {
+        Rc::clone(&task.execution)
     }
 
     pub(crate) fn publish(&self, status: CarrierStatus) {
@@ -176,7 +216,7 @@ impl Kernel {
             && self.in_flight.is_none()
             && self.ready.is_empty()
             && self.parked.is_empty()
-            && self.local.starts.borrow().is_empty()
+            && self.local.pending_starts() == 0
             && self.inbox.pending() == 0
     }
 

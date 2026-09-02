@@ -1,0 +1,15 @@
+[package]
+name = "vthread-benchmarks"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+may = "=0.3.51"
+vthread = { path = "../crates/vthread" }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+
+[workspace]

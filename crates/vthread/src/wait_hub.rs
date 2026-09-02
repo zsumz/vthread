@@ -2,7 +2,10 @@
 
 use std::{
     collections::{BTreeMap, VecDeque},
-    sync::{Arc, Mutex, Weak},
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 use vthread_stack::ParkToken;
@@ -35,6 +38,7 @@ struct HubState {
 pub(crate) struct WaitHub {
     capacity: usize,
     state: Mutex<HubState>,
+    pending: AtomicUsize,
     signal: Arc<Signal>,
     #[cfg(feature = "runtime-evidence")]
     evidence: Option<crate::diagnostics::evidence::Emitter>,
@@ -60,6 +64,7 @@ impl WaitHub {
         Self {
             capacity,
             state: Mutex::default(),
+            pending: AtomicUsize::new(0),
             signal,
             #[cfg(feature = "runtime-evidence")]
             evidence,
@@ -112,6 +117,7 @@ impl WaitHub {
         hub.slots.remove(&token);
         hub.ready.retain(|notice| notice.token != token);
         let _depth = hub.ready.len();
+        self.pending.store(_depth, Ordering::Release);
         #[cfg(feature = "runtime-evidence")]
         if _depth != _previous {
             self.record_depth(_depth);
@@ -147,6 +153,7 @@ impl WaitHub {
         slot.selected = true;
         // Each queued notice owns a distinct reserved slot, so ready <= slots <= capacity.
         hub.ready.push_back(notice);
+        self.pending.fetch_add(1, Ordering::Release);
         let _depth = hub.ready.len();
         #[cfg(feature = "runtime-evidence")]
         self.record_depth(_depth);
@@ -155,8 +162,12 @@ impl WaitHub {
     }
 
     pub(crate) fn pop_wake(&self) -> Option<WakeNotice> {
+        if self.pending.load(Ordering::Acquire) == 0 {
+            return None;
+        }
         let mut hub = lock(&self.state);
         let notice = hub.ready.pop_front()?;
+        self.pending.fetch_sub(1, Ordering::Release);
         hub.slots.remove(&notice.token);
         let _depth = hub.ready.len();
         #[cfg(feature = "runtime-evidence")]
@@ -166,7 +177,7 @@ impl WaitHub {
     }
 
     pub(crate) fn pending(&self) -> usize {
-        lock(&self.state).ready.len()
+        self.pending.load(Ordering::Acquire)
     }
 
     pub(crate) fn pending_tasks(&self) -> Vec<crate::TaskId> {
