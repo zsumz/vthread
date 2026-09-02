@@ -2,8 +2,11 @@
 
 #[path = "kind.rs"]
 mod kind;
-pub use kind::{
-    EvidenceWakeCause, QueueKind, RuntimeEventKind, StackDisposition, TaskOutcome, TimerRetirement,
+#[path = "kind_types.rs"]
+mod kind_types;
+pub use kind::RuntimeEventKind;
+pub use kind_types::{
+    EvidenceWakeCause, QueueKind, StackDisposition, TaskOutcome, TimerRetirement, WakeOrigin,
     WakeRejection,
 };
 

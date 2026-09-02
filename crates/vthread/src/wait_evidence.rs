@@ -12,29 +12,26 @@ pub(super) enum SelectionRejection {
 }
 
 impl WaitRegistration {
-    pub(super) fn record_offered(&self, token: ParkToken, cause: WakeCause) {
-        #[cfg(feature = "runtime-evidence")]
-        if let (Some(evidence), Some(task)) = (&self.evidence, self.task) {
-            evidence.record(
-                crate::diagnostics::evidence::RuntimeEventKind::WakeOffered {
-                    task,
-                    wait: crate::diagnostics::evidence::WaitKey::from_token(token),
-                    cause: cause.evidence(),
-                },
-            );
-        }
-        #[cfg(not(feature = "runtime-evidence"))]
-        let _ = (token, cause);
-    }
-
     pub(super) fn record_selected(&self, token: ParkToken, cause: WakeCause) {
         #[cfg(feature = "runtime-evidence")]
         if let (Some(evidence), Some(task)) = (&self.evidence, self.task) {
+            let wait = crate::diagnostics::evidence::WaitKey::from_token(token);
+            let cause = cause.evidence();
+            let origin = wake_origin();
+            evidence.record(
+                crate::diagnostics::evidence::RuntimeEventKind::WakeOffered {
+                    task,
+                    wait,
+                    cause,
+                    origin,
+                },
+            );
             evidence.record(
                 crate::diagnostics::evidence::RuntimeEventKind::WakeSelected {
                     task,
-                    wait: crate::diagnostics::evidence::WaitKey::from_token(token),
-                    cause: cause.evidence(),
+                    wait,
+                    cause,
+                    origin,
                 },
             );
         }
@@ -50,7 +47,6 @@ impl WaitRegistration {
     ) {
         #[cfg(feature = "runtime-evidence")]
         {
-            self.record_offered(token, cause);
             let reason = match rejection {
                 SelectionRejection::NoWait => crate::diagnostics::evidence::WakeRejection::NoWait,
                 SelectionRejection::NoActive => {
@@ -64,11 +60,23 @@ impl WaitRegistration {
                 }
             };
             if let (Some(evidence), Some(task)) = (&self.evidence, self.task) {
+                let wait = crate::diagnostics::evidence::WaitKey::from_token(token);
+                let cause = cause.evidence();
+                let origin = wake_origin();
+                evidence.record(
+                    crate::diagnostics::evidence::RuntimeEventKind::WakeOffered {
+                        task,
+                        wait,
+                        cause,
+                        origin,
+                    },
+                );
                 evidence.record(
                     crate::diagnostics::evidence::RuntimeEventKind::WakeRejected {
                         task,
-                        wait: crate::diagnostics::evidence::WaitKey::from_token(token),
-                        cause: cause.evidence(),
+                        wait,
+                        cause,
+                        origin,
                         reason,
                     },
                 );
@@ -84,11 +92,13 @@ pub(super) fn record_current(active: &ActiveWait, cause: WakeCause) {
     if let Some(evidence) = &active.evidence {
         let wait = crate::diagnostics::evidence::WaitKey::from_token(active.token);
         let cause = cause.evidence();
+        let origin = wake_origin();
         evidence.record(
             crate::diagnostics::evidence::RuntimeEventKind::WakeOffered {
                 task: active.task,
                 wait,
                 cause,
+                origin,
             },
         );
         evidence.record(
@@ -96,11 +106,20 @@ pub(super) fn record_current(active: &ActiveWait, cause: WakeCause) {
                 task: active.task,
                 wait,
                 cause,
+                origin,
             },
         );
     }
     #[cfg(not(feature = "runtime-evidence"))]
     let _ = (active, cause);
+}
+
+#[cfg(feature = "runtime-evidence")]
+fn wake_origin() -> crate::diagnostics::evidence::WakeOrigin {
+    crate::worker_context::current_carrier().map_or(
+        crate::diagnostics::evidence::WakeOrigin::External,
+        crate::diagnostics::evidence::WakeOrigin::Carrier,
+    )
 }
 
 #[cfg(test)]

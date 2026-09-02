@@ -1,5 +1,5 @@
 use super::{GenerationSource, ProbeWakeResult, probe_pair};
-use crate::diagnostics::evidence::{RuntimeEventKind, WakeRejection};
+use crate::diagnostics::evidence::{RuntimeEventKind, WakeOrigin, WakeRejection};
 
 fn next(source: &GenerationSource) -> super::GenerationWake {
     for _ in 0..10_000 {
@@ -95,20 +95,26 @@ fn retired_generation_is_rejected_after_parker_moves_to_a_new_task() {
         .unwrap();
     runtime.shutdown().unwrap();
 
-    core::assert_ne!(first_task, second_task);
+    core::assert!(first_task != second_task);
     let events = evidence.drain();
     core::assert!(events.iter().any(|event| core::matches!(
         event.kind(),
         RuntimeEventKind::WakeRejected {
             task,
             wait,
+            origin: WakeOrigin::External,
             reason: WakeRejection::RetiredGeneration,
             ..
         } if task == first_task && wait == first_wait
     )));
     core::assert!(events.iter().any(|event| core::matches!(
         event.kind(),
-        RuntimeEventKind::WakeSelected { task, wait, .. }
+        RuntimeEventKind::WakeSelected {
+            task,
+            wait,
+            origin: WakeOrigin::External,
+            ..
+        }
             if task == second_task && wait == second_wait
     )));
     core::assert!(evidence.status().is_complete());

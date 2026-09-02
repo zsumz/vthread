@@ -10,6 +10,19 @@ fn managed_role_is_confined_to_its_thread() {
     assert!(!super::is_managed());
 }
 
+#[cfg(feature = "runtime-evidence")]
+#[test]
+fn carrier_identity_is_confined_to_its_thread() {
+    core::assert_eq!(super::current_carrier(), None);
+    std::thread::spawn(|| {
+        super::set_carrier(crate::CarrierId(3));
+        core::assert_eq!(super::current_carrier(), Some(crate::CarrierId(3)));
+    })
+    .join()
+    .unwrap();
+    core::assert_eq!(super::current_carrier(), None);
+}
+
 #[test]
 fn nested_payload_panics_fail_the_owner_on_task_native_and_task_local_paths() {
     struct Secondary;

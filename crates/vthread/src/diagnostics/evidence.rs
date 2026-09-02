@@ -9,7 +9,7 @@ mod event;
 pub(crate) use emitter::Emitter;
 pub use event::{
     EventSequence, EvidenceWakeCause, QueueKind, RuntimeEvent, RuntimeEventKind, StackDisposition,
-    StackId, TaskOutcome, TimerRetirement, WaitKey, WakeRejection,
+    StackId, TaskOutcome, TimerRetirement, WaitKey, WakeOrigin, WakeRejection,
 };
 
 use std::sync::{
@@ -56,6 +56,8 @@ impl EvidenceCapabilities {
     pub const CARRIER_AFFINITY: Self = Self(1 << 9);
     /// A generation-bound stale-wake probe is compiled in.
     pub const STALE_WAKE_PROBE: Self = Self(1 << 10);
+    /// Every wake offer identifies its carrier or external origin.
+    pub const WAKE_ORIGINS: Self = Self(1 << 11);
 
     fn runtime() -> Self {
         let base = Self::TOTAL_ORDER.0
@@ -67,7 +69,8 @@ impl EvidenceCapabilities {
             | Self::TIMER_LIFECYCLE.0
             | Self::QUEUE_DEPTHS.0
             | Self::SHUTDOWN_LIFECYCLE.0
-            | Self::CARRIER_AFFINITY.0;
+            | Self::CARRIER_AFFINITY.0
+            | Self::WAKE_ORIGINS.0;
         #[cfg(feature = "qualification")]
         let base = base | Self::STALE_WAKE_PROBE.0;
         Self(base)

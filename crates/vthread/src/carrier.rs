@@ -8,6 +8,8 @@ use std::{
 };
 
 pub(crate) fn run(shared: Arc<Shared>, id: CarrierId) {
+    #[cfg(feature = "runtime-evidence")]
+    crate::worker_context::set_carrier(id);
     // A cleanup fault must retain affine stacks rather than run fallible field drops
     // during unwinding. Such stacks are never resumed and remain allocated until exit.
     let mut kernel = ManuallyDrop::new(Box::new(Kernel::new(Arc::clone(&shared), id)));

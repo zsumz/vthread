@@ -37,12 +37,13 @@ fn capabilities_include_exact_wait_and_stack_evidence() {
             .contains(EvidenceCapabilities::TOTAL_ORDER | EvidenceCapabilities::WAIT_GENERATIONS)
     );
     core::assert!(capabilities.contains(EvidenceCapabilities::STACK_IDENTITIES));
+    core::assert!(capabilities.contains(EvidenceCapabilities::WAKE_ORIGINS));
     core::assert_eq!(stream.schema_version(), 1);
 }
 
 #[test]
 fn runtime_stream_covers_one_complete_timed_task_lifetime() {
-    use super::{EvidenceWakeCause, RuntimeEventKind, TaskOutcome};
+    use super::{EvidenceWakeCause, RuntimeEventKind, TaskOutcome, WakeOrigin};
 
     let runtime = crate::Runtime::builder()
         .evidence_capacity(1024)
@@ -80,6 +81,7 @@ fn runtime_stream_covers_one_complete_timed_task_lifetime() {
         RuntimeEventKind::WakeSelected {
             task: id,
             cause: EvidenceWakeCause::TimedOut,
+            origin: WakeOrigin::Carrier(_),
             ..
         } if *id == task
     )));

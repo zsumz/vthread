@@ -166,7 +166,6 @@ fn select_generation(
             registration.record_rejected(token, cause, SelectionRejection::Selected);
             return false;
         }
-        registration.record_offered(token, cause);
         registration.record_selected(token, cause);
         let dispatch = (active.token, active.task, active.hub.clone());
         state.selected = Some(cause);

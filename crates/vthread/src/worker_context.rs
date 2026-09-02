@@ -9,6 +9,8 @@ use std::{
 thread_local! {
     static MANAGED: Cell<bool> = const { Cell::new(false) };
     static OWNER: RefCell<Option<(Weak<Shared>, ThreadComponent)>> = const { RefCell::new(None) };
+    #[cfg(feature = "runtime-evidence")]
+    static CARRIER: Cell<Option<crate::CarrierId>> = const { Cell::new(None) };
 }
 
 pub(crate) fn enter() {
@@ -44,6 +46,16 @@ pub(crate) fn payload_failure(panic: PanicReport) {
 pub(crate) fn is_managed() -> bool {
     // During OS TLS destruction it is too late to safely start a blocking teardown.
     MANAGED.try_with(Cell::get).unwrap_or(true)
+}
+
+#[cfg(feature = "runtime-evidence")]
+pub(crate) fn set_carrier(id: crate::CarrierId) {
+    CARRIER.with(|carrier| carrier.set(Some(id)));
+}
+
+#[cfg(feature = "runtime-evidence")]
+pub(crate) fn current_carrier() -> Option<crate::CarrierId> {
+    CARRIER.try_with(Cell::get).ok().flatten()
 }
 
 #[cfg(test)]
