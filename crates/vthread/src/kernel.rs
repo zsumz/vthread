@@ -15,7 +15,7 @@ mod kernel_task;
 
 use crate::{
     CarrierId, CarrierSnapshot, CarrierStatus, RuntimeStats, StackSnapshot,
-    control::{CompletionUpdate, Shared},
+    control::{CompletionBatch, CompletionUpdate, Shared},
     inbox::{Inbox, SpawnPacket},
     kernel_tasks::{KernelTasks, TaskMut, TaskRef},
     task_slab::TaskKey,
@@ -45,7 +45,8 @@ pub(crate) struct Kernel {
     pub(super) pending: Option<SpawnPacket>,
     pub(super) incoming: VecDeque<SpawnPacket>,
     remote_pending: bool,
-    pub(super) completions: Vec<CompletionUpdate>,
+    pub(super) completions: CompletionBatch,
+    completion_progress: Option<(u64, Arc<crate::control::ScopeProgress>)>,
     execution_cache: Vec<Rc<Execution>>,
     pub(crate) local: Rc<LocalCarrier>,
     pub(super) timers: TimerQueue,
@@ -76,7 +77,8 @@ impl Kernel {
             pending: None,
             incoming: VecDeque::new(),
             remote_pending: false,
-            completions: Vec::with_capacity(COMPLETION_BATCH),
+            completions: CompletionBatch::new(),
+            completion_progress: None,
             execution_cache: Vec::new(),
             local: Rc::new(LocalCarrier::new(config)),
             timers: TimerQueue::new(),
@@ -119,10 +121,21 @@ impl Kernel {
     pub(super) fn queue_completion(&mut self, completion: CompletionUpdate) {
         assert!(
             self.completions
-                .first()
-                .is_none_or(|queued| queued.scope == completion.scope),
+                .scope()
+                .is_none_or(|queued| queued == completion.scope),
             "completion batch crossed scope ownership"
         );
+        if self
+            .completion_progress
+            .as_ref()
+            .is_none_or(|(scope, _)| *scope != completion.scope)
+        {
+            assert!(self.completions.is_empty(), "live completion scope changed");
+            self.completion_progress = Some((
+                completion.scope,
+                self.shared.scope_progress(completion.scope),
+            ));
+        }
         self.completions.push(completion);
         if self.completions.len() == COMPLETION_BATCH || !self.shared.may_defer_completion() {
             self.flush_completions();
@@ -130,7 +143,14 @@ impl Kernel {
     }
 
     pub(super) fn flush_completions(&mut self) {
-        self.shared.publish_completions(&self.completions);
+        if self.completions.is_empty() {
+            return;
+        }
+        let (_, progress) = self
+            .completion_progress
+            .as_ref()
+            .expect("completion scope progress");
+        self.shared.publish_completions(&self.completions, progress);
         self.completions.clear();
     }
 

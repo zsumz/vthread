@@ -31,13 +31,13 @@ fn transition_notifies_and_counts_enabled_stall_detection() {
         .reserve(scope, "observed transition".into(), None)
         .unwrap();
     let observed_signal = shared.changed.version();
-    let observed_activity = lock(&shared.state).scopes[&scope].activity;
+    let observed_activity = lock(&shared.state).scopes[&scope].progress.activity();
 
     shared.transition(&record, |task| task.status = TaskStatus::Running);
 
     assert!(shared.changed.version() > observed_signal);
     assert_eq!(
-        lock(&shared.state).scopes[&scope].activity,
+        lock(&shared.state).scopes[&scope].progress.activity(),
         observed_activity + 1
     );
     shared.complete(&record, None);

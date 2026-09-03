@@ -12,12 +12,83 @@ pub(crate) struct CompletionUpdate {
     pub(crate) status: TaskStatus,
 }
 
+pub(crate) struct CompletionBatch {
+    first: Option<CompletionUpdate>,
+    len: usize,
+    completed: u64,
+    panicked: u64,
+    aborted: u64,
+    failed_tasks: Vec<crate::TaskId>,
+}
+
+impl CompletionBatch {
+    pub(crate) const fn new() -> Self {
+        Self {
+            first: None,
+            len: 0,
+            completed: 0,
+            panicked: 0,
+            aborted: 0,
+            failed_tasks: Vec::new(),
+        }
+    }
+
+    pub(crate) fn push(&mut self, completion: CompletionUpdate) {
+        if let Some(first) = self.first {
+            assert_eq!(completion.scope, first.scope, "completion batch scope");
+            assert_eq!(
+                completion.carrier, first.carrier,
+                "completion batch carrier"
+            );
+        } else {
+            self.first = Some(completion);
+        }
+        self.len += 1;
+        match completion.status {
+            TaskStatus::Completed => self.completed += 1,
+            TaskStatus::Panicked => {
+                self.panicked += 1;
+                self.failed_tasks.push(completion.id);
+            }
+            TaskStatus::Aborted => {
+                self.aborted += 1;
+                self.failed_tasks.push(completion.id);
+            }
+            _ => panic!("completion batch contained a live task"),
+        }
+    }
+
+    pub(crate) fn scope(&self) -> Option<u64> {
+        self.first.map(|completion| completion.scope)
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.len
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.first = None;
+        self.len = 0;
+        self.completed = 0;
+        self.panicked = 0;
+        self.aborted = 0;
+        self.failed_tasks.clear();
+    }
+}
+
 impl Shared {
     pub(crate) fn complete(&self, record: &SharedTaskRecord, failure: Option<TaskFailure>) {
         let Some(completion) = self.prepare_completion(record, failure) else {
             return;
         };
-        self.publish_completions(std::slice::from_ref(&completion));
+        let mut batch = CompletionBatch::new();
+        let progress = self.scope_progress(completion.scope);
+        batch.push(completion);
+        self.publish_completions(&batch, &progress);
     }
 
     pub(crate) fn prepare_completion(
@@ -58,38 +129,29 @@ impl Shared {
         Some(completion)
     }
 
-    pub(crate) fn publish_completions(&self, completions: &[CompletionUpdate]) {
-        if completions.is_empty() {
+    pub(crate) fn publish_completions(
+        &self,
+        completions: &CompletionBatch,
+        progress: &super::ScopeProgress,
+    ) {
+        let Some(first) = completions.first else {
             return;
-        }
+        };
+        let stall_detection = self.config.stall_policy().timeout().is_some();
         #[cfg(feature = "lifecycle-profiling")]
         let completion_started = std::time::Instant::now();
-        let mut state = lock(&self.state);
-        let mut scope_drained = false;
-        for completion in completions {
-            if let Some(scope) = state.scopes.get_mut(&completion.scope) {
-                scope.active -= 1;
-                scope_drained |= scope.active == 0;
-                scope.activity = scope.activity.wrapping_add(1);
-                match completion.status {
-                    TaskStatus::Aborted => {
-                        scope.aborted += 1;
-                        scope.failed_tasks.push(completion.id);
-                    }
-                    TaskStatus::Panicked => {
-                        scope.panicked += 1;
-                        scope.failed_tasks.push(completion.id);
-                    }
-                    _ => scope.completed += 1,
-                }
-            }
-            state.active -= 1;
-            state.loads[completion.carrier.0] -= 1;
-        }
-        let notify = scope_drained
-            || state.active == 0
-            || self.target_waiters.load(Ordering::SeqCst) != 0
-            || self.config.stall_policy().timeout().is_some();
+        let state = stall_detection.then(|| lock(&self.state));
+        let scope_drained = progress.retire(
+            completions.len(),
+            completions.completed,
+            completions.panicked,
+            completions.aborted,
+            &completions.failed_tasks,
+            stall_detection,
+        );
+        self.inboxes[first.carrier.0].retire_tasks(completions.len());
+        let notify =
+            scope_drained || self.target_waiters.load(Ordering::SeqCst) != 0 || stall_detection;
         drop(state);
         #[cfg(feature = "lifecycle-profiling")]
         self.lifecycle_probe

@@ -79,7 +79,9 @@ impl Shared {
                     }
                     !remove
                 });
-                scope.failed_tasks.retain(|task| !reclaimed.contains(task));
+                scope
+                    .progress
+                    .retain_failed_tasks(|task| !reclaimed.contains(&task));
             }
             state.record_count -= reclaimed.len();
         }
@@ -101,10 +103,12 @@ impl Shared {
             }
             Some(carrier.0)
         } else {
-            (0..self.inboxes.len())
-                .map(|offset| (state.cursor + offset) % self.inboxes.len())
-                .filter(|index| self.inboxes[*index].can_accept())
-                .min_by_key(|index| state.loads[*index])
+            let cursor = state.cursor;
+            state.loads.select(
+                cursor,
+                |index| self.inboxes[index].retired_tasks(),
+                |index| self.inboxes[index].can_accept(),
+            )
         };
         let Some(owner) = owner else {
             state.rejected += 1;
@@ -150,16 +154,21 @@ impl Shared {
             Arc::new(TaskCell::new(task, self.config.max_vthreads()))
         };
         state.record_count += 1;
-        state.active += 1;
-        state.loads[owner] += 1;
+        state.loads.increment(owner);
         state.admitted += 1;
         if let Some(scope) = state.scopes.get_mut(&scope) {
             scope.records.push(ScopeRecord {
                 id,
                 record: Arc::clone(&record),
             });
-            scope.active += 1;
-            scope.activity = scope.activity.wrapping_add(1);
+            scope.admitted = scope
+                .admitted
+                .checked_add(1)
+                .expect("scope admission count overflow");
+            scope.progress.publish_admitted(
+                scope.admitted,
+                self.config.stall_policy().timeout().is_some(),
+            );
         }
         state.cursor = (owner + 1) % self.inboxes.len();
         drop(state);
@@ -173,8 +182,7 @@ impl Shared {
         let mut state = lock(&self.state);
         let record = record.lock();
         state.record_count -= 1;
-        state.active -= 1;
-        state.loads[record.carrier.0] -= 1;
+        state.loads.decrement(record.carrier.0);
         state.admitted -= 1;
         state.rejected += 1;
         if let Some(scope) = state.scopes.get_mut(&record.scope) {
@@ -183,8 +191,11 @@ impl Shared {
                 .binary_search_by_key(&record.id, |entry| entry.id)
                 .expect("reserved task belongs to its scope");
             scope.records.remove(index);
-            scope.active -= 1;
-            scope.activity = scope.activity.wrapping_add(1);
+            scope.admitted -= 1;
+            scope.progress.publish_admitted(
+                scope.admitted,
+                self.config.stall_policy().timeout().is_some(),
+            );
         }
         drop(record);
         drop(state);

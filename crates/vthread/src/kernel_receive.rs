@@ -7,6 +7,10 @@ use vthread_stack::Fiber;
 
 const REMOTE_READY_TARGET: usize = 64;
 const REMOTE_ADMISSION_YIELD_BOUND: u32 = 65_536;
+// Bridge short multi-carrier admission gaps without turning an idle carrier into a poller.
+// The carrier performs at most 640 pause instructions before entering the signal wait.
+const IDLE_SIGNAL_PROBES: usize = 80;
+const SPINS_PER_SIGNAL_PROBE: usize = 8;
 
 impl Kernel {
     pub(crate) fn receive(&mut self) -> bool {
@@ -145,6 +149,19 @@ impl Kernel {
             self.stats.timer_sleeps += 1;
         }
         self.publish(CarrierStatus::Idle);
+        if self.inbox.pending() != 0 {
+            return;
+        }
+        if deadline.is_none() && self.shared.config.carriers() > 1 {
+            for _ in 0..IDLE_SIGNAL_PROBES {
+                for _ in 0..SPINS_PER_SIGNAL_PROBE {
+                    std::hint::spin_loop();
+                }
+                if self.inbox.pending() != 0 || self.inbox.signal.version() != observed {
+                    return;
+                }
+            }
+        }
         self.inbox.signal.wait(observed, deadline);
     }
 }

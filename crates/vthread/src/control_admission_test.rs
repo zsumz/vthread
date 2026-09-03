@@ -27,6 +27,38 @@ fn placement_rotates_between_equal_loads_and_respects_queue_capacity() {
 }
 
 #[test]
+fn placement_observes_retirement_within_one_carrier_cycle() {
+    let config = Runtime::builder()
+        .carriers(3)
+        .carrier_queue_capacity(4)
+        .build()
+        .expect("config")
+        .config();
+    let shared = Shared::new(config);
+    let scope = shared.begin_scope().expect("scope");
+    let first = shared.reserve(scope, "first".into(), None).unwrap();
+    let second = shared.reserve(scope, "second".into(), None).unwrap();
+    let third = shared.reserve(scope, "third".into(), None).unwrap();
+
+    assert_eq!(first.lock().carrier, CarrierId(0));
+    assert_eq!(second.lock().carrier, CarrierId(1));
+    assert_eq!(third.lock().carrier, CarrierId(2));
+
+    shared.complete(&second, None);
+    let bounded_lag = shared.reserve(scope, "bounded lag".into(), None).unwrap();
+    let replacement = shared
+        .reserve(scope, "retired carrier".into(), None)
+        .unwrap();
+    assert_eq!(replacement.lock().carrier, CarrierId(1));
+
+    shared.complete(&first, None);
+    shared.complete(&third, None);
+    shared.complete(&bounded_lag, None);
+    shared.complete(&replacement, None);
+    shared.finish_scope(scope);
+}
+
+#[test]
 fn completed_unobserved_records_are_bounded_and_join_restores_capacity() {
     let runtime = Runtime::builder()
         .max_vthreads(1)

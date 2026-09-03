@@ -1,6 +1,12 @@
 //! Carrier-local stackful fiber wrapper.
 
-use std::{cell::Cell, error::Error, fmt, ptr, time::Instant};
+use std::{
+    cell::Cell,
+    error::Error,
+    fmt,
+    ptr::{self, NonNull},
+    time::Instant,
+};
 
 use corosensei::{Coroutine, CoroutineResult, Yielder, stack::DefaultStack};
 
@@ -106,7 +112,7 @@ thread_local! {
 /// ```
 pub struct Fiber {
     coroutine: Option<Coroutine<Resume, Suspension, ()>>,
-    yielder: *const RawYielder,
+    yielder: NonNull<RawYielder>,
 }
 
 impl Fiber {
@@ -131,7 +137,15 @@ impl Fiber {
         };
         Self {
             coroutine: Some(coroutine),
-            yielder: ptr::null(),
+            yielder: NonNull::dangling(),
+        }
+    }
+
+    fn mounted_yielder(&self) -> *const RawYielder {
+        if self.yielder == NonNull::dangling() {
+            ptr::null()
+        } else {
+            self.yielder.as_ptr()
         }
     }
 
@@ -146,7 +160,7 @@ impl Fiber {
     pub fn resume_with(&mut self, resume: Resume) -> FiberState {
         // Reject the transition before a panic hook can observe a stale mount.
         assert!(!self.is_complete(), "a completed fiber cannot be resumed");
-        let _mount = MountGuard::install(self.yielder);
+        let _mount = MountGuard::install(self.mounted_yielder());
         let coroutine = self
             .coroutine
             .as_mut()
@@ -156,14 +170,15 @@ impl Fiber {
             CoroutineResult::Return(()) => FiberState::Complete,
         };
         match &state {
-            FiberState::Suspended(_) if self.yielder.is_null() => {
+            FiberState::Suspended(_) if self.yielder == NonNull::dangling() => {
                 // The yielder lives on this coroutine's owned stack. Its entry
                 // installed the pointer before the first possible suspension.
-                self.yielder = CURRENT_YIELDER.with(Cell::get);
-                assert!(!self.yielder.is_null(), "suspended fiber has no yielder");
+                let yielder = CURRENT_YIELDER.with(Cell::get);
+                self.yielder =
+                    NonNull::new(yielder.cast_mut()).expect("suspended fiber has no yielder");
             }
             FiberState::Suspended(_) => {}
-            FiberState::Complete => self.yielder = ptr::null(),
+            FiberState::Complete => self.yielder = NonNull::dangling(),
         }
         state
     }
@@ -193,7 +208,7 @@ impl Fiber {
 
 impl Drop for Fiber {
     fn drop(&mut self) {
-        let _mount = MountGuard::install(self.yielder);
+        let _mount = MountGuard::install(self.mounted_yielder());
         drop(self.coroutine.take());
     }
 }

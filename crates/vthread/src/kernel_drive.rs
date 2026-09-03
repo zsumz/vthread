@@ -37,8 +37,8 @@ impl Kernel {
         let scope = self.task(task_key).execution().scope();
         if self
             .completions
-            .first()
-            .is_some_and(|completion| completion.scope != scope)
+            .scope()
+            .is_some_and(|completion_scope| completion_scope != scope)
         {
             self.flush_completions();
         }

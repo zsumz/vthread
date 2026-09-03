@@ -48,13 +48,19 @@ impl Shared {
         loop {
             let observed = self.changed.version();
             let mut state = lock(&self.state);
-            let current_activity = state.scopes.get(&scope).map(|scope| scope.activity);
+            let current_activity = state
+                .scopes
+                .get(&scope)
+                .map(|scope| scope.progress.activity());
             if activity != current_activity {
                 quiescent_since = None;
                 reported = false;
                 activity = current_activity;
             }
-            let active = state.scopes.get(&scope).map_or(0, |scope| scope.active);
+            let active = state
+                .scopes
+                .get(&scope)
+                .map_or(0, |scope| scope.progress.active());
             let mut quiescent = true;
             let mut target_done = target.is_none();
             if self.config.stall_policy().timeout().is_some() {

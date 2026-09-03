@@ -32,6 +32,40 @@ fn completion_notifications_are_coalesced_until_scope_drains() {
 }
 
 #[test]
+fn completion_batch_retires_scope_and_carrier_load_together() {
+    let config = Runtime::builder()
+        .carriers(1)
+        .build()
+        .expect("config")
+        .config();
+    let shared = Shared::new(config);
+    let scope = shared.begin_scope().unwrap();
+    let records = (0..3)
+        .map(|index| {
+            shared
+                .reserve(scope, format!("task {index}"), None)
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let mut completions = super::CompletionBatch::new();
+    for record in &records {
+        completions.push(shared.prepare_completion(record, None).unwrap());
+    }
+
+    let progress = shared.scope_progress(scope);
+    shared.publish_completions(&completions, &progress);
+
+    let snapshot = shared.snapshot();
+    assert_eq!(snapshot.active, 0);
+    assert_eq!(snapshot.carriers[0].active, 0);
+    let report = shared.scope_report(scope);
+    assert_eq!(report.completed, 3);
+    assert_eq!(report.panicked, 0);
+    assert_eq!(report.aborted, 0);
+    shared.finish_scope(scope);
+}
+
+#[test]
 fn target_waiter_is_notified_before_its_scope_drains() {
     let shared = Arc::new(Shared::new(RuntimeConfig::default()));
     let scope = shared.begin_scope().unwrap();
