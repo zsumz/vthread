@@ -4,6 +4,9 @@ version = "0.0.0"
 edition = "2024"
 publish = false
 
+[features]
+allocation-probe = []
+
 [dependencies]
 may = "=0.3.51"
 vthread = { path = "../crates/vthread" }
