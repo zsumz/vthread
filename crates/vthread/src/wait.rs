@@ -74,13 +74,23 @@ pub(crate) struct WaitCell {
     state: Arc<Mutex<WaitState>>,
 }
 
-pub(crate) struct ParkGuard {
-    wait: WaitCell,
+pub(crate) struct ParkGuard<'a> {
+    wait: &'a WaitCell,
     token: ParkToken,
+    armed: bool,
 }
-impl Drop for ParkGuard {
+
+impl ParkGuard<'_> {
+    #[inline]
+    pub(crate) fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+impl Drop for ParkGuard<'_> {
     fn drop(&mut self) {
-        self.wait.rollback(self.token);
+        if self.armed {
+            self.wait.rollback(self.token);
+        }
     }
 }
 
@@ -98,6 +108,14 @@ struct ActiveWait {
     evidence: Option<crate::diagnostics::evidence::Emitter>,
 }
 
+impl Drop for ActiveWait {
+    fn drop(&mut self) {
+        if let Some(hub) = self.hub.upgrade() {
+            hub.release();
+        }
+    }
+}
+
 pub(crate) struct WaitState {
     id: u64,
     generation: u64,
@@ -108,15 +126,31 @@ pub(crate) struct WaitState {
 }
 
 impl WaitCell {
-    pub(crate) fn guard(&self, token: ParkToken) -> ParkGuard {
+    pub(crate) fn guard(&self, token: ParkToken) -> ParkGuard<'_> {
         ParkGuard {
-            wait: self.clone(),
+            wait: self,
             token,
+            armed: true,
         }
     }
 
     pub(crate) fn identity(&self) -> u64 {
         lock(&self.state).id
+    }
+
+    #[inline]
+    pub(crate) fn same_cell(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.state, &other.state)
+    }
+
+    pub(crate) fn recycle(&self) -> bool {
+        let mut state = lock(&self.state);
+        if state.closed || state.active.is_some() {
+            return false;
+        }
+        state.permit = false;
+        state.selected = None;
+        true
     }
 
     pub(crate) fn registration(&self) -> WaitRegistration {
@@ -178,6 +212,7 @@ impl WaitCell {
         ))?;
         state.generation = generation;
         let token = ParkToken::new(state.id, generation);
+        hub.reserve()?;
         state.active = Some(ActiveWait {
             token,
             task,
@@ -186,11 +221,6 @@ impl WaitCell {
             evidence: hub.evidence(),
         });
         state.selected = None;
-        if let Err(error) = hub.register(token, Arc::downgrade(&self.state), task) {
-            state.active = None;
-            state.selected = None;
-            return Err(error);
-        }
         #[cfg(feature = "runtime-evidence")]
         hub.record(
             crate::diagnostics::evidence::RuntimeEventKind::WaitPublished {
@@ -251,7 +281,8 @@ impl WaitCell {
             hub
         };
         if let Some(hub) = hub {
-            hub.unregister(token);
+            crate::context::unregister_local_wake(&hub, token);
+            hub.discard_notice(token);
         }
     }
 }

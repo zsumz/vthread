@@ -125,7 +125,7 @@ impl Shared {
         let _ = evidence;
         let id = crate::identity::RuntimeId::next();
         #[cfg(feature = "runtime-evidence")]
-        let inboxes = (0..config.carriers())
+        let inboxes: Vec<Arc<Inbox>> = (0..config.carriers())
             .map(|index| {
                 let inbox = evidence.as_ref().map_or_else(
                     || Inbox::new(config.carrier_queue_capacity(), config.max_vthreads()),
@@ -145,7 +145,7 @@ impl Shared {
             })
             .collect();
         #[cfg(not(feature = "runtime-evidence"))]
-        let inboxes = (0..config.carriers())
+        let inboxes: Vec<Arc<Inbox>> = (0..config.carriers())
             .map(|_| {
                 Arc::new(Inbox::new(
                     config.carrier_queue_capacity(),

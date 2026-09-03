@@ -1,10 +1,10 @@
 //! Scoped diagnostic reasons for virtual synchronization waits.
 
-use crate::{Error, Parker, Result, SuspensionReason, context, task_context::TaskContext};
+use crate::{Error, Parker, Result, SuspensionReason, context};
 use std::rc::Rc;
 
 pub(crate) struct Wait {
-    data: Rc<TaskContext>,
+    execution: Rc<context::Execution>,
     previous: SuspensionReason,
 }
 
@@ -12,23 +12,22 @@ impl Wait {
     pub(crate) fn enter(reason: SuspensionReason) -> Result<Self> {
         let mounted = context::current().ok_or(Error::OutsideVThread)?;
         let execution = mounted.execution()?;
-        let data = Rc::clone(&execution.data);
-        data.check()?;
+        execution.data.check()?;
         Ok(Self {
-            previous: data.replace_reason(reason),
-            data,
+            previous: execution.data.replace_reason(reason),
+            execution: Rc::clone(execution),
         })
     }
 
     pub(crate) fn park(&self, parker: &Parker) -> Result<()> {
-        parker.park()?;
-        self.data.check()
+        parker.park_after_checkpoint(&self.execution)?;
+        self.execution.data.check()
     }
 }
 
 impl Drop for Wait {
     fn drop(&mut self) {
-        self.data.replace_reason(self.previous);
+        self.execution.data.replace_reason(self.previous);
     }
 }
 

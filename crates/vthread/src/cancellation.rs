@@ -1,12 +1,10 @@
 //! Inherited cancellation with live ancestry and bounded generation subscriptions.
 
 use crate::{Error, Result, signal::lock, wait::WaitRegistration};
-use std::{
-    collections::BTreeMap,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
-    },
+use std::collections::BTreeMap;
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use vthread_stack::ParkToken;
 
@@ -152,7 +150,7 @@ impl CancellationToken {
     pub(crate) fn register(
         &self,
         token: ParkToken,
-        wait: WaitRegistration,
+        wait: &WaitRegistration,
     ) -> Result<Subscription> {
         let mut state = lock(&self.0.domain.state);
         if state.waits.len() >= self.0.domain.capacity {

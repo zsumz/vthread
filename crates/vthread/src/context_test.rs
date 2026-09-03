@@ -3,7 +3,7 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
-use crate::{CarrierId, RuntimeConfig, TaskId, control::Shared, kernel::Kernel, wait::WaitHub};
+use crate::{CarrierId, RuntimeConfig, TaskId, control::Shared, kernel::Kernel};
 
 use super::{current, mount};
 
@@ -14,13 +14,12 @@ fn mounted_execution_hot_state_fits_with_its_rc_header_in_one_cache_line() {
 
 #[test]
 fn mounts_restore_the_previous_task() {
-    let hub = Arc::new(WaitHub::new(64, Arc::default()));
     assert!(current().is_none());
     {
-        let _outer = mount(TaskId::new(1), Arc::clone(&hub));
+        let _outer = mount(TaskId::new(1));
         assert_eq!(current().expect("outer task").task_id(), TaskId::new(1));
         {
-            let _inner = mount(TaskId::new(2), Arc::clone(&hub));
+            let _inner = mount(TaskId::new(2));
             assert_eq!(current().expect("inner task").task_id(), TaskId::new(2));
         }
         assert_eq!(current().expect("outer restored").task_id(), TaskId::new(1));
@@ -34,14 +33,12 @@ fn dispatch_mounts_execution_context_and_restores_cleanup_overrides() {
     let scope = shared.begin_scope().expect("scope");
     let expected = Arc::new(AtomicU64::new(0));
     let body_expected = Arc::clone(&expected);
-    let cleanup_hub = Arc::new(WaitHub::new(64, Arc::default()));
-    let body_hub = Arc::clone(&cleanup_hub);
     let spawned = shared
         .submit(scope, "task".into(), move || {
             let expected = TaskId::new(body_expected.load(Ordering::Relaxed));
             assert_eq!(current().expect("running task").task_id(), expected);
             {
-                let _cleanup = mount(TaskId::new(u64::MAX), Arc::clone(&body_hub));
+                let _cleanup = mount(TaskId::new(u64::MAX));
                 assert_eq!(
                     current().expect("cleanup override").task_id(),
                     TaskId::new(u64::MAX)
@@ -61,4 +58,26 @@ fn dispatch_mounts_execution_context_and_restores_cleanup_overrides() {
     assert!(kernel.tick(false).expect("resumed dispatch"));
     assert!(current().is_none());
     assert!(!kernel.tick(false).expect("idle kernel"));
+}
+
+#[test]
+fn one_execution_reuses_its_lazy_readiness_wait() {
+    let runtime = crate::Runtime::new().unwrap();
+    runtime
+        .run_scope(|scope| {
+            scope
+                .spawn("readiness-wait", || {
+                    let mounted = current().unwrap();
+                    let execution = mounted.execution().unwrap();
+                    let first = execution.readiness_parker().unwrap();
+                    let identity = first.wait.identity();
+                    drop(first);
+                    assert_eq!(
+                        execution.readiness_parker().unwrap().wait.identity(),
+                        identity
+                    );
+                })?
+                .join()
+        })
+        .unwrap();
 }

@@ -1,9 +1,9 @@
 use std::{
-    sync::{Arc, Weak},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
-use crate::{Error, TaskId};
+use crate::TaskId;
 
 use super::{NotifyResult, WaitBegin, WaitCell, WaitHub, WakeCause};
 
@@ -28,28 +28,47 @@ fn one_preexisting_permit_is_bounded() {
     assert_eq!(cell.notify(), NotifyResult::Stored);
     assert_eq!(cell.notify(), NotifyResult::Stored);
     assert!(matches!(
-        cell.begin(TaskId::new(1), &hub, None)
+        cell.begin(TaskId::new(1), &hub, None,)
             .expect("consume permit"),
         WaitBegin::Immediate(WakeCause::Ready)
     ));
     assert!(matches!(
-        cell.begin(TaskId::new(1), &hub, None).expect("next wait"),
+        cell.begin(TaskId::new(1), &hub, None,).expect("next wait"),
         WaitBegin::Park(_)
     ));
 }
 
 #[test]
-fn duplicate_registration_does_not_replace_the_original_wait() {
+fn recycled_waits_discard_internal_permits() {
+    let cell = WaitCell::new();
+    let hub = Arc::new(WaitHub::new(1, Arc::default()));
+    assert_eq!(cell.notify(), NotifyResult::Stored);
+    assert!(cell.recycle());
+    let WaitBegin::Park(request) = cell.begin(TaskId::new(1), &hub, None).unwrap() else {
+        panic!("recycled permit leaked into the next owner");
+    };
+    cell.rollback(request.token());
+}
+
+#[test]
+fn dropping_an_active_wait_releases_its_hub_reservation() {
+    let hub = Arc::new(WaitHub::new(1, Arc::default()));
+    let cell = WaitCell::new();
+    let WaitBegin::Park(_request) = cell.begin(TaskId::new(1), &hub, None).unwrap() else {
+        panic!("expected an active wait");
+    };
+    assert_eq!(hub.reserved(), 1);
+    drop(cell);
+    assert_eq!(hub.reserved(), 0);
+}
+
+#[test]
+fn registration_selects_the_original_wait() {
     let cell = WaitCell::new();
     let hub = Arc::new(WaitHub::new(64, Arc::default()));
     let token = parked(&cell, &hub);
 
-    let duplicate = hub
-        .register(token, Weak::new(), TaskId::new(1))
-        .expect_err("duplicate token must be rejected");
-    assert!(matches!(duplicate, Error::Fault(_)));
-
-    let registration = hub.take_registration(token).expect("original registration");
+    let registration = cell.registration();
     assert!(
         registration
             .select_timeout(token)
@@ -66,7 +85,7 @@ fn timeout_wins_one_generation_exactly_once() {
     let cell = WaitCell::new();
     let hub = Arc::new(WaitHub::new(64, Arc::default()));
     let token = parked(&cell, &hub);
-    let registration = hub.take_registration(token).expect("registration");
+    let registration = cell.registration();
 
     assert!(registration.select_timeout(token).expect("select timeout"));
     assert!(
@@ -82,7 +101,7 @@ fn timeout_wins_one_generation_exactly_once() {
         WakeCause::TimedOut
     );
     assert!(matches!(
-        cell.begin(TaskId::new(1), &hub, None)
+        cell.begin(TaskId::new(1), &hub, None,)
             .expect("stored next permit"),
         WaitBegin::Immediate(WakeCause::Ready)
     ));
@@ -93,7 +112,7 @@ fn stale_generation_cannot_select_a_later_wait() {
     let cell = WaitCell::new();
     let hub = Arc::new(WaitHub::new(64, Arc::default()));
     let first = parked(&cell, &hub);
-    let first_registration = hub.take_registration(first).expect("first registration");
+    let first_registration = cell.registration();
     assert_eq!(cell.notify(), NotifyResult::Woke);
     assert_eq!(hub.pop_wake().expect("ready wake").cause, WakeCause::Ready);
     assert_eq!(cell.finish(first).expect("finish first"), WakeCause::Ready);
@@ -114,7 +133,7 @@ fn cancellation_and_close_are_distinct_winners() {
     let cell = WaitCell::new();
     let hub = Arc::new(WaitHub::new(64, Arc::default()));
     let first = parked(&cell, &hub);
-    let _registration = hub.take_registration(first).expect("registration");
+    let _registration = cell.registration();
     assert!(cell.cancel());
     assert_eq!(
         hub.pop_wake().expect("cancel wake").cause,
@@ -126,7 +145,7 @@ fn cancellation_and_close_are_distinct_winners() {
     );
 
     let second = parked(&cell, &hub);
-    let _registration = hub.take_registration(second).expect("registration");
+    let _registration = cell.registration();
     assert!(cell.close());
     assert!(!cell.close());
     assert_eq!(hub.pop_wake().expect("close wake").cause, WakeCause::Closed);

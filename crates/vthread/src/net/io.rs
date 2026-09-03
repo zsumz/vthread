@@ -1,13 +1,39 @@
 //! Retry advisory readiness with fresh, exact-generation registrations.
 
-use crate::{Error, Parker, Result, SuspensionReason, context, sync::wait::Wait, wait::WaitCell};
+use crate::{Error, Result, SuspensionReason, context, sync::wait::Wait};
 use std::{
     io,
-    os::fd::{AsRawFd, BorrowedFd},
+    os::fd::{AsRawFd, BorrowedFd, OwnedFd},
+    sync::{Arc, OnceLock},
 };
 
 // Readiness remains the eventual fallback under a perpetually runnable workload.
 const RUNNABLE_YIELD_LIMIT: usize = 128;
+
+#[derive(Debug, Default)]
+pub(super) struct ReadinessSource {
+    fd: OnceLock<Arc<OwnedFd>>,
+}
+
+impl ReadinessSource {
+    fn acquire(&self, fd: BorrowedFd<'_>) -> Result<Arc<OwnedFd>> {
+        if let Some(owned) = self.fd.get() {
+            return Ok(Arc::clone(owned));
+        }
+        let owned = Arc::new(checked(
+            "duplicate readiness descriptor",
+            fd,
+            fd.try_clone_to_owned(),
+        )?);
+        if self.fd.set(Arc::clone(&owned)).is_ok() {
+            Ok(owned)
+        } else {
+            Ok(Arc::clone(
+                self.fd.get().expect("readiness source initialized"),
+            ))
+        }
+    }
+}
 
 pub(crate) fn checked<T>(
     operation: &'static str,
@@ -39,6 +65,26 @@ pub(super) fn operation<T>(
     fd: BorrowedFd<'_>,
     interest: zio::Interest,
     reason: SuspensionReason,
+    operation: impl FnMut() -> io::Result<T>,
+) -> Result<T> {
+    operation_with_source(fd, None, interest, reason, operation)
+}
+
+pub(super) fn operation_cached<T>(
+    fd: BorrowedFd<'_>,
+    source: &ReadinessSource,
+    interest: zio::Interest,
+    reason: SuspensionReason,
+    operation: impl FnMut() -> io::Result<T>,
+) -> Result<T> {
+    operation_with_source(fd, Some(source), interest, reason, operation)
+}
+
+fn operation_with_source<T>(
+    fd: BorrowedFd<'_>,
+    source: Option<&ReadinessSource>,
+    interest: zio::Interest,
+    reason: SuspensionReason,
     mut operation: impl FnMut() -> io::Result<T>,
 ) -> Result<T> {
     crate::checkpoint()?;
@@ -52,12 +98,13 @@ pub(super) fn operation<T>(
         {
             Err(operation_error(reason, fd, error))
         }
-        Err(error) => retry_operation(fd, interest, reason, operation, error),
+        Err(error) => retry_operation(fd, source, interest, reason, operation, error),
     }
 }
 
 fn retry_operation<T>(
     fd: BorrowedFd<'_>,
+    source: Option<&ReadinessSource>,
     interest: zio::Interest,
     reason: SuspensionReason,
     mut operation: impl FnMut() -> io::Result<T>,
@@ -75,7 +122,7 @@ fn retry_operation<T>(
                 crate::yield_now()?;
             }
             io::ErrorKind::WouldBlock => {
-                wait(fd, interest)?;
+                wait_with_source(fd, source, interest)?;
                 crate::checkpoint()?;
             }
             _ => return Err(operation_error(reason, fd, error)),
@@ -102,6 +149,14 @@ fn operation_error(reason: SuspensionReason, fd: BorrowedFd<'_>, error: io::Erro
 }
 
 pub(super) fn wait(fd: BorrowedFd<'_>, interest: zio::Interest) -> Result<()> {
+    wait_with_source(fd, None, interest)
+}
+
+fn wait_with_source(
+    fd: BorrowedFd<'_>,
+    source: Option<&ReadinessSource>,
+    interest: zio::Interest,
+) -> Result<()> {
     let mounted = context::current().ok_or(Error::OutsideVThread)?;
     let execution = mounted.execution()?;
     let services = execution
@@ -109,10 +164,14 @@ pub(super) fn wait(fd: BorrowedFd<'_>, interest: zio::Interest) -> Result<()> {
         .services
         .get()
         .ok_or(Error::RuntimeStopped)?;
-    let parker = Parker {
-        wait: WaitCell::new(),
-    };
-    parker.park_registered(|token, wake| services.reactor.register(fd, interest, token, wake))?;
+    let parker = execution.readiness_parker()?;
+    let owned = source.map(|source| source.acquire(fd)).transpose()?;
+    parker.park_registered(move |token, wake| match owned {
+        Some(fd) => services
+            .reactor
+            .register_owned(fd, interest, token, wake.clone()),
+        None => services.reactor.register(fd, interest, token, wake.clone()),
+    })?;
     execution.data.check()?;
     services.reactor.check()
 }

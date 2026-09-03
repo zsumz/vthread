@@ -92,9 +92,16 @@ impl Parker {
         self.park_with(deadline, |_, _| Ok(()))
     }
 
+    pub(crate) fn park_after_checkpoint(
+        &self,
+        execution: &crate::context::Execution,
+    ) -> Result<ParkOutcome> {
+        self.park_execution(execution, None, |_, _| Ok(()))
+    }
+
     pub(crate) fn park_registered<G>(
         &self,
-        register: impl FnOnce(vthread_stack::ParkToken, crate::wait::WaitRegistration) -> Result<G>,
+        register: impl FnOnce(vthread_stack::ParkToken, &crate::wait::WaitRegistration) -> Result<G>,
     ) -> Result<ParkOutcome> {
         self.park_with(None, register)
     }
@@ -102,28 +109,34 @@ impl Parker {
     fn park_with<G>(
         &self,
         deadline: Option<Instant>,
-        register: impl FnOnce(vthread_stack::ParkToken, crate::wait::WaitRegistration) -> Result<G>,
+        register: impl FnOnce(vthread_stack::ParkToken, &crate::wait::WaitRegistration) -> Result<G>,
     ) -> Result<ParkOutcome> {
         let mounted = context::current().ok_or(Error::OutsideVThread)?;
         let execution = mounted.execution()?;
         execution.data.check()?;
+        self.park_execution(execution, deadline, register)
+    }
+
+    fn park_execution<G>(
+        &self,
+        execution: &crate::context::Execution,
+        deadline: Option<Instant>,
+        register: impl FnOnce(vthread_stack::ParkToken, &crate::wait::WaitRegistration) -> Result<G>,
+    ) -> Result<ParkOutcome> {
         let policy = &execution.data;
         let unmasked = policy.masked() == 0;
         let inherited_deadline = policy.deadline().filter(|_| unmasked);
         let inherited_timeout = inherited_deadline
             .is_some_and(|inherited| deadline.is_none_or(|explicit| inherited <= explicit));
         let deadline = deadline.into_iter().chain(inherited_deadline).min();
-        let hub = mounted.hub();
-        match self.wait.begin(mounted.task_id(), &hub, deadline)? {
+        match self.wait.begin(execution.id, execution.hub(), deadline)? {
             WaitBegin::Immediate(cause) => selected(cause, inherited_timeout),
             WaitBegin::Park(request) => {
                 let token = request.token();
-                let _generation = self.wait.guard(token);
+                let mut generation = self.wait.guard(token);
+                let registration = self.wait.registration();
                 let _subscription = if unmasked {
-                    match policy
-                        .cancellation()
-                        .register(token, self.wait.registration())
-                    {
+                    match policy.cancellation().register(token, &registration) {
                         Ok(subscription) => Some(subscription),
                         Err(error) => {
                             self.wait.rollback(token);
@@ -133,13 +146,15 @@ impl Parker {
                 } else {
                     None
                 };
-                let _external = register(token, self.wait.registration())?;
+                let _external = register(token, &registration)?;
+                let _publication = execution.publish_wait(token, registration)?;
                 let suspension = vthread_stack::Suspension::Park(request);
                 if let Err(error) = vthread_stack::suspend(suspension) {
                     self.wait.rollback(token);
                     return Err(Error::from(error));
                 }
                 let cause = self.wait.finish(token)?;
+                generation.disarm();
                 selected(cause, inherited_timeout)
             }
         }

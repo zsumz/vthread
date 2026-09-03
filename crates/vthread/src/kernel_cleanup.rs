@@ -74,8 +74,8 @@ impl Kernel {
             .collect::<Vec<_>>();
         for token in tokens {
             let parked = self.parked.remove(&token).expect("owned park");
+            self.local.unregister_wake(token);
             parked.registration.abandon(token);
-            self.inbox.hub.unregister(token);
             if self.timers.cancel(token) {
                 #[cfg(feature = "runtime-evidence")]
                 self.shared.record(
@@ -103,7 +103,7 @@ impl Kernel {
         let record = Arc::clone(&packet.record);
         let entry = packet.entry.take();
         {
-            let _mounted = context::mount(record.lock().id, Arc::clone(&self.inbox.hub));
+            let _mounted = context::mount(record.lock().id);
             if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(entry))) {
                 let panic = crate::PanicReport::capture(payload);
                 record.lock().panic.get_or_insert(panic);

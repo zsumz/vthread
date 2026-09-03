@@ -37,7 +37,7 @@ impl ProbeParker {
         self.parker.park_registered(move |token, registration| {
             *lock(&latest) = Some(GenerationWake {
                 token,
-                registration,
+                registration: registration.clone(),
             });
             Ok(())
         })

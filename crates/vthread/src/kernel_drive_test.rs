@@ -85,7 +85,7 @@ fn bulk_completion_publication_lag_is_bounded_and_the_last_task_flushes() {
 }
 
 #[test]
-fn wake_processing_follows_the_observed_signal_epoch() {
+fn pending_wakes_are_processed_without_a_signal_epoch_change() {
     use crate::{CarrierId, RuntimeConfig, control::Shared, kernel::Kernel};
 
     let shared = Arc::new(Shared::new(RuntimeConfig::default()));
@@ -100,11 +100,35 @@ fn wake_processing_follows_the_observed_signal_epoch() {
 
     waker.unpark();
     assert_eq!(kernel.inbox.hub.pending(), 1);
-    assert!(!kernel.tick(false).expect("unchanged signal"));
-    assert_eq!(kernel.inbox.hub.pending(), 1);
-
-    assert!(kernel.tick(true).expect("changed signal"));
+    assert!(kernel.tick(false).expect("pending wake"));
     assert_eq!(kernel.inbox.hub.pending(), 0);
+    assert!(!kernel.tick(false).expect("drained wake"));
+    shared.finish_scope(scope);
+}
+
+#[test]
+fn same_carrier_ready_wakes_bypass_the_shared_inbox() {
+    use crate::{CarrierId, RuntimeConfig, control::Shared, kernel::Kernel};
+
+    let shared = Arc::new(Shared::new(RuntimeConfig::default()));
+    let scope = shared.begin_scope().expect("scope");
+    let (parker, waker) = park_pair();
+    shared
+        .submit(scope, "parked".into(), move || parker.park())
+        .expect("parked task");
+    shared
+        .submit(scope, "wake".into(), move || waker.unpark())
+        .expect("wake task");
+    let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
+    kernel.receive();
+
+    assert!(kernel.tick(true).expect("park task"));
+    assert!(kernel.tick(false).expect("wake task"));
+    assert_eq!(kernel.local.pending_wakes(), 1);
+    assert_eq!(kernel.inbox.hub.pending(), 0);
+    assert!(kernel.tick(false).expect("resume task"));
+    assert_eq!(kernel.local.pending_wakes(), 0);
+    assert!(!kernel.tick(false).expect("drained kernel"));
     shared.finish_scope(scope);
 }
 

@@ -2,6 +2,8 @@
 
 #[path = "kernel_cleanup.rs"]
 mod kernel_cleanup;
+#[path = "kernel_complete.rs"]
+mod kernel_complete;
 #[path = "kernel_drive.rs"]
 mod kernel_drive;
 #[path = "kernel_execution.rs"]
@@ -192,6 +194,7 @@ impl Kernel {
             && self.completions.is_empty()
             && self.shared.carrier_progress[self.id.0].mounted().is_none()
             && self.local.pending_starts() == 0
+            && self.local.pending_wakes() == 0
             && self.inbox.pending() == 0
     }
 
@@ -210,16 +213,13 @@ impl Kernel {
             parked: self.parked.len(),
             timers: self.timers.active_count(),
             pending_starts: self.inbox.pending(),
-            pending_wakes: self.inbox.hub.pending(),
+            pending_wakes: self.local.pending_wakes() + self.inbox.hub.pending(),
             stats,
             stacks: StackSnapshot::from(self.local.stacks.borrow().snapshot()),
         }
     }
 }
 
-#[cfg(test)]
-#[path = "kernel_completion_test.rs"]
-mod kernel_completion_test;
 #[cfg(test)]
 #[path = "kernel_test.rs"]
 mod kernel_test;

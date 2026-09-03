@@ -149,7 +149,10 @@ impl Kernel {
             self.stats.timer_sleeps += 1;
         }
         self.publish(CarrierStatus::Idle);
-        if self.inbox.pending() != 0 {
+        if self.inbox.pending() != 0
+            || self.local.pending_wakes() != 0
+            || self.inbox.hub.pending_for_wait() != 0
+        {
             return;
         }
         if deadline.is_none() && self.shared.config.carriers() > 1 {
@@ -157,12 +160,18 @@ impl Kernel {
                 for _ in 0..SPINS_PER_SIGNAL_PROBE {
                     std::hint::spin_loop();
                 }
-                if self.inbox.pending() != 0 || self.inbox.signal.version() != observed {
+                if self.inbox.pending() != 0
+                    || self.local.pending_wakes() != 0
+                    || self.inbox.hub.pending_for_wait() != 0
+                    || self.inbox.signal.version() != observed
+                {
                     return;
                 }
             }
         }
-        self.inbox.signal.wait(observed, deadline);
+        self.inbox.signal.wait_while(observed, deadline, || {
+            self.inbox.hub.pending_for_wait() != 0
+        });
     }
 }
 
