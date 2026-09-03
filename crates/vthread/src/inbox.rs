@@ -100,13 +100,14 @@ impl Inbox {
         if state.stopped || state.starts.len() >= self.capacity {
             return Err(packet);
         }
+        let was_empty = state.starts.is_empty();
         state.starts.push_back(packet);
-        let was_empty = self.pending_starts.fetch_add(1, Ordering::Release) == 0;
-        let _depth = state.starts.len();
+        let depth = state.starts.len();
+        self.pending_starts.store(depth, Ordering::Release);
         #[cfg(feature = "runtime-evidence")]
         {
             self.record_task_accepted(&record);
-            self.record_depth(_depth);
+            self.record_depth(depth);
         }
         drop(state);
         if was_empty {
@@ -122,13 +123,11 @@ impl Inbox {
         }
         let mut state = lock(&self.state);
         let packet = state.starts.pop_front();
-        if packet.is_some() {
-            self.pending_starts.fetch_sub(1, Ordering::Release);
-        }
-        let _depth = state.starts.len();
+        let depth = state.starts.len();
+        self.pending_starts.store(depth, Ordering::Release);
         #[cfg(feature = "runtime-evidence")]
         if packet.is_some() {
-            self.record_depth(_depth);
+            self.record_depth(depth);
         }
         drop(state);
         packet
@@ -142,9 +141,8 @@ impl Inbox {
         let initial_depth = state.starts.len();
         let count = initial_depth.min(limit);
         packets.extend(state.starts.drain(..count));
-        if count != 0 {
-            self.pending_starts.fetch_sub(count, Ordering::Release);
-        }
+        self.pending_starts
+            .store(state.starts.len(), Ordering::Release);
         #[cfg(feature = "runtime-evidence")]
         {
             let remaining = state.starts.len();
@@ -166,10 +164,10 @@ impl Inbox {
             .iter()
             .position(|packet| scope.is_none_or(|scope| packet.record.lock().scope == scope))?;
         let packet = state.starts.remove(index);
-        self.pending_starts.fetch_sub(1, Ordering::Release);
-        let _depth = state.starts.len();
+        let depth = state.starts.len();
+        self.pending_starts.store(depth, Ordering::Release);
         #[cfg(feature = "runtime-evidence")]
-        self.record_depth(_depth);
+        self.record_depth(depth);
         drop(state);
         packet
     }

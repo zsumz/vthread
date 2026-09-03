@@ -230,14 +230,14 @@ impl Kernel {
     fn complete_task(&mut self) {
         self.yield_pressure = 0;
         let task_key = self.in_flight.expect("completed task key");
-        let execution = self.execution(task_key);
-        let record = Arc::clone(execution.record());
+        let record = Arc::clone(self.task(task_key).execution().record());
         #[cfg(feature = "lifecycle-profiling")]
         let reclaim_started = std::time::Instant::now();
         #[cfg(feature = "runtime-evidence")]
         let task = record.lock().id;
         {
-            let _cleanup = crate::task_context::TaskCleanup::new(execution);
+            let _cleanup =
+                crate::task_context::TaskCleanup::completed(self.task(task_key).execution());
             #[cfg(feature = "runtime-evidence")]
             let (identity, retained) = self
                 .tasks
