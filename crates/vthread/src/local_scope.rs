@@ -139,6 +139,7 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
         self.execution.local.push_start(Task {
             execution,
             fiber: Some(task_fiber),
+            checkpoint_on_resume: false,
         });
         #[cfg(feature = "runtime-evidence")]
         {

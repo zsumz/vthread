@@ -78,6 +78,7 @@ fn selective_abort_retains_borrowed_scan_tracking() {
         kernel.local.push_start(Task {
             fiber: Some(fiber),
             execution,
+            checkpoint_on_resume: false,
         });
 
         kernel.abort(Some(aborted), crate::TaskFailure::ScopeStalled);
@@ -131,6 +132,7 @@ fn revoked_parked_stacks_release_registrations_before_timer_processing() {
         let task = kernel.tasks.insert(Task {
             execution,
             fiber: Some(task_fiber),
+            checkpoint_on_resume: false,
         });
         kernel.ready.push_back(task);
         kernel.has_borrowed = true;

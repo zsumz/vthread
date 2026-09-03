@@ -1,6 +1,6 @@
 //! Explicit lease transitions keep metadata borrows off executing fiber stacks.
 
-use crate::{Fiber, FiberState, panic_payload};
+use crate::{Fiber, FiberState, Resume, panic_payload};
 use corosensei::stack::DefaultStack;
 use std::{any::Any, cell::RefCell, rc::Rc};
 
@@ -36,6 +36,11 @@ impl FiberLease {
 
     /// Resumes a ready stack. Reclaimed leases return None; reentrant resumes panic.
     pub fn resume(&self) -> Option<FiberState> {
+        self.resume_with(Resume::Continue)
+    }
+
+    /// Resumes a ready stack and delivers a decision to its last suspension point.
+    pub fn resume_with(&self, resume: Resume) -> Option<FiberState> {
         let fiber = {
             let mut state = self.0.borrow_mut();
             if state.phase == Phase::Reclaimed {
@@ -49,7 +54,13 @@ impl FiberLease {
             lease: self,
             fiber: Some(fiber),
         };
-        Some(running.fiber.as_mut().expect("running fiber").resume())
+        Some(
+            running
+                .fiber
+                .as_mut()
+                .expect("running fiber")
+                .resume_with(resume),
+        )
     }
 
     /// Takes a completed stack. Every other phase retains ownership and returns None.

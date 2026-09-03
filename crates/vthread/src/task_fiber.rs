@@ -1,6 +1,6 @@
 //! Uniform carrier-local ownership for static and lexically borrowed fibers.
 
-use vthread_stack::{Fiber, FiberLease, FiberState};
+use vthread_stack::{Fiber, FiberLease, FiberState, Resume};
 
 pub(crate) enum TaskFiber {
     Owned {
@@ -54,10 +54,17 @@ impl TaskFiber {
         matches!(self, Self::Borrowed { .. })
     }
 
+    #[cfg(test)]
     pub(crate) fn resume(&mut self) -> Option<FiberState> {
+        self.resume_with(Resume::Continue)
+    }
+
+    pub(crate) fn resume_with(&mut self, resume: Resume) -> Option<FiberState> {
         match self {
-            Self::Owned { fiber, .. } => Some(fiber.as_mut().expect("owned fiber").resume()),
-            Self::Borrowed { fiber, .. } => fiber.resume(),
+            Self::Owned { fiber, .. } => {
+                Some(fiber.as_mut().expect("owned fiber").resume_with(resume))
+            }
+            Self::Borrowed { fiber, .. } => fiber.resume_with(resume),
         }
     }
 

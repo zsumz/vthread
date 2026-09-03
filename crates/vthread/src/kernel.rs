@@ -49,6 +49,7 @@ pub(crate) struct Kernel {
 pub(crate) struct Task {
     pub(crate) fiber: Option<TaskFiber>,
     pub(crate) execution: Rc<Execution>,
+    pub(crate) checkpoint_on_resume: bool,
 }
 
 pub(super) struct ParkedTask {
@@ -175,6 +176,7 @@ impl Kernel {
             let task = Task {
                 fiber: Some(task_fiber),
                 execution,
+                checkpoint_on_resume: false,
             };
             #[cfg(feature = "runtime-evidence")]
             self.shared.record(
