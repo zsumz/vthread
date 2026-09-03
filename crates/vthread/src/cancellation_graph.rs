@@ -74,13 +74,24 @@ impl Graph {
 
     pub(super) fn insert(&mut self, id: usize, parents: &[usize], flag: Weak<Node>) -> bool {
         assert_eq!(id + 1, self.next, "cancellation identity not reserved");
-        let parents = parents.iter().copied().collect::<ParentSet>();
-        let mut cancelled = false;
-        for parent in &parents {
-            let parent = self.nodes.get_mut(parent).expect("live parent");
-            cancelled |= parent.cancelled;
-            parent.children.insert(id);
-        }
+        let (parents, cancelled) = match parents {
+            [] => (ParentSet::default(), false),
+            [parent] => {
+                let entry = self.nodes.get_mut(parent).expect("live parent");
+                entry.children.insert(id);
+                (ParentSet::One(*parent), entry.cancelled)
+            }
+            parents => {
+                let parents = parents.iter().copied().collect::<ParentSet>();
+                let mut cancelled = false;
+                for parent in &parents {
+                    let entry = self.nodes.get_mut(parent).expect("live parent");
+                    cancelled |= entry.cancelled;
+                    entry.children.insert(id);
+                }
+                (parents, cancelled)
+            }
+        };
         self.nodes.insert(
             id,
             Entry {
