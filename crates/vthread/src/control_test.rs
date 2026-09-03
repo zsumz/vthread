@@ -53,3 +53,26 @@ fn snapshot_observation_does_not_block_admission_or_completion() {
     assert_eq!(shared.snapshot().active, 0);
     shared.finish_scope(scope);
 }
+
+#[test]
+fn running_carrier_publication_is_independent_of_admission() {
+    use crate::{CarrierId, CarrierSnapshot, CarrierStatus, signal::lock};
+    use std::sync::{Arc, mpsc};
+    use std::time::Duration;
+
+    let shared = Arc::new(Shared::new(RuntimeConfig::default()));
+    let admission = lock(&shared.state);
+    let publisher = Arc::clone(&shared);
+    let (done, published) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let mut snapshot = CarrierSnapshot::new(CarrierId(0));
+        snapshot.status = CarrierStatus::Running;
+        publisher.publish(snapshot);
+        done.send(()).unwrap();
+    });
+    let progress = published.recv_timeout(Duration::from_secs(1));
+    drop(admission);
+    worker.join().unwrap();
+
+    assert!(progress.is_ok(), "carrier publication waited for admission");
+}

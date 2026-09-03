@@ -3,7 +3,9 @@ use crate::{CarrierId, Runtime, TaskFailure, control::Shared};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
+    mpsc,
 };
+use std::time::Duration;
 
 #[test]
 fn remote_starts_refill_a_bounded_runnable_window() {
@@ -114,6 +116,42 @@ fn an_empty_remote_queue_does_not_precharge_admission_pressure() {
     shared.submit(scope, "later".into(), || ()).unwrap();
     assert!(kernel.receive());
     assert_eq!(kernel.inbox.pending(), 1);
+    kernel.abort(None, TaskFailure::RuntimeStopped);
+    shared.finish_scope(scope);
+}
+
+#[test]
+fn pending_ingress_never_enters_the_signal_wait() {
+    let config = Runtime::builder()
+        .max_vthreads(1)
+        .carrier_queue_capacity(1)
+        .stack_cache_capacity(1)
+        .build()
+        .unwrap()
+        .config();
+    let shared = Arc::new(Shared::new(config));
+    let scope = shared.begin_scope().unwrap();
+    shared.submit(scope, "queued".into(), || ()).unwrap();
+    let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
+    let observed = kernel.inbox.signal.version();
+    let signal = Arc::clone(&kernel.inbox.signal);
+    let (cancel, cancelled) = mpsc::channel();
+    let rescue = std::thread::spawn(move || {
+        if cancelled.recv_timeout(Duration::from_secs(1)).is_ok() {
+            false
+        } else {
+            signal.notify();
+            true
+        }
+    });
+
+    kernel.wait_for_work(observed);
+    let _ = cancel.send(());
+    assert!(
+        !rescue.join().unwrap(),
+        "pending ingress entered signal wait"
+    );
+
     kernel.abort(None, TaskFailure::RuntimeStopped);
     shared.finish_scope(scope);
 }

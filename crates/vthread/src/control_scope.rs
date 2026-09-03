@@ -14,17 +14,13 @@ pub(super) struct ScopeRecord {
 
 pub(super) struct ScopeState {
     pub(super) admitting: bool,
-    pub(super) active: usize,
-    pub(super) activity: u64,
+    pub(super) admitted: u64,
+    pub(super) progress: Arc<super::ScopeProgress>,
     // Monotonic task identities keep this admission-ordered vector searchable.
     pub(super) records: Vec<ScopeRecord>,
-    pub(super) failed_tasks: Vec<crate::TaskId>,
     pub(super) options: TaskOptions,
     pub(super) supervised: bool,
     pub(super) aborting: Option<TaskFailure>,
-    pub(super) completed: u64,
-    pub(super) panicked: u64,
-    pub(super) aborted: u64,
 }
 
 impl Shared {
@@ -48,16 +44,13 @@ impl Shared {
         let Some(scope) = state.scopes.get(&scope) else {
             return crate::ShutdownReport::default();
         };
+        let progress = scope.progress.snapshot();
         crate::ShutdownReport {
             failures: lock(&self.failures).clone(),
-            completed: scope.completed,
-            panicked: scope.panicked,
-            aborted: scope.aborted,
-            failed_carriers: state
-                .carriers
-                .iter()
-                .filter(|carrier| carrier.status == crate::CarrierStatus::Failed)
-                .count(),
+            completed: progress.completed,
+            panicked: progress.panicked,
+            aborted: progress.aborted,
+            failed_carriers: self.carrier_states.failed(),
         }
     }
 
@@ -97,19 +90,15 @@ impl Shared {
             id,
             ScopeState {
                 admitting: true,
-                active: 0,
-                activity: 0,
+                admitted: 0,
+                progress: Arc::new(super::ScopeProgress::new()),
                 records: Vec::new(),
-                failed_tasks: Vec::new(),
                 options: TaskOptions {
                     cancellation: self.cancellation.child_token(),
                     deadline: options.deadline,
                 },
                 supervised,
                 aborting: None,
-                completed: 0,
-                panicked: 0,
-                aborted: 0,
             },
         );
         #[cfg(feature = "runtime-evidence")]
@@ -130,6 +119,16 @@ impl Shared {
             .get(&scope)
             .map(|scope| scope.options.clone())
             .ok_or(Error::RuntimeStopped)
+    }
+
+    pub(crate) fn scope_progress(&self, scope: u64) -> Arc<super::ScopeProgress> {
+        Arc::clone(
+            &lock(&self.state)
+                .scopes
+                .get(&scope)
+                .expect("live task scope")
+                .progress,
+        )
     }
 
     pub(crate) fn abort_scope(&self, scope: u64, reason: TaskFailure) {
@@ -209,8 +208,9 @@ impl Shared {
         let Some(scope_state) = state.scopes.get(&scope) else {
             return failures;
         };
-        let mut children = Vec::with_capacity(scope_state.failed_tasks.len());
-        for task in &scope_state.failed_tasks {
+        let failed_tasks = scope_state.progress.failed_tasks();
+        let mut children = Vec::with_capacity(failed_tasks.len());
+        for task in &failed_tasks {
             let Ok(index) = scope_state
                 .records
                 .binary_search_by_key(task, |record| record.id)

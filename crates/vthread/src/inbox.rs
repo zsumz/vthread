@@ -4,7 +4,7 @@ use std::{
     collections::{BTreeMap, VecDeque},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
 };
 
@@ -14,11 +14,13 @@ use crate::{
     task::SharedTaskRecord,
     wait::WaitHub,
 };
-
 #[cfg(feature = "runtime-evidence")]
 type EvidenceEmitter = crate::diagnostics::evidence::Emitter;
 #[cfg(not(feature = "runtime-evidence"))]
 type EvidenceEmitter = ();
+
+#[repr(align(64))]
+struct RetiredTasks(AtomicU64);
 
 pub(crate) struct SpawnPacket {
     pub(crate) record: SharedTaskRecord,
@@ -41,6 +43,7 @@ pub(crate) struct Inbox {
     pending_starts: AtomicUsize,
     stopped: AtomicBool,
     abort_pending: AtomicBool,
+    retired_tasks: RetiredTasks,
     pub(crate) signal: Arc<Signal>,
     pub(crate) hub: Arc<WaitHub>,
     #[cfg(feature = "runtime-evidence")]
@@ -81,6 +84,7 @@ impl Inbox {
             pending_starts: AtomicUsize::new(0),
             stopped: AtomicBool::new(false),
             abort_pending: AtomicBool::new(false),
+            retired_tasks: RetiredTasks(AtomicU64::new(0)),
             hub: Arc::new(hub),
             signal,
             #[cfg(feature = "runtime-evidence")]
@@ -181,6 +185,17 @@ impl Inbox {
 
     pub(crate) fn pending(&self) -> usize {
         self.pending_starts.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn retire_tasks(&self, count: usize) {
+        self.retired_tasks.0.fetch_add(
+            u64::try_from(count).expect("completion batch fits u64"),
+            Ordering::Release,
+        );
+    }
+
+    pub(crate) fn retired_tasks(&self) -> u64 {
+        self.retired_tasks.0.load(Ordering::Acquire)
     }
 
     pub(crate) fn stop(&self) {

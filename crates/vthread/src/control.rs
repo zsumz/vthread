@@ -4,12 +4,18 @@
 mod control_admission;
 #[path = "control_completion.rs"]
 mod control_completion;
-pub(crate) use control_completion::CompletionUpdate;
+pub(crate) use control_completion::{CompletionBatch, CompletionUpdate};
+#[path = "control_carriers.rs"]
+mod control_carriers;
 #[cfg(feature = "runtime-evidence")]
 #[path = "control_evidence.rs"]
 mod control_evidence;
+#[path = "control_placement.rs"]
+mod control_placement;
 #[path = "control_scope.rs"]
 mod control_scope;
+#[path = "control_scope_progress.rs"]
+mod control_scope_progress;
 #[path = "control_snapshot.rs"]
 mod control_snapshot;
 #[path = "control_transition.rs"]
@@ -25,13 +31,18 @@ use std::{
     },
 };
 
+#[cfg(feature = "runtime-evidence")]
+use crate::CarrierId;
 use crate::{
-    CarrierId, CarrierSnapshot, CarrierStatus, RuntimeConfig,
+    CarrierSnapshot, CarrierStatus, RuntimeConfig,
+    control::control_carriers::CarrierStates,
+    control::control_placement::CarrierLoads,
     inbox::Inbox,
     signal::{Signal, lock},
     task::SharedTaskRecord,
     task_progress::CarrierProgress,
 };
+pub(crate) use control_scope_progress::ScopeProgress;
 
 #[cfg(feature = "runtime-evidence")]
 type EvidenceRecorder = crate::diagnostics::evidence::Recorder;
@@ -61,6 +72,7 @@ pub(crate) struct Shared {
     pub(crate) evidence: Option<crate::diagnostics::evidence::Recorder>,
     pub(crate) carrier_progress: Vec<CarrierProgress>,
     pub(crate) inboxes: Vec<Arc<Inbox>>,
+    carrier_states: CarrierStates,
     pub(crate) changed: Signal,
     target_waiters: AtomicUsize,
     pub(crate) failures: Mutex<crate::ThreadFailures>,
@@ -88,13 +100,11 @@ struct State {
     next_scope: u64,
     next_task: u64,
     cursor: usize,
-    active: usize,
-    loads: Vec<usize>,
+    loads: CarrierLoads,
     rejected: u64,
     admitted: u64,
     record_count: usize,
     record_cache: Vec<SharedTaskRecord>,
-    carriers: Vec<CarrierSnapshot>,
 }
 
 impl Shared {
@@ -165,6 +175,7 @@ impl Shared {
             carrier_progress: (0..config.carriers())
                 .map(|_| CarrierProgress::new())
                 .collect(),
+            carrier_states: CarrierStates::new(config.carriers()),
             changed: Signal::default(),
             target_waiters: AtomicUsize::new(0),
             failures: Mutex::new(crate::ThreadFailures::default()),
@@ -189,15 +200,11 @@ impl Shared {
                 next_scope: 1,
                 next_task: 1,
                 cursor: 0,
-                active: 0,
-                loads: vec![0; config.carriers()],
+                loads: CarrierLoads::new(config.carriers()),
                 rejected: 0,
                 admitted: 0,
                 record_count: 0,
                 record_cache: Vec::new(),
-                carriers: (0..config.carriers())
-                    .map(|id| CarrierSnapshot::new(CarrierId(id)))
-                    .collect(),
             }),
         }
     }
@@ -243,18 +250,14 @@ impl Shared {
     pub(crate) fn publish(&self, snapshot: CarrierSnapshot) {
         let notify = snapshot.status != CarrierStatus::Running
             || self.config.stall_policy().timeout().is_some();
-        let index = snapshot.id.0;
-        let mut state = lock(&self.state);
-        state.carriers[index] = snapshot;
-        if state.carriers.iter().all(|carrier| {
-            matches!(
-                carrier.status,
-                CarrierStatus::Stopped | CarrierStatus::Failed
-            )
-        }) {
-            state.accepting = false;
+        let terminal = matches!(
+            snapshot.status,
+            CarrierStatus::Stopped | CarrierStatus::Failed
+        );
+        self.carrier_states.publish(snapshot);
+        if terminal && self.carrier_states.all_terminal() {
+            lock(&self.state).accepting = false;
         }
-        drop(state);
         if notify {
             self.changed.notify();
         }

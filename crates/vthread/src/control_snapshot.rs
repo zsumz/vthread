@@ -10,14 +10,20 @@ impl Shared {
             let mut snapshot = RuntimeSnapshot {
                 shutdown_phase: state.shutdown_phase,
                 accepting: state.accepting,
-                active: state.active,
-                carriers: state.carriers.clone(),
+                active: state
+                    .scopes
+                    .values()
+                    .map(|scope| scope.progress.active())
+                    .sum(),
+                carriers: self.carrier_states.snapshot(),
                 ..RuntimeSnapshot::empty(self.id)
             };
             snapshot.stats.admitted = state.admitted;
             snapshot.stats.rejected = state.rejected;
-            for (carrier, load) in snapshot.carriers.iter_mut().zip(&state.loads) {
-                carrier.active = *load;
+            for (index, carrier) in snapshot.carriers.iter_mut().enumerate() {
+                carrier.active = state
+                    .loads
+                    .active(index, self.inboxes[index].retired_tasks());
             }
             let mut records = state
                 .scopes

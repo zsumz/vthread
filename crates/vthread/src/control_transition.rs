@@ -13,11 +13,11 @@ impl Shared {
         if self.config.stall_policy().timeout().is_none() {
             return update(&mut record.lock());
         }
-        let mut state = lock(&self.state);
+        let state = lock(&self.state);
         let mut task = record.lock();
         let result = update(&mut task);
-        if let Some(scope) = state.scopes.get_mut(&task.scope) {
-            scope.activity = scope.activity.wrapping_add(1);
+        if let Some(scope) = state.scopes.get(&task.scope) {
+            scope.progress.record_activity(1);
         }
         drop(task);
         drop(state);
