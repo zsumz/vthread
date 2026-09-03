@@ -145,6 +145,10 @@ impl CancellationToken {
         (self, epoch)
     }
 
+    pub(crate) fn shares_epoch(&self, epoch: &Arc<AtomicU64>) -> bool {
+        Arc::ptr_eq(&self.0.domain.epoch, epoch)
+    }
+
     pub(crate) fn register(
         &self,
         token: ParkToken,

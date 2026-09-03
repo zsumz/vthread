@@ -1,6 +1,6 @@
 //! Cleanup and reset of carrier-cached task contexts.
 
-use super::{TaskContext, TaskPolicy};
+use super::TaskContext;
 use crate::{SuspensionReason, context, options::TaskOptions};
 use std::rc::Rc;
 
@@ -46,12 +46,12 @@ impl TaskContext {
             self.cold.values.get_mut().is_empty(),
             "recycled task locals"
         );
-        self.policy = TaskPolicy::new(cancellation, false);
+        self.policy.reset(cancellation, false);
     }
 
     pub(crate) fn reuse(&mut self, options: TaskOptions, capacity: usize) {
         let deadline = options.deadline;
-        self.policy = TaskPolicy::new(options.cancellation, deadline.is_some());
+        self.policy.reset(options.cancellation, deadline.is_some());
         self.cold.deadline = deadline;
         self.cold.reason.set(SuspensionReason::Park);
         self.cold.capacity = capacity;
