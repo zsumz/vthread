@@ -29,7 +29,7 @@ impl Kernel {
             }
             self.process_wakes()?;
         }
-        self.in_flight = self.ready.pop_front();
+        self.select_ready();
         let Some(task_key) = self.in_flight else {
             self.flush_completions();
             return Ok(false);

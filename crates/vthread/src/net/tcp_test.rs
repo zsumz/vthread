@@ -1,8 +1,66 @@
 use crate::{
-    Runtime,
+    Error, Runtime,
     net::{TcpListener, TcpStream},
 };
 use std::net::Shutdown;
+
+#[test]
+fn try_io_reports_would_block_without_registering_readiness() {
+    use std::{
+        io::{Read, Write},
+        sync::mpsc,
+        thread,
+    };
+
+    let runtime = Runtime::new().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0".parse().unwrap()).unwrap();
+    let address = listener.local_addr().unwrap();
+    let (probed, continue_peer) = mpsc::sync_channel(0);
+    let peer = thread::spawn(move || {
+        let mut stream = std::net::TcpStream::connect(address).unwrap();
+        continue_peer.recv().unwrap();
+        let mut byte = [0; 1];
+        stream.read_exact(&mut byte).unwrap();
+        assert_eq!(byte, *b"p");
+        stream.write_all(b"x").unwrap();
+    });
+    runtime
+        .run_scope(|scope| {
+            scope
+                .spawn("probe", move || {
+                    let (stream, _) = listener.accept()?;
+                    assert!(matches!(
+                        stream.try_read(&mut [0; 1]),
+                        Err(Error::WouldBlock)
+                    ));
+                    assert_eq!(stream.try_write(b"p")?, 1);
+                    assert_eq!(
+                        context_readiness_waits(),
+                        0,
+                        "a nonblocking probe must not subscribe to readiness"
+                    );
+                    probed.send(()).unwrap();
+                    stream.read_exact(&mut [0; 1])
+                })?
+                .join()??;
+            Ok(())
+        })
+        .unwrap();
+    peer.join().unwrap();
+}
+
+fn context_readiness_waits() -> usize {
+    let mounted = crate::context::current().unwrap();
+    mounted
+        .execution()
+        .unwrap()
+        .shared()
+        .services
+        .get()
+        .unwrap()
+        .snapshot()
+        .readiness_waits()
+}
 
 #[test]
 fn tcp_accept_connect_echo_and_eof_work_on_one_and_four_carriers() {

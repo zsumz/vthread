@@ -6,6 +6,9 @@ use std::{
     os::fd::{AsRawFd, BorrowedFd},
 };
 
+// Readiness remains the eventual fallback under a perpetually runnable workload.
+const RUNNABLE_YIELD_LIMIT: usize = 128;
+
 pub(crate) fn checked<T>(
     operation: &'static str,
     fd: BorrowedFd<'_>,
@@ -14,33 +17,88 @@ pub(crate) fn checked<T>(
     result.map_err(|error| Error::io(operation, format_args!("fd={}", fd.as_raw_fd()), error))
 }
 
+pub(super) fn attempt<T>(
+    fd: BorrowedFd<'_>,
+    reason: SuspensionReason,
+    mut operation: impl FnMut() -> io::Result<T>,
+) -> Result<T> {
+    loop {
+        crate::checkpoint()?;
+        match operation() {
+            Ok(value) => return Ok(value),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                return Err(Error::WouldBlock);
+            }
+            Err(error) => return Err(operation_error(reason, fd, error)),
+        }
+    }
+}
+
 pub(super) fn operation<T>(
     fd: BorrowedFd<'_>,
     interest: zio::Interest,
     reason: SuspensionReason,
     mut operation: impl FnMut() -> io::Result<T>,
 ) -> Result<T> {
-    let _reason = Wait::enter(reason)?;
-    loop {
-        crate::checkpoint()?;
-        match operation() {
-            Ok(value) => return Ok(value),
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => wait(fd, interest)?,
-            Err(error) => {
-                return Err(Error::io(
-                    match reason {
-                        SuspensionReason::IoRead => "socket read",
-                        SuspensionReason::IoWrite => "socket write",
-                        SuspensionReason::IoAccept => "socket accept",
-                        _ => "socket operation",
-                    },
-                    format_args!("fd={}", fd.as_raw_fd()),
-                    error,
-                ));
-            }
+    crate::checkpoint()?;
+    match operation() {
+        Ok(value) => Ok(value),
+        Err(error)
+            if !matches!(
+                error.kind(),
+                io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock
+            ) =>
+        {
+            Err(operation_error(reason, fd, error))
         }
+        Err(error) => retry_operation(fd, interest, reason, operation, error),
     }
+}
+
+fn retry_operation<T>(
+    fd: BorrowedFd<'_>,
+    interest: zio::Interest,
+    reason: SuspensionReason,
+    mut operation: impl FnMut() -> io::Result<T>,
+    mut error: io::Error,
+) -> Result<T> {
+    let _reason = Wait::enter(reason)?;
+    let mut yielded = 0;
+    loop {
+        match error.kind() {
+            io::ErrorKind::Interrupted => crate::checkpoint()?,
+            io::ErrorKind::WouldBlock
+                if yielded < RUNNABLE_YIELD_LIMIT && context::carrier_has_runnable() =>
+            {
+                yielded += 1;
+                crate::yield_now()?;
+            }
+            io::ErrorKind::WouldBlock => {
+                wait(fd, interest)?;
+                crate::checkpoint()?;
+            }
+            _ => return Err(operation_error(reason, fd, error)),
+        }
+        error = match operation() {
+            Ok(value) => return Ok(value),
+            Err(error) => error,
+        };
+    }
+}
+
+#[cold]
+fn operation_error(reason: SuspensionReason, fd: BorrowedFd<'_>, error: io::Error) -> Error {
+    Error::io(
+        match reason {
+            SuspensionReason::IoRead => "socket read",
+            SuspensionReason::IoWrite => "socket write",
+            SuspensionReason::IoAccept => "socket accept",
+            _ => "socket operation",
+        },
+        format_args!("fd={}", fd.as_raw_fd()),
+        error,
+    )
 }
 
 pub(super) fn wait(fd: BorrowedFd<'_>, interest: zio::Interest) -> Result<()> {
@@ -63,7 +121,9 @@ pub(super) fn read_exact(
     mut read: impl FnMut(&mut [u8]) -> Result<usize>,
     mut buffer: &mut [u8],
 ) -> Result<()> {
-    crate::checkpoint()?;
+    if buffer.is_empty() {
+        return crate::checkpoint();
+    }
     while !buffer.is_empty() {
         let count = read(buffer)?;
         if count == 0 {
@@ -82,7 +142,9 @@ pub(super) fn write_all(
     mut write: impl FnMut(&[u8]) -> Result<usize>,
     mut buffer: &[u8],
 ) -> Result<()> {
-    crate::checkpoint()?;
+    if buffer.is_empty() {
+        return crate::checkpoint();
+    }
     while !buffer.is_empty() {
         let count = write(buffer)?;
         if count == 0 {
