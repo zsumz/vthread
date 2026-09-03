@@ -56,6 +56,7 @@ fn cleanup_cannot_suspend_even_when_cancellation_is_masked() {
     let context = TaskContext::new(TaskOptions::root(ScopeOptions::default(), 1), 1);
     context.masked.set(1);
     context.closing.set(true);
+    assert!(context.interrupted());
     assert!(matches!(context.check(), Err(Error::RuntimeStopped)));
 }
 
@@ -64,10 +65,25 @@ fn cached_cancellation_flag_observes_later_requests() {
     let options = TaskOptions::root(ScopeOptions::default(), 1);
     let cancellation = options.cancellation.clone();
     let context = TaskContext::new(options, 1);
+    assert!(!context.interrupted());
     assert!(context.check().is_ok());
 
     cancellation.cancel();
+    context.masked.set(1);
+    assert!(!context.interrupted());
+    assert!(context.check().is_ok());
+    context.masked.set(0);
+    assert!(context.interrupted());
     assert!(matches!(context.check(), Err(Error::Cancelled)));
+}
+
+#[test]
+fn expired_deadline_interrupts_the_compact_checkpoint() {
+    let options = ScopeOptions::default().deadline(std::time::Instant::now());
+    let context = TaskContext::new(TaskOptions::root(options, 1), 1);
+
+    assert!(context.interrupted());
+    assert!(matches!(context.check(), Err(Error::DeadlineExceeded)));
 }
 
 #[test]

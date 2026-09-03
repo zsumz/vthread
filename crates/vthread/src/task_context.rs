@@ -22,6 +22,14 @@ pub(crate) struct TaskContext {
     values: RefCell<BTreeMap<usize, Value>>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CheckpointDecision {
+    Continue,
+    RuntimeStopped,
+    Cancelled,
+    DeadlineExceeded,
+}
+
 #[derive(Clone)]
 enum Value {
     Initializing,
@@ -56,22 +64,38 @@ impl TaskContext {
     }
 
     pub(crate) fn check(&self) -> Result<()> {
+        match self.checkpoint_decision() {
+            CheckpointDecision::Continue => Ok(()),
+            CheckpointDecision::RuntimeStopped => Err(Error::RuntimeStopped),
+            CheckpointDecision::Cancelled => Err(Error::Cancelled),
+            CheckpointDecision::DeadlineExceeded => Err(Error::DeadlineExceeded),
+        }
+    }
+
+    #[inline]
+    pub(crate) fn interrupted(&self) -> bool {
+        self.checkpoint_decision() != CheckpointDecision::Continue
+    }
+
+    #[inline]
+    fn checkpoint_decision(&self) -> CheckpointDecision {
         if self.closing.get() {
-            return Err(Error::RuntimeStopped);
+            return CheckpointDecision::RuntimeStopped;
         }
-        if self.masked.get() == 0 {
-            if self.cancellation.load(Ordering::Acquire) {
-                return Err(Error::Cancelled);
-            }
-            if self
-                .options
-                .deadline
-                .is_some_and(|deadline| deadline <= std::time::Instant::now())
-            {
-                return Err(Error::DeadlineExceeded);
-            }
+        if self.masked.get() != 0 {
+            return CheckpointDecision::Continue;
         }
-        Ok(())
+        if self.cancellation.load(Ordering::Acquire) {
+            return CheckpointDecision::Cancelled;
+        }
+        if self
+            .options
+            .deadline
+            .is_some_and(|deadline| deadline <= std::time::Instant::now())
+        {
+            return CheckpointDecision::DeadlineExceeded;
+        }
+        CheckpointDecision::Continue
     }
 
     fn clear(&self) -> Option<crate::PanicReport> {

@@ -120,10 +120,12 @@ pub(crate) use thread_failure::{FailurePhase, ThreadComponent, ThreadFailure, Th
 pub use time::{sleep, sleep_until};
 
 /// Cooperatively yields the current virtual thread to the carrier scheduler.
+/// Runtime policy is checked before the yield commits and again immediately before resumption.
 pub fn yield_now() -> Result<()> {
-    checkpoint()?;
-    vthread_stack::suspend(vthread_stack::Suspension::YieldNow).map_err(Error::from)?;
-    checkpoint()
+    match vthread_stack::suspend(vthread_stack::Suspension::YieldNow).map_err(Error::from)? {
+        vthread_stack::Resume::Continue => Ok(()),
+        vthread_stack::Resume::Interrupt => checkpoint(),
+    }
 }
 
 /// Runs one structured scope and explicitly shuts down its default runtime.

@@ -7,7 +7,7 @@ use std::{
 
 use corosensei::stack::DefaultStack;
 
-use super::{Fiber, FiberState, ParkRequest, ParkToken, Suspension, suspend};
+use super::{Fiber, FiberState, ParkRequest, ParkToken, Resume, Suspension, suspend};
 
 fn nested_yield() {
     suspend(Suspension::YieldNow).expect("fiber must be mounted");
@@ -29,6 +29,21 @@ fn a_nested_function_can_suspend_and_resume() {
     assert_eq!(fiber.resume(), FiberState::Complete);
     assert_eq!(&*trace.borrow(), &["before", "after"]);
     assert!(fiber.is_complete());
+    drop(fiber.into_stack());
+}
+
+#[test]
+fn resume_decision_returns_to_the_suspension_point() {
+    let observed = Rc::new(Cell::new(Resume::Continue));
+    let body_observed = Rc::clone(&observed);
+    let stack = DefaultStack::new(128 * 1024).expect("allocate stack");
+    let mut fiber = Fiber::new(stack, move || {
+        body_observed.set(suspend(Suspension::YieldNow).unwrap());
+    });
+
+    assert_eq!(fiber.resume(), FiberState::Suspended(Suspension::YieldNow));
+    assert_eq!(fiber.resume_with(Resume::Interrupt), FiberState::Complete);
+    assert_eq!(observed.get(), Resume::Interrupt);
     drop(fiber.into_stack());
 }
 

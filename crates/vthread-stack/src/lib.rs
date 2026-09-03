@@ -26,7 +26,9 @@ pub mod panic_payload;
 mod pool;
 mod scoped;
 
-pub use fiber::{Fiber, FiberState, ParkRequest, ParkToken, SuspendError, Suspension, suspend};
+pub use fiber::{
+    Fiber, FiberState, ParkRequest, ParkToken, Resume, SuspendError, Suspension, suspend,
+};
 pub use lease::FiberLease;
 pub use pool::{StackPool, StackPoolSnapshot};
 pub use scoped::{FiberScope, fiber_scope};

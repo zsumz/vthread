@@ -70,6 +70,16 @@ pub enum FiberState {
     Complete,
 }
 
+/// A carrier decision delivered to the operation that suspended the fiber.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Resume {
+    /// Continue the suspended operation normally.
+    #[default]
+    Continue,
+    /// Recheck runtime policy before the suspended operation returns.
+    Interrupt,
+}
+
 /// Suspension was requested without a mounted fiber.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SuspendError;
@@ -82,7 +92,7 @@ impl fmt::Display for SuspendError {
 
 impl Error for SuspendError {}
 
-type RawYielder = Yielder<(), Suspension>;
+type RawYielder = Yielder<Resume, Suspension>;
 
 thread_local! {
     static CURRENT_YIELDER: Cell<*const RawYielder> = const { Cell::new(ptr::null()) };
@@ -95,7 +105,7 @@ thread_local! {
 /// require_send::<vthread_stack::Fiber>();
 /// ```
 pub struct Fiber {
-    coroutine: Option<Coroutine<(), Suspension, ()>>,
+    coroutine: Option<Coroutine<Resume, Suspension, ()>>,
     yielder: Rc<Cell<*const RawYielder>>,
 }
 
@@ -115,7 +125,7 @@ impl Fiber {
         let body_yielder = Rc::clone(&yielder);
         // SAFETY: the caller owns the entry's lifetime and guarantees reclamation.
         let coroutine = unsafe {
-            Coroutine::with_stack_unchecked(stack, move |current, ()| {
+            Coroutine::with_stack_unchecked(stack, move |current, _resume| {
                 let pointer = current as *const RawYielder;
                 body_yielder.set(pointer);
                 let _mount = MountGuard::install(pointer);
@@ -132,6 +142,11 @@ impl Fiber {
     ///
     /// Panics if the fiber has already completed, without mounting its old yielder.
     pub fn resume(&mut self) -> FiberState {
+        self.resume_with(Resume::Continue)
+    }
+
+    /// Mounts the fiber and delivers a decision to its last suspension point.
+    pub fn resume_with(&mut self, resume: Resume) -> FiberState {
         // Reject the transition before a panic hook can observe a stale mount.
         assert!(!self.is_complete(), "a completed fiber cannot be resumed");
         let _mount = MountGuard::install(self.yielder.get());
@@ -139,7 +154,7 @@ impl Fiber {
             .coroutine
             .as_mut()
             .expect("a completed fiber cannot be resumed");
-        match coroutine.resume(()) {
+        match coroutine.resume(resume) {
             CoroutineResult::Yield(reason) => FiberState::Suspended(reason),
             CoroutineResult::Return(()) => FiberState::Complete,
         }
@@ -176,7 +191,7 @@ impl Drop for Fiber {
 }
 
 /// Suspends the currently mounted fiber.
-pub fn suspend(reason: Suspension) -> Result<(), SuspendError> {
+pub fn suspend(reason: Suspension) -> Result<Resume, SuspendError> {
     CURRENT_YIELDER.with(|current| {
         let pointer = current.get();
         if pointer.is_null() {
@@ -185,10 +200,7 @@ pub fn suspend(reason: Suspension) -> Result<(), SuspendError> {
 
         // The pointer is carrier-local and restored before leaving this mount.
         // SAFETY: it belongs to the currently mounted, non-Send coroutine.
-        unsafe {
-            (&*pointer).suspend(reason);
-        }
-        Ok(())
+        unsafe { Ok((&*pointer).suspend(reason)) }
     })
 }
 
