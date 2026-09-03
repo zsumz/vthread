@@ -50,6 +50,8 @@ mod kernel;
 mod kernel_tasks;
 pub mod lifecycle;
 mod lifecycle_owner;
+#[cfg(feature = "lifecycle-profiling")]
+mod lifecycle_probe;
 mod lifecycle_resources;
 mod local_carrier;
 mod local_join;

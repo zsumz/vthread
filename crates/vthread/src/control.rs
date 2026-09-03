@@ -38,6 +38,8 @@ use crate::{
 type EvidenceRecorder = crate::diagnostics::evidence::Recorder;
 #[cfg(not(feature = "runtime-evidence"))]
 type EvidenceRecorder = ();
+#[cfg(feature = "lifecycle-profiling")]
+type LifecycleRecorder = crate::lifecycle_probe::Recorder;
 
 pub(crate) struct Shared {
     pub(crate) resources: Arc<crate::lifecycle_resources::CoordinatorResources>,
@@ -53,6 +55,8 @@ pub(crate) struct Shared {
     pub(crate) services: OnceLock<crate::services::Services>,
     pub(crate) config: RuntimeConfig,
     pub(crate) cancellation: crate::CancellationToken,
+    #[cfg(feature = "lifecycle-profiling")]
+    pub(crate) lifecycle_probe: LifecycleRecorder,
     abort_requested: AtomicBool,
     #[cfg(feature = "runtime-evidence")]
     pub(crate) evidence: Option<crate::diagnostics::evidence::Recorder>,
@@ -154,6 +158,8 @@ impl Shared {
             services: OnceLock::new(),
             config,
             cancellation: crate::CancellationToken::root(config.max_vthreads()),
+            #[cfg(feature = "lifecycle-profiling")]
+            lifecycle_probe: LifecycleRecorder::new(),
             abort_requested: AtomicBool::new(false),
             #[cfg(feature = "runtime-evidence")]
             evidence,

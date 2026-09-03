@@ -18,6 +18,7 @@ all-features = true
 
 [features]
 default = []
+lifecycle-profiling = ["vthread/lifecycle-profiling"]
 runtime-evidence = ["vthread/runtime-evidence"]
 qualification = ["vthread/qualification"]
 

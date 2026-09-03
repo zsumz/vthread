@@ -232,6 +232,8 @@ impl Kernel {
         let task_key = self.in_flight.expect("completed task key");
         let execution = self.execution(task_key);
         let record = Arc::clone(execution.record());
+        #[cfg(feature = "lifecycle-profiling")]
+        let reclaim_started = std::time::Instant::now();
         #[cfg(feature = "runtime-evidence")]
         let task = record.lock().id;
         {
@@ -266,6 +268,10 @@ impl Kernel {
         }
         self.recycle_execution(task_key);
         self.remove_in_flight();
+        #[cfg(feature = "lifecycle-profiling")]
+        self.shared
+            .lifecycle_probe
+            .record_reclaim(reclaim_started.elapsed());
         let completion = self
             .shared
             .prepare_completion(&record, None)

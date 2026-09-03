@@ -64,6 +64,8 @@ impl Kernel {
         let mut received = false;
         while let Some(packet) = self.incoming.pop_front() {
             self.pending = Some(packet);
+            #[cfg(feature = "lifecycle-profiling")]
+            let stack_fiber_started = std::time::Instant::now();
             #[cfg(feature = "runtime-evidence")]
             let acquired = self.local.stacks.borrow_mut().acquire_identified();
             #[cfg(not(feature = "runtime-evidence"))]
@@ -73,6 +75,10 @@ impl Kernel {
                 Ok(stack) => stack,
                 Err(_) => {
                     self.discard_pending(TaskFailure::StackAllocation);
+                    #[cfg(feature = "lifecycle-profiling")]
+                    self.shared
+                        .lifecycle_probe
+                        .record_stack_fiber(stack_fiber_started.elapsed());
                     continue;
                 }
             };
@@ -81,6 +87,10 @@ impl Kernel {
                 Ok(stack) => stack,
                 Err(_) => {
                     self.discard_pending(TaskFailure::StackAllocation);
+                    #[cfg(feature = "lifecycle-profiling")]
+                    self.shared
+                        .lifecycle_probe
+                        .record_stack_fiber(stack_fiber_started.elapsed());
                     continue;
                 }
             };
@@ -111,6 +121,10 @@ impl Kernel {
             );
             self.pending = None;
             self.ready.push_back(self.tasks.insert_owned(task));
+            #[cfg(feature = "lifecycle-profiling")]
+            self.shared
+                .lifecycle_probe
+                .record_stack_fiber(stack_fiber_started.elapsed());
         }
         received
     }

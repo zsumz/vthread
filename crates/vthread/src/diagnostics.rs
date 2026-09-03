@@ -16,6 +16,8 @@
 pub mod evidence;
 #[cfg(feature = "qualification")]
 pub mod qualification;
+#[cfg(feature = "lifecycle-profiling")]
+pub use crate::lifecycle_probe::LifecycleProfile;
 
 pub use crate::dump::DumpReport;
 pub use crate::identity::{RuntimeId, ScopeId};
