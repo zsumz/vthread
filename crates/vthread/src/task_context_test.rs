@@ -1,5 +1,11 @@
-use super::TaskContext;
+use super::{TaskContext, TaskPolicy};
 use crate::{Error, ScopeOptions, options::TaskOptions};
+
+#[test]
+fn checkpoint_policy_excludes_cold_task_local_state() {
+    assert_eq!(std::mem::size_of::<TaskPolicy>(), 40);
+    assert_eq!(std::mem::size_of::<TaskContext>(), 48);
+}
 
 #[test]
 fn recursive_initialization_is_rejected_before_reentering_the_initializer() {
@@ -53,9 +59,10 @@ fn panicking_initialization_releases_its_reservation_for_retry() {
 
 #[test]
 fn cleanup_cannot_suspend_even_when_cancellation_is_masked() {
-    let context = TaskContext::new(TaskOptions::root(ScopeOptions::default(), 1), 1);
-    context.masked.set(1);
-    context.closing.set(true);
+    let options = TaskOptions::root(ScopeOptions::default(), 1);
+    let context = TaskContext::new(options, 1);
+    context.set_masked(1);
+    context.close();
     assert!(context.interrupted());
     assert!(matches!(context.check(), Err(Error::RuntimeStopped)));
 }
@@ -69,18 +76,36 @@ fn cached_cancellation_flag_observes_later_requests() {
     assert!(context.check().is_ok());
 
     cancellation.cancel();
-    context.masked.set(1);
+    context.set_masked(1);
     assert!(!context.interrupted());
     assert!(context.check().is_ok());
-    context.masked.set(0);
+    context.set_masked(0);
     assert!(context.interrupted());
     assert!(matches!(context.check(), Err(Error::Cancelled)));
 }
 
 #[test]
+fn cancellation_epoch_preserves_sibling_isolation() {
+    let root = crate::CancellationToken::root(3);
+    let left = root.child_token();
+    let options = TaskOptions {
+        cancellation: root.child_token(),
+        deadline: None,
+    };
+    let context = TaskContext::new(options, 1);
+    assert!(!context.interrupted());
+
+    left.cancel();
+    assert!(!context.interrupted());
+    root.cancel();
+    assert!(context.interrupted());
+}
+
+#[test]
 fn expired_deadline_interrupts_the_compact_checkpoint() {
     let options = ScopeOptions::default().deadline(std::time::Instant::now());
-    let context = TaskContext::new(TaskOptions::root(options, 1), 1);
+    let options = TaskOptions::root(options, 1);
+    let context = TaskContext::new(options, 1);
 
     assert!(context.interrupted());
     assert!(matches!(context.check(), Err(Error::DeadlineExceeded)));

@@ -11,10 +11,11 @@ pub(crate) struct Wait {
 impl Wait {
     pub(crate) fn enter(reason: SuspensionReason) -> Result<Self> {
         let mounted = context::current().ok_or(Error::OutsideVThread)?;
-        let data = Rc::clone(&mounted.execution()?.data);
+        let execution = mounted.execution()?;
+        let data = Rc::clone(&execution.data);
         data.check()?;
         Ok(Self {
-            previous: data.reason.replace(reason),
+            previous: data.replace_reason(reason),
             data,
         })
     }
@@ -27,7 +28,7 @@ impl Wait {
 
 impl Drop for Wait {
     fn drop(&mut self) {
-        self.data.reason.set(self.previous);
+        self.data.replace_reason(self.previous);
     }
 }
 

@@ -5,7 +5,7 @@ use std::{
     collections::BTreeMap,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 use vthread_stack::ParkToken;
@@ -15,6 +15,7 @@ mod graph;
 
 struct Domain {
     capacity: usize,
+    epoch: Arc<AtomicU64>,
     state: Mutex<State>,
 }
 
@@ -48,6 +49,7 @@ impl CancellationToken {
         Self::insert(
             Arc::new(Domain {
                 capacity,
+                epoch: Arc::new(AtomicU64::new(1)),
                 state: Mutex::default(),
             }),
             &[],
@@ -81,6 +83,7 @@ impl CancellationToken {
         let selected = {
             let mut state = lock(&self.0.domain.state);
             state.graph.cancel(self.0.id);
+            self.0.domain.epoch.fetch_add(1, Ordering::Release);
             state
                 .waits
                 .iter()
@@ -99,8 +102,11 @@ impl CancellationToken {
         self.0.cancelled.load(Ordering::Acquire)
     }
 
-    pub(crate) fn cancellation_flag(&self) -> Arc<AtomicBool> {
-        Arc::clone(&self.0.cancelled)
+    pub(crate) fn cancellation_probe(&self) -> (Arc<AtomicBool>, Arc<AtomicU64>) {
+        (
+            Arc::clone(&self.0.cancelled),
+            Arc::clone(&self.0.domain.epoch),
+        )
     }
 
     pub(crate) fn register(

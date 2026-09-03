@@ -31,7 +31,7 @@ impl Kernel {
         }
         self.pending = retained_pending;
         if self.in_flight.is_some_and(|task| {
-            scope.is_none_or(|scope| self.task(task).execution.record.lock().scope == scope)
+            scope.is_none_or(|scope| self.task(task).execution().record().lock().scope == scope)
         }) {
             self.discard_in_flight(reason);
         }
@@ -40,11 +40,12 @@ impl Kernel {
             self.ready.push_front(task);
         }
         for task in self.local.take_starts() {
-            self.ready.push_back(self.tasks.insert(task));
+            self.ready.push_back(self.tasks.insert_borrowed(task));
         }
         for _ in 0..self.ready.len() {
             let task = self.ready.pop_front().expect("ready task");
-            if scope.is_none_or(|scope| self.task(task).execution.record.lock().scope == scope) {
+            if scope.is_none_or(|scope| self.task(task).execution().record().lock().scope == scope)
+            {
                 self.in_flight = Some(task);
                 self.discard_in_flight(reason);
             } else {
@@ -56,7 +57,7 @@ impl Kernel {
             .iter()
             .filter(|(_, parked)| {
                 scope.is_none_or(|scope| {
-                    self.task(parked.task).execution.record.lock().scope == scope
+                    self.task(parked.task).execution().record().lock().scope == scope
                 })
             })
             .map(|(token, _)| *token)
@@ -108,18 +109,18 @@ impl Kernel {
         let task_key = self.in_flight.expect("owned task key");
         let execution = self.execution(task_key);
         execution.progress.unmount(
-            execution.record.progress(),
+            execution.record().progress(),
             &self.shared.carrier_progress[self.id.0],
             execution.id,
         );
-        execution.data.closing.set(true);
-        let task = self.task_mut(task_key);
-        let record = Arc::clone(&task.execution.record);
-        let fiber = task.fiber.take();
+        execution.data.close();
+        let mut task = self.task_mut(task_key);
+        let record = Arc::clone(task.execution().record());
+        let fiber = task.take_fiber();
         #[cfg(feature = "runtime-evidence")]
         let stack = fiber
             .as_ref()
-            .map(crate::task_fiber::TaskFiber::stack_identity);
+            .map(crate::task_fiber::TakenFiber::stack_identity);
         {
             // Destructors still belong to this task and must not block its carrier
             // through scope entry, joins, or explicit runtime shutdown.
@@ -140,7 +141,7 @@ impl Kernel {
                 },
             );
         }
-        drop(self.remove_in_flight());
+        self.remove_in_flight();
         self.stats.aborted += 1;
         self.publish(CarrierStatus::Running);
         self.shared.complete(&record, Some(reason));

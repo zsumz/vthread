@@ -107,9 +107,9 @@ impl Parker {
         let mounted = context::current().ok_or(Error::OutsideVThread)?;
         let execution = mounted.execution()?;
         execution.data.check()?;
-        let policy = &execution.data.options;
-        let unmasked = execution.data.masked.get() == 0;
-        let inherited_deadline = policy.deadline.filter(|_| unmasked);
+        let policy = &execution.data;
+        let unmasked = policy.masked() == 0;
+        let inherited_deadline = policy.deadline().filter(|_| unmasked);
         let inherited_timeout = inherited_deadline
             .is_some_and(|inherited| deadline.is_none_or(|explicit| inherited <= explicit));
         let deadline = deadline.into_iter().chain(inherited_deadline).min();
@@ -121,6 +121,7 @@ impl Parker {
                 let _generation = self.wait.guard(token);
                 let _subscription = if unmasked {
                     match policy
+                        .options()
                         .cancellation
                         .register(token, self.wait.registration())
                     {

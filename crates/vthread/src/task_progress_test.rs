@@ -7,6 +7,7 @@ fn progress_preserves_hot_mount_and_yield_observations() {
     let carrier = CarrierProgress::new();
     let writer = TaskProgressWriter::new();
     let task = TaskId::new(1);
+    assert!(!writer.resuming_yield());
     assert!(writer.mount(&carrier, task));
     assert_eq!(carrier.mounted(), Some(task));
     assert_eq!(
@@ -15,7 +16,8 @@ fn progress_preserves_hot_mount_and_yield_observations() {
     );
     assert_eq!(progress.mounts(), 0);
 
-    writer.yield_now(&progress, &carrier);
+    writer.yield_now(&carrier, |update| progress.apply(update));
+    assert!(writer.resuming_yield());
     assert_eq!(carrier.mounted(), None);
     assert_eq!(progress.status(TaskStatus::Ready, false), TaskStatus::Ready);
     assert_eq!(progress.yields(), 0);
@@ -26,6 +28,7 @@ fn progress_preserves_hot_mount_and_yield_observations() {
 
     assert!(!writer.mount(&carrier, task));
     writer.park(&progress, &carrier);
+    assert!(!writer.resuming_yield());
     assert_eq!(progress.mounts(), 2);
     assert_eq!(progress.yields(), 1);
     assert_eq!(
@@ -42,7 +45,7 @@ fn active_counter_lag_is_bounded_by_one_batch() {
     let task = TaskId::new(1);
     for _ in 1..COUNTER_BATCH {
         writer.mount(&carrier, task);
-        writer.yield_now(&progress, &carrier);
+        writer.yield_now(&carrier, |update| progress.apply(update));
     }
     assert_eq!(progress.mounts(), 0);
     assert_eq!(progress.yields(), 0);
@@ -50,7 +53,7 @@ fn active_counter_lag_is_bounded_by_one_batch() {
     writer.mount(&carrier, task);
     assert_eq!(progress.mounts(), 0);
     assert_eq!(progress.yields(), 0);
-    writer.yield_now(&progress, &carrier);
+    writer.yield_now(&carrier, |update| progress.apply(update));
     assert_eq!(progress.mounts(), COUNTER_BATCH);
     assert_eq!(progress.yields(), COUNTER_BATCH);
 }

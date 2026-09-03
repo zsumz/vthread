@@ -17,11 +17,11 @@ fn diagnostic_reason_is_nested_and_restored() {
                     let outer = Wait::enter(SuspensionReason::Mutex).unwrap();
                     {
                         let _inner = Wait::enter(SuspensionReason::Condvar).unwrap();
-                        assert_eq!(data.reason.get(), SuspensionReason::Condvar);
+                        assert_eq!(data.reason(), SuspensionReason::Condvar);
                     }
-                    assert_eq!(data.reason.get(), SuspensionReason::Mutex);
+                    assert_eq!(data.reason(), SuspensionReason::Mutex);
                     drop(outer);
-                    assert_eq!(data.reason.get(), SuspensionReason::Park);
+                    assert_eq!(data.reason(), SuspensionReason::Park);
                 })?
                 .join()
         })

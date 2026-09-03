@@ -24,8 +24,8 @@ fn policy_error(result: Result<()>, deadline: Option<Instant>) {
 fn after_completion(record: &SharedTaskRecord, deadline: Option<Instant>) -> Arc<AtomicBool> {
     let mounted = context::current().unwrap();
     let execution = mounted.execution().unwrap();
-    let parent = Arc::clone(&execution.record);
-    let cancellation = execution.data.options.cancellation.clone();
+    let parent = Arc::clone(execution.record());
+    let cancellation = execution.data.options().cancellation.clone();
     let child = record.lock().id;
     let checked = Arc::new(AtomicBool::new(false));
     let observed = Arc::clone(&checked);

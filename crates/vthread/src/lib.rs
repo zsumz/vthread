@@ -46,6 +46,7 @@ mod join;
 mod join_slot;
 mod join_wait;
 mod kernel;
+mod kernel_tasks;
 pub mod lifecycle;
 mod lifecycle_owner;
 mod lifecycle_resources;

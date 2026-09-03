@@ -18,5 +18,12 @@ fn vacant_slots_are_reused_without_moving_other_values() {
         std::mem::size_of::<Option<TaskKey>>(),
         std::mem::size_of::<usize>()
     );
+    let owned = TaskKey::owned(retained);
+    let borrowed = TaskKey::borrowed(retained);
+    assert_eq!(owned.index(), retained);
+    assert_eq!(borrowed.index(), retained);
+    assert!(!owned.is_borrowed());
+    assert!(borrowed.is_borrowed());
+    assert_ne!(owned, borrowed);
     assert_eq!(slab.len(), 2);
 }

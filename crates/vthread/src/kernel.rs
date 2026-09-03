@@ -14,13 +14,14 @@ use crate::{
     TaskStatus,
     control::Shared,
     inbox::{Inbox, SpawnPacket},
-    task_slab::{TaskKey, TaskSlab},
+    kernel_tasks::{KernelTasks, OwnedTask, TaskMut, TaskRef},
+    task_slab::TaskKey,
     timer::TimerQueue,
     wait::WaitRegistration,
 };
 use crate::{
     context::Execution, local_carrier::LocalCarrier, task_context::TaskContext,
-    task_fiber::TaskFiber,
+    task_fiber::OwnedFiber,
 };
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -33,7 +34,7 @@ pub(crate) struct Kernel {
     pub(super) shared: Arc<Shared>,
     pub(crate) inbox: Arc<Inbox>,
     pub(super) id: CarrierId,
-    pub(super) tasks: TaskSlab<Task>,
+    pub(super) tasks: KernelTasks,
     pub(super) ready: VecDeque<TaskKey>,
     pub(super) parked: BTreeMap<ParkToken, ParkedTask>,
     pub(super) in_flight: Option<TaskKey>,
@@ -44,12 +45,6 @@ pub(crate) struct Kernel {
     pub(super) has_borrowed: bool,
     #[cfg(test)]
     pub(super) revocation_inspections: usize,
-}
-
-pub(crate) struct Task {
-    pub(crate) fiber: Option<TaskFiber>,
-    pub(crate) execution: Rc<Execution>,
-    pub(crate) checkpoint_on_resume: bool,
 }
 
 pub(super) struct ParkedTask {
@@ -64,7 +59,7 @@ impl Kernel {
             inbox: Arc::clone(&shared.inboxes[id.0]),
             shared,
             id,
-            tasks: TaskSlab::new(),
+            tasks: KernelTasks::new(),
             ready: VecDeque::new(),
             parked: BTreeMap::new(),
             in_flight: None,
@@ -110,10 +105,11 @@ impl Kernel {
                     depth: self.local.pending_starts(),
                     capacity: self.shared.config.carrier_queue_capacity(),
                 });
-            self.shared.transition(&task.execution.record, |record| {
-                record.status = TaskStatus::Ready
-            });
-            self.ready.push_back(self.tasks.insert(task));
+            self.shared.transition(
+                task.execution.as_ref().expect("task execution").record(),
+                |record| record.status = TaskStatus::Ready,
+            );
+            self.ready.push_back(self.tasks.insert_borrowed(task));
         }
         received
     }
@@ -150,9 +146,9 @@ impl Kernel {
             let entry = packet.entry.take().expect("unstarted packet entry");
             let fiber = Fiber::new(stack, entry);
             #[cfg(feature = "runtime-evidence")]
-            let task_fiber = TaskFiber::owned(fiber, stack_identity);
+            let task_fiber = OwnedFiber::new(fiber, stack_identity);
             #[cfg(not(feature = "runtime-evidence"))]
-            let task_fiber = TaskFiber::owned(fiber);
+            let task_fiber = OwnedFiber::new(fiber);
             self.shared
                 .transition(&packet.record, |record| record.status = TaskStatus::Ready);
             let (id, scope, options) = {
@@ -163,20 +159,18 @@ impl Kernel {
                 options,
                 self.shared.config.task_local_capacity(),
             ));
-            let execution = Rc::new(Execution {
+            let execution = Rc::new(Execution::new(
                 id,
                 scope,
-                hub: Arc::clone(&self.inbox.hub),
-                record: Arc::clone(&packet.record),
-                shared: Arc::clone(&self.shared),
-                local: Rc::clone(&self.local),
+                Arc::clone(&self.inbox.hub),
+                Arc::clone(&packet.record),
+                Arc::clone(&self.shared),
+                Rc::clone(&self.local),
                 data,
-                progress: crate::task_progress::TaskProgressWriter::new(),
-            });
-            let task = Task {
+            ));
+            let task = OwnedTask {
                 fiber: Some(task_fiber),
-                execution,
-                checkpoint_on_resume: false,
+                execution: Some(execution),
             };
             #[cfg(feature = "runtime-evidence")]
             self.shared.record(
@@ -186,26 +180,26 @@ impl Kernel {
                 },
             );
             self.pending = None;
-            self.ready.push_back(self.tasks.insert(task));
+            self.ready.push_back(self.tasks.insert_owned(task));
         }
         received
     }
 
     pub(crate) fn execution(&self, task: TaskKey) -> Rc<Execution> {
-        Rc::clone(&self.task(task).execution)
+        Rc::clone(self.task(task).execution())
     }
 
-    pub(super) fn task(&self, key: TaskKey) -> &Task {
+    pub(super) fn task(&self, key: TaskKey) -> TaskRef<'_> {
         self.tasks.get(key).expect("live task key")
     }
 
-    pub(super) fn task_mut(&mut self, key: TaskKey) -> &mut Task {
+    pub(super) fn task_mut(&mut self, key: TaskKey) -> TaskMut<'_> {
         self.tasks.get_mut(key).expect("live task key")
     }
 
-    pub(super) fn remove_in_flight(&mut self) -> Task {
+    pub(super) fn remove_in_flight(&mut self) {
         let key = self.in_flight.take().expect("in-flight task key");
-        self.tasks.remove(key).expect("live in-flight task")
+        assert!(self.tasks.remove(key), "live in-flight task");
     }
 
     pub(crate) fn publish(&self, status: CarrierStatus) {

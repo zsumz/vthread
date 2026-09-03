@@ -34,7 +34,7 @@ impl Kernel {
             return Ok(false);
         };
         if self.shared.abort_requested() {
-            let scope = self.task(task_key).execution.scope;
+            let scope = self.task(task_key).execution().scope();
             if let Some(reason) = self.shared.abort_reason(scope) {
                 self.discard_in_flight(reason);
                 return Ok(true);
@@ -44,19 +44,17 @@ impl Kernel {
         let shared = &self.shared;
         let carrier_progress = &shared.carrier_progress[self.id.0];
         let dispatched = {
-            let task = self.tasks.get_mut(task_key).expect("ready task key");
-            let first_mount = task
-                .execution
-                .progress
-                .mount(carrier_progress, task.execution.id);
+            let mut task = self.tasks.get_mut(task_key).expect("ready task key");
+            let execution = task.execution();
+            let first_mount = execution.progress.mount(carrier_progress, execution.id);
             if shared.config.stall_policy().timeout().is_some() {
-                shared.transition(&task.execution.record, |record| {
+                shared.transition(execution.record(), |record| {
                     record.status = TaskStatus::Running;
                 });
             }
             #[cfg(feature = "runtime-evidence")]
             shared.record(crate::diagnostics::evidence::RuntimeEventKind::Mounted {
-                task: task.execution.id,
+                task: execution.id,
                 carrier: self.id,
             });
             (!first_mount).then(|| task.dispatch(shared, carrier_progress))
@@ -65,17 +63,17 @@ impl Kernel {
             state
         } else {
             self.publish(CarrierStatus::Running);
-            let task = self.tasks.get_mut(task_key).expect("mounted task key");
+            let mut task = self.tasks.get_mut(task_key).expect("mounted task key");
             task.dispatch(shared, carrier_progress)
         };
         let publish = match state {
             Some(FiberState::Suspended(Suspension::YieldNow)) => {
                 let task_key = self.in_flight.take().expect("yielded task key");
                 #[cfg(feature = "runtime-evidence")]
-                let task_id = self.task(task_key).execution.id;
+                let task_id = self.task(task_key).execution().id;
                 if self.shared.config.stall_policy().timeout().is_some() {
                     self.shared
-                        .transition(&self.task(task_key).execution.record, |record| {
+                        .transition(self.task(task_key).execution().record(), |record| {
                             record.status = TaskStatus::Ready;
                             record.last_suspension = Some(SuspensionReason::YieldNow);
                         });
@@ -117,7 +115,7 @@ impl Kernel {
                 self.stats.stale_wakes += 1;
                 continue;
             };
-            if self.task(parked.task).execution.id != notice.task {
+            if self.task(parked.task).execution().id != notice.task {
                 return Err(Error::fault(
                     crate::error::FaultComponent::Scheduler,
                     "wake notice task does not own wait token",
@@ -135,7 +133,7 @@ impl Kernel {
                 );
             }
             self.shared
-                .transition(&self.task(parked.task).execution.record, |record| {
+                .transition(self.task(parked.task).execution().record(), |record| {
                     record.status = TaskStatus::Ready;
                     record.deadline = None;
                     record.last_wake = Some(match notice.cause {
@@ -190,10 +188,10 @@ impl Kernel {
         }
         let task = self.in_flight.take().expect("parking task key");
         #[cfg(feature = "runtime-evidence")]
-        let task_id = self.task(task).execution.id;
-        let reason = self.task(task).execution.data.reason.get();
+        let task_id = self.task(task).execution().id;
+        let reason = self.task(task).execution().data.reason();
         self.shared
-            .transition(&self.task(task).execution.record, |record| {
+            .transition(self.task(task).execution().record(), |record| {
                 record.status = TaskStatus::Suspended(reason);
                 record.deadline = request.deadline();
                 record.parks += 1;
@@ -215,22 +213,24 @@ impl Kernel {
     fn complete_task(&mut self) {
         let task_key = self.in_flight.expect("completed task key");
         let execution = self.execution(task_key);
-        let record = Arc::clone(&execution.record);
+        let record = Arc::clone(execution.record());
         #[cfg(feature = "runtime-evidence")]
         let task = record.lock().id;
         {
             let _cleanup = crate::task_context::TaskCleanup::new(execution);
             #[cfg(feature = "runtime-evidence")]
             let (identity, retained) = self
-                .task_mut(task_key)
-                .fiber
-                .take()
+                .tasks
+                .get_mut(task_key)
+                .expect("completed task")
+                .take_fiber()
                 .expect("completed stack")
                 .reclaim_stack(&mut self.local.stacks.borrow_mut());
             #[cfg(not(feature = "runtime-evidence"))]
-            self.task_mut(task_key)
-                .fiber
-                .take()
+            self.tasks
+                .get_mut(task_key)
+                .expect("completed task")
+                .take_fiber()
                 .expect("completed stack")
                 .reclaim_stack(&mut self.local.stacks.borrow_mut());
             #[cfg(feature = "runtime-evidence")]
@@ -251,7 +251,7 @@ impl Kernel {
         } else {
             self.stats.completed += 1;
         }
-        drop(self.remove_in_flight());
+        self.remove_in_flight();
         self.publish(CarrierStatus::Running);
         // Completion and admission release become visible only after reclaiming the stack.
         self.shared.complete(&record, None);

@@ -47,7 +47,7 @@ pub(super) fn wait(fd: BorrowedFd<'_>, interest: zio::Interest) -> Result<()> {
     let mounted = context::current().ok_or(Error::OutsideVThread)?;
     let execution = mounted.execution()?;
     let services = execution
-        .shared
+        .shared()
         .services
         .get()
         .ok_or(Error::RuntimeStopped)?;

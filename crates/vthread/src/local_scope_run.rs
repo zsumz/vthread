@@ -71,9 +71,9 @@ fn run_local<'env, R, E, O>(
     let mounted = context::current().ok_or(Error::OutsideVThread)?;
     let execution = std::rc::Rc::clone(mounted.execution()?);
     execution.data.check()?;
-    let options = execution.data.options.child(deadline);
+    let options = execution.data.options().child(deadline);
     Ok(vthread_stack::fiber_scope(
-        execution.shared.config.max_vthreads(),
+        execution.shared().config.max_vthreads(),
         |fibers| {
             let scope = LocalScope {
                 fibers,
@@ -93,8 +93,8 @@ fn run_local<'env, R, E, O>(
                 policy
             };
             match outcome {
-                Err(payload) => failures.unwind(payload, policy, &scope.execution.shared),
-                Ok(result) => finish(failures, result, policy, &scope.execution.shared),
+                Err(payload) => failures.unwind(payload, policy, scope.execution.shared()),
+                Ok(result) => finish(failures, result, policy, scope.execution.shared()),
             }
         },
     ))
