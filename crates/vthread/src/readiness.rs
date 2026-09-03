@@ -15,7 +15,7 @@ use std::{
 use vthread_stack::ParkToken;
 
 struct Entry {
-    fd: OwnedFd,
+    fd: Arc<OwnedFd>,
     interest: zio::Interest,
     token: ParkToken,
     wake: WaitRegistration,
@@ -84,6 +84,21 @@ impl Reactor {
         token: ParkToken,
         wake: WaitRegistration,
     ) -> Result<Lease> {
+        let fd = Arc::new(crate::net::io::checked(
+            "duplicate readiness descriptor",
+            fd,
+            fd.try_clone_to_owned(),
+        )?);
+        self.register_owned(fd, interest, token, wake)
+    }
+
+    pub(crate) fn register_owned(
+        &self,
+        fd: Arc<OwnedFd>,
+        interest: zio::Interest,
+        token: ParkToken,
+        wake: WaitRegistration,
+    ) -> Result<Lease> {
         let key = {
             let mut state = lock(&self.inner.state);
             if state.error.is_some() {
@@ -106,11 +121,7 @@ impl Reactor {
             state.entries.insert(
                 key,
                 Entry {
-                    fd: crate::net::io::checked(
-                        "duplicate readiness descriptor",
-                        fd,
-                        fd.try_clone_to_owned(),
-                    )?,
+                    fd,
                     interest,
                     token,
                     wake,

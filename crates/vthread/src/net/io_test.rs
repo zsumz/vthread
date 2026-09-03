@@ -1,12 +1,22 @@
 use crate::{Error, Runtime, ScopeOptions, SuspensionReason, context, net::unix::UnixStream};
 use std::{
-    os::fd::AsFd,
+    os::fd::{AsFd, AsRawFd},
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
+
+#[test]
+fn readiness_source_reuses_one_owned_descriptor() {
+    let (socket, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
+    let source = super::ReadinessSource::default();
+    let first = source.acquire(socket.as_fd()).unwrap();
+    let second = source.acquire(socket.as_fd()).unwrap();
+    assert!(Arc::ptr_eq(&first, &second));
+    assert_ne!(first.as_raw_fd(), socket.as_raw_fd());
+}
 
 #[test]
 fn blocked_io_yields_to_runnable_work_before_registering_readiness() {

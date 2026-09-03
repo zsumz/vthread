@@ -85,7 +85,7 @@ fn drive(inner: &Inner, poll: &mut zio::Poll, events: &mut zio::Events) -> Resul
                 if let std::collections::btree_map::Entry::Vacant(slot) = installed.entry(key) {
                     let registration = poll
                         .register(
-                            &entry.fd,
+                            entry.fd.as_ref(),
                             zio::Key::new(key),
                             entry.interest,
                             zio::Mode::Level,

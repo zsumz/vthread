@@ -22,9 +22,7 @@ fn selected_timeout_emits_the_registered_task_identity() {
         WaitBegin::Park(request) => request,
         WaitBegin::Immediate(cause) => panic!("unexpected immediate wake: {cause:?}"),
     };
-    let registration = hub
-        .take_registration(request.token())
-        .expect("registration");
+    let registration = cell.registration();
     assert!(
         registration
             .select_timeout(request.token())
@@ -45,7 +43,7 @@ fn concurrent_ready_timeout_cancel_and_close_select_exactly_one_notice() {
             panic!("expected a park");
         };
         let token = request.token();
-        let registration = hub.take_registration(token).expect("registration");
+        let registration = cell.registration();
         let barrier = Barrier::new(4);
         thread::scope(|threads| {
             threads.spawn(|| {

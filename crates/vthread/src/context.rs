@@ -1,5 +1,11 @@
 //! Carrier-local identity installed while one virtual thread is mounted.
 
+#[path = "context_wake.rs"]
+mod wake;
+pub(crate) use wake::{enqueue_local_wake, unregister_local_wake};
+#[path = "context_pending.rs"]
+mod pending;
+
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -25,6 +31,8 @@ struct ExecutionCold {
     record: Option<SharedTaskRecord>,
     shared: Arc<Shared>,
     local: Rc<LocalCarrier>,
+    pending_wait: RefCell<Option<pending::PendingWait>>,
+    readiness_wait: RefCell<Option<crate::wait::WaitCell>>,
 }
 
 impl Execution {
@@ -47,6 +55,8 @@ impl Execution {
                 record: Some(record),
                 shared,
                 local,
+                pending_wait: RefCell::new(None),
+                readiness_wait: RefCell::new(None),
             }),
         }
     }
@@ -69,6 +79,18 @@ impl Execution {
 
     pub(crate) fn local(&self) -> &Rc<LocalCarrier> {
         &self.cold.local
+    }
+
+    pub(crate) fn readiness_parker(&self) -> Result<crate::Parker> {
+        let mut cached = self.cold.readiness_wait.borrow_mut();
+        let wait = cached.get_or_insert_with(crate::wait::WaitCell::new);
+        if !wait.recycle() {
+            return Err(Error::fault(
+                crate::error::FaultComponent::Readiness,
+                "cached readiness wait remained active",
+            ));
+        }
+        Ok(crate::Parker { wait: wait.clone() })
     }
 
     pub(crate) fn recycle(&mut self) -> bool {
@@ -106,7 +128,7 @@ impl Execution {
 #[derive(Clone)]
 pub(crate) enum MountedTask {
     Execution(Rc<Execution>),
-    Cleanup { task: TaskId, hub: Arc<WaitHub> },
+    Cleanup { task: TaskId },
 }
 
 impl MountedTask {
@@ -119,14 +141,7 @@ impl MountedTask {
     pub(crate) fn task_id(&self) -> TaskId {
         match self {
             Self::Execution(execution) => execution.id,
-            Self::Cleanup { task, .. } => *task,
-        }
-    }
-
-    pub(crate) fn hub(&self) -> Arc<WaitHub> {
-        match self {
-            Self::Execution(execution) => Arc::clone(execution.hub()),
-            Self::Cleanup { hub, .. } => Arc::clone(hub),
+            Self::Cleanup { task } => *task,
         }
     }
 }
@@ -147,8 +162,8 @@ pub(crate) fn current() -> Option<MountedTask> {
         })
 }
 
-pub(crate) fn mount(task: TaskId, hub: Arc<WaitHub>) -> MountGuard {
-    install(MountedTask::Cleanup { task, hub })
+pub(crate) fn mount(task: TaskId) -> MountGuard {
+    install(MountedTask::Cleanup { task })
 }
 
 pub(crate) fn mount_execution(execution: Rc<Execution>) -> MountGuard {

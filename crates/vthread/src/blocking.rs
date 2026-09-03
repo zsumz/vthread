@@ -65,7 +65,7 @@ pub(crate) fn run_for<T: Send + 'static>(
         lease = Some(services.blocking.submit(
             abandoned,
             token,
-            wake,
+            wake.clone(),
             Box::new(move || {
                 if worker_abandoned.load(Ordering::Acquire) {
                     return false;

@@ -100,6 +100,8 @@ struct State<T> {
     closed: bool,
     send_waits: VecDeque<WaitCell>,
     recv_waits: VecDeque<WaitCell>,
+    send_vacant: Vec<WaitCell>,
+    recv_vacant: Vec<WaitCell>,
 }
 
 /// Creates a channel with positive buffer capacity and [`DEFAULT_WAIT_CAPACITY`]
@@ -138,6 +140,8 @@ pub fn bounded_with_wait_capacity<T>(
             closed: false,
             send_waits: VecDeque::new(),
             recv_waits: VecDeque::new(),
+            send_vacant: Vec::new(),
+            recv_vacant: Vec::new(),
         }),
     });
     Ok((

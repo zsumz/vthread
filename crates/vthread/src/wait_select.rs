@@ -1,14 +1,12 @@
 //! Wake selection for readiness, timeout, cancellation, and close.
 
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex};
 
 use vthread_stack::ParkToken;
 
-use crate::{Error, Result, TaskId, signal::lock};
+use crate::{Error, Result, signal::lock};
 
-use super::{
-    SelectionRejection, WaitCell, WaitHub, WaitRegistration, WaitState, WakeCause, WakeNotice,
-};
+use super::{SelectionRejection, WaitCell, WaitRegistration, WaitState, WakeCause, WakeNotice};
 
 impl WaitRegistration {
     pub(crate) fn select_ready(&self, token: ParkToken) -> bool {
@@ -64,7 +62,7 @@ impl WaitRegistration {
             state.selected = None;
             drop(state);
             if let Some(hub) = hub {
-                hub.unregister(token);
+                hub.discard_notice(token);
             }
         }
     }
@@ -72,23 +70,28 @@ impl WaitRegistration {
 
 impl WaitCell {
     pub(crate) fn notify(&self) -> NotifyResult {
-        let dispatch = {
-            let mut state = lock(&self.state);
-            if state.closed {
-                return NotifyResult::Closed;
-            }
-            let active = state.active.as_ref();
-            if let Some(active) = active.filter(|_| state.selected.is_none()) {
-                super::wait_evidence::record_current(active, WakeCause::Ready);
-                let dispatch = (active.token, active.task, active.hub.clone());
-                state.selected = Some(WakeCause::Ready);
-                Some(dispatch)
-            } else {
-                state.permit = true;
-                return NotifyResult::Stored;
-            }
+        let mut state = lock(&self.state);
+        if state.closed {
+            return NotifyResult::Closed;
+        }
+        let active = state.active.as_ref();
+        let Some(active) = active.filter(|_| state.selected.is_none()) else {
+            state.permit = true;
+            return NotifyResult::Stored;
         };
-        dispatch_notice(dispatch, WakeCause::Ready);
+        super::wait_evidence::record_current(active, WakeCause::Ready);
+        let notice = WakeNotice {
+            token: active.token,
+            task: active.task,
+            cause: WakeCause::Ready,
+        };
+        let hub = active.hub.upgrade();
+        state.selected = Some(WakeCause::Ready);
+        if let Some(hub) = hub
+            && !crate::context::enqueue_local_wake(&hub, notice)
+        {
+            hub.enqueue(notice);
+        }
         NotifyResult::Woke
     }
 
@@ -97,24 +100,25 @@ impl WaitCell {
     }
 
     pub(crate) fn close(&self) -> bool {
-        let dispatch = {
-            let mut state = lock(&self.state);
-            if state.closed {
-                return false;
+        let mut state = lock(&self.state);
+        if state.closed {
+            return false;
+        }
+        state.closed = true;
+        state.permit = false;
+        if let Some(active) = state.active.as_ref().filter(|_| state.selected.is_none()) {
+            super::wait_evidence::record_current(active, WakeCause::Closed);
+            let notice = WakeNotice {
+                token: active.token,
+                task: active.task,
+                cause: WakeCause::Closed,
+            };
+            let hub = active.hub.upgrade();
+            state.selected = Some(WakeCause::Closed);
+            if let Some(hub) = hub {
+                hub.enqueue(notice);
             }
-            state.closed = true;
-            state.permit = false;
-            let active = state.active.as_ref();
-            if let Some(active) = active.filter(|_| state.selected.is_none()) {
-                super::wait_evidence::record_current(active, WakeCause::Closed);
-                let dispatch = (active.token, active.task, active.hub.clone());
-                state.selected = Some(WakeCause::Closed);
-                Some(dispatch)
-            } else {
-                None
-            }
-        };
-        dispatch_notice(dispatch, WakeCause::Closed);
+        }
         true
     }
 
@@ -131,18 +135,22 @@ pub(crate) enum NotifyResult {
 }
 
 fn select_current(state: &Arc<Mutex<WaitState>>, cause: WakeCause) -> bool {
-    let dispatch = {
-        let mut state = lock(state);
-        let active = state.active.as_ref();
-        let Some(active) = active.filter(|_| state.selected.is_none()) else {
-            return false;
-        };
-        super::wait_evidence::record_current(active, cause);
-        let dispatch = (active.token, active.task, active.hub.clone());
-        state.selected = Some(cause);
-        Some(dispatch)
+    let mut state = lock(state);
+    let active = state.active.as_ref();
+    let Some(active) = active.filter(|_| state.selected.is_none()) else {
+        return false;
     };
-    dispatch_notice(dispatch, cause);
+    super::wait_evidence::record_current(active, cause);
+    let notice = WakeNotice {
+        token: active.token,
+        task: active.task,
+        cause,
+    };
+    let hub = active.hub.upgrade();
+    state.selected = Some(cause);
+    if let Some(hub) = hub {
+        hub.enqueue(notice);
+    }
     true
 }
 
@@ -152,36 +160,31 @@ fn select_generation(
     token: ParkToken,
     cause: WakeCause,
 ) -> bool {
-    let dispatch = {
-        let mut state = lock(state);
-        let Some(active) = state.active.as_ref() else {
-            registration.record_rejected(token, cause, SelectionRejection::NoActive);
-            return false;
-        };
-        if active.token != token {
-            registration.record_rejected(token, cause, SelectionRejection::Retired);
-            return false;
-        }
-        if state.selected.is_some() {
-            registration.record_rejected(token, cause, SelectionRejection::Selected);
-            return false;
-        }
-        registration.record_selected(token, cause);
-        let dispatch = (active.token, active.task, active.hub.clone());
-        state.selected = Some(cause);
-        Some(dispatch)
+    let mut state = lock(state);
+    let Some(active) = state.active.as_ref() else {
+        registration.record_rejected(token, cause, SelectionRejection::NoActive);
+        return false;
     };
-    dispatch_notice(dispatch, cause);
-    true
-}
-
-fn dispatch_notice(dispatch: Option<(ParkToken, TaskId, Weak<WaitHub>)>, cause: WakeCause) {
-    let Some((token, task, hub)) = dispatch else {
-        return;
-    };
-    if let Some(hub) = hub.upgrade() {
-        hub.enqueue(WakeNotice { token, task, cause });
+    if active.token != token {
+        registration.record_rejected(token, cause, SelectionRejection::Retired);
+        return false;
     }
+    if state.selected.is_some() {
+        registration.record_rejected(token, cause, SelectionRejection::Selected);
+        return false;
+    }
+    registration.record_selected(token, cause);
+    let notice = WakeNotice {
+        token: active.token,
+        task: active.task,
+        cause,
+    };
+    let hub = active.hub.upgrade();
+    state.selected = Some(cause);
+    if let Some(hub) = hub {
+        hub.enqueue(notice);
+    }
+    true
 }
 
 #[cfg(test)]

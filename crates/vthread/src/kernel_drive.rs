@@ -4,13 +4,16 @@ use super::{Kernel, ParkedTask};
 use crate::{
     CarrierStatus, Error, Result, SuspensionReason, TaskStatus, WakeReason, wait::WakeCause,
 };
-use std::{sync::Arc, time::Instant};
+use std::time::Instant;
 use vthread_stack::{FiberState, ParkRequest, Suspension};
 
 impl Kernel {
     pub(crate) fn tick(&mut self, signal_changed: bool) -> Result<bool> {
         self.sweep_revoked();
-        if signal_changed {
+        if signal_changed
+            || (!self.parked.is_empty()
+                && (self.local.pending_wakes() != 0 || self.inbox.hub.pending() != 0))
+        {
             self.process_wakes()?;
         }
         if self.timers.active_count() != 0 {
@@ -30,6 +33,12 @@ impl Kernel {
             self.process_wakes()?;
         }
         self.select_ready();
+        if self.in_flight.is_none()
+            && (self.local.pending_wakes() != 0 || self.inbox.hub.pending() != 0)
+        {
+            self.process_wakes()?;
+            self.select_ready();
+        }
         let Some(task_key) = self.in_flight else {
             self.flush_completions();
             return Ok(false);
@@ -126,7 +135,7 @@ impl Kernel {
 
     fn process_wakes(&mut self) -> Result<()> {
         let mut processed = false;
-        while let Some(notice) = self.inbox.hub.pop_wake() {
+        while let Some(notice) = self.local.pop_wake().or_else(|| self.inbox.hub.pop_wake()) {
             processed = true;
             let Some(parked) = self.parked.get(&notice.token) else {
                 self.stats.stale_wakes += 1;
@@ -186,7 +195,10 @@ impl Kernel {
                 "wait token parked twice",
             ));
         }
-        let registration = self.inbox.hub.take_registration(token)?;
+        let registration = self
+            .task(self.in_flight.expect("parking task key"))
+            .execution()
+            .take_wait(token)?;
         if let Some(deadline) = request.deadline()
             && !self.timers.schedule(token, deadline)
         {
@@ -226,72 +238,6 @@ impl Kernel {
                 reason,
             });
         Ok(())
-    }
-
-    fn complete_task(&mut self) {
-        self.yield_pressure = 0;
-        let task_key = self.in_flight.expect("completed task key");
-        let record = Arc::clone(self.task(task_key).execution().record());
-        #[cfg(feature = "lifecycle-profiling")]
-        let reclaim_started = std::time::Instant::now();
-        #[cfg(feature = "runtime-evidence")]
-        let task = record.lock().id;
-        {
-            let _cleanup =
-                crate::task_context::TaskCleanup::completed(self.task(task_key).execution());
-            #[cfg(feature = "runtime-evidence")]
-            let (identity, retained) = self
-                .tasks
-                .get_mut(task_key)
-                .expect("completed task")
-                .take_fiber()
-                .expect("completed stack")
-                .reclaim_stack(&mut self.local.stacks.borrow_mut());
-            #[cfg(not(feature = "runtime-evidence"))]
-            self.tasks
-                .get_mut(task_key)
-                .expect("completed task")
-                .take_fiber()
-                .expect("completed stack")
-                .reclaim_stack(&mut self.local.stacks.borrow_mut());
-            #[cfg(feature = "runtime-evidence")]
-            self.shared.record(
-                crate::diagnostics::evidence::RuntimeEventKind::StackReleased {
-                    task,
-                    stack: crate::diagnostics::evidence::StackId::new(self.id, identity),
-                    disposition: if retained {
-                        crate::diagnostics::evidence::StackDisposition::Cached
-                    } else {
-                        crate::diagnostics::evidence::StackDisposition::Discarded
-                    },
-                },
-            );
-        }
-        self.recycle_execution(task_key);
-        self.remove_in_flight();
-        #[cfg(feature = "lifecycle-profiling")]
-        self.shared
-            .lifecycle_probe
-            .record_reclaim(reclaim_started.elapsed());
-        let completion = self
-            .shared
-            .prepare_completion(&record, None)
-            .expect("live completed task");
-        if completion.status == crate::TaskStatus::Panicked {
-            self.stats.panicked += 1;
-        } else {
-            self.stats.completed += 1;
-        }
-        if self.ready.is_empty() {
-            self.publish(CarrierStatus::Running);
-        } else {
-            self.publish_transition();
-        }
-        // Completion and admission release become visible only after reclaiming the stack.
-        self.queue_completion(completion);
-        if self.ready.is_empty() {
-            self.flush_completions();
-        }
     }
 }
 

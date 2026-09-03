@@ -122,3 +122,46 @@ fn slow_external_io_does_not_trigger_the_ownerless_park_stall_policy() {
         .unwrap();
     remote.join().unwrap();
 }
+
+#[test]
+fn shared_stream_keeps_concurrent_readiness_registrations_distinct() {
+    use crate::support_test::until;
+    use std::{io::Write, sync::Arc, sync::mpsc, thread};
+
+    let runtime = Runtime::new().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0".parse().unwrap()).unwrap();
+    let address = listener.local_addr().unwrap();
+    let (release, released) = mpsc::sync_channel(0);
+    let peer = thread::spawn(move || {
+        let mut stream = std::net::TcpStream::connect(address).unwrap();
+        released.recv().unwrap();
+        stream.write_all(b"ab").unwrap();
+    });
+    runtime
+        .run_scope(|scope| {
+            let stream = scope
+                .spawn("accept", move || listener.accept().map(|pair| pair.0))?
+                .join()??;
+            let stream = Arc::new(stream);
+            let mut readers = Vec::new();
+            for _ in 0..2 {
+                let stream = Arc::clone(&stream);
+                readers.push(scope.spawn("reader", move || {
+                    let mut byte = [0; 1];
+                    stream.read_exact(&mut byte)?;
+                    Ok::<_, crate::Error>(byte[0])
+                })?);
+            }
+            until(|| runtime.snapshot().services.readiness_waits == 2);
+            release.send(()).unwrap();
+            let mut bytes = Vec::new();
+            for mut reader in readers {
+                bytes.push(reader.join()??);
+            }
+            bytes.sort_unstable();
+            assert_eq!(bytes, b"ab");
+            Ok(())
+        })
+        .unwrap();
+    peer.join().unwrap();
+}

@@ -40,7 +40,9 @@ impl<T> Core<T> {
                 }
                 ticket.enqueue(&mut state)?;
             }
-            wait.as_ref().expect("blocking send").park(&ticket.parker)?;
+            wait.as_ref()
+                .expect("blocking send")
+                .park(ticket.parker())?;
         }
     }
 
@@ -70,7 +72,7 @@ impl<T> Core<T> {
             }
             wait.as_ref()
                 .expect("blocking receive")
-                .park(&ticket.parker)?;
+                .park(ticket.parker())?;
         }
     }
 

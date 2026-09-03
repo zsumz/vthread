@@ -1,4 +1,4 @@
-use super::Kernel;
+use super::super::Kernel;
 use crate::{CarrierId, Runtime, ScopeOptions, control::Shared};
 use std::sync::Arc;
 use std::time::Duration;

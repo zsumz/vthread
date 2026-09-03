@@ -2,7 +2,13 @@
 
 use super::wait::Wait;
 use crate::{Error, Parker, Result, SuspensionReason, signal::lock, wait::WaitCell};
-use std::{collections::VecDeque, sync::Mutex};
+use std::{
+    collections::VecDeque,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+};
 
 struct Entry {
     wait: WaitCell,
@@ -11,20 +17,21 @@ struct Entry {
 }
 
 struct State {
-    available: usize,
-    closed: bool,
     entries: VecDeque<Entry>,
+    vacant: Vec<WaitCell>,
 }
 
 pub(super) struct Gate {
     maximum: usize,
     capacity: usize,
+    available: AtomicUsize,
+    closed: AtomicBool,
     state: Mutex<State>,
 }
 
 pub(super) struct Ticket<'a> {
     gate: &'a Gate,
-    parker: Parker,
+    parker: Option<Parker>,
 }
 
 impl Gate {
@@ -38,41 +45,53 @@ impl Gate {
         Ok(Self {
             maximum,
             capacity,
+            available: AtomicUsize::new(available),
+            closed: AtomicBool::new(false),
             state: Mutex::new(State {
-                available,
-                closed: false,
                 entries: VecDeque::new(),
+                vacant: Vec::new(),
             }),
         })
     }
 
     pub(super) fn try_take(&self) -> Result<()> {
-        let mut state = lock(&self.state);
-        if state.closed {
+        if self.closed.load(Ordering::Acquire) {
             return Err(Error::Closed);
         }
-        if state.available == 0 {
-            return Err(Error::WouldBlock);
+        let mut available = self.available.load(Ordering::Acquire);
+        loop {
+            if available == 0 {
+                return if self.closed.load(Ordering::Acquire) {
+                    Err(Error::Closed)
+                } else {
+                    Err(Error::WouldBlock)
+                };
+            }
+            match self.available.compare_exchange_weak(
+                available,
+                available - 1,
+                Ordering::Acquire,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return Ok(()),
+                Err(observed) => available = observed,
+            }
         }
-        state.available -= 1;
-        Ok(())
     }
 
     pub(super) fn take(&self, reason: SuspensionReason) -> Result<()> {
         let wait = Wait::enter(reason)?;
         match self.try_take() {
-            Err(Error::WouldBlock) => self.subscribe()?.wait(&wait),
-            outcome => outcome,
+            Err(Error::WouldBlock) => {}
+            outcome => return outcome,
         }
+        self.subscribe()?.wait(&wait)
     }
 
     // Registration is also used by condvars before releasing their predicate mutex.
     pub(super) fn subscribe(&self) -> Result<Ticket<'_>> {
-        let parker = Parker {
-            wait: WaitCell::new(),
-        };
         let mut state = lock(&self.state);
-        if state.closed {
+        if self.closed.load(Ordering::Acquire) {
             return Err(Error::Closed);
         }
         if state.entries.len() == self.capacity {
@@ -81,8 +100,10 @@ impl Gate {
                 limit: self.capacity,
             });
         }
-        let granted = if state.available > 0 {
-            state.available -= 1;
+        let parker = Parker {
+            wait: state.vacant.pop().unwrap_or_default(),
+        };
+        let granted = if self.try_take().is_ok() {
             parker.wait.notify();
             Some(true)
         } else {
@@ -92,13 +113,16 @@ impl Gate {
             wait: parker.wait.clone(),
             granted,
         });
-        Ok(Ticket { gate: self, parker })
+        Ok(Ticket {
+            gate: self,
+            parker: Some(parker),
+        })
     }
 
     pub(super) fn signal(&self) {
         let wake = {
             let mut state = lock(&self.state);
-            if state.closed {
+            if self.closed.load(Ordering::Acquire) {
                 return;
             }
             self.return_permit(&mut state)
@@ -117,8 +141,17 @@ impl Gate {
             entry.granted = Some(true);
             return Some(entry.wait.clone());
         }
-        if state.available < self.maximum {
-            state.available += 1;
+        let mut available = self.available.load(Ordering::Relaxed);
+        while available < self.maximum {
+            match self.available.compare_exchange_weak(
+                available,
+                available + 1,
+                Ordering::Release,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(observed) => available = observed,
+            }
         }
         None
     }
@@ -145,9 +178,9 @@ impl Gate {
 
     pub(super) fn close(&self) {
         let wakes = {
-            let mut state = lock(&self.state);
-            state.closed = true;
-            state.available = 0;
+            let state = lock(&self.state);
+            self.closed.store(true, Ordering::Release);
+            self.available.store(0, Ordering::Release);
             state
                 .entries
                 .iter()
@@ -160,7 +193,7 @@ impl Gate {
     }
 
     pub(super) fn available(&self) -> usize {
-        lock(&self.state).available
+        self.available.load(Ordering::Acquire)
     }
     pub(super) fn waiting(&self) -> usize {
         lock(&self.state).entries.len()
@@ -169,47 +202,68 @@ impl Gate {
         self.capacity
     }
     pub(super) fn is_closed(&self) -> bool {
-        lock(&self.state).closed
+        self.closed.load(Ordering::Acquire)
     }
 }
 
 impl Ticket<'_> {
-    pub(super) fn wait(self, wait: &Wait) -> Result<()> {
+    pub(super) fn wait(mut self, wait: &Wait) -> Result<()> {
+        let gate = self.gate;
         loop {
-            wait.park(&self.parker)?;
-            let mut state = lock(&self.gate.state);
-            if state.closed {
+            wait.park(self.parker())?;
+            let mut state = lock(&gate.state);
+            if gate.closed.load(Ordering::Acquire) {
                 return Err(Error::Closed);
             }
             let index = state
                 .entries
                 .iter()
-                .position(|entry| entry.wait.identity() == self.parker.wait.identity())
+                .position(|entry| entry.wait.same_cell(&self.parker().wait))
                 .ok_or(Error::fault(
                     crate::error::FaultComponent::Scheduler,
                     "missing synchronization ticket",
                 ))?;
             if state.entries[index].granted.is_some() {
-                state.entries.remove(index);
+                drop(state.entries.remove(index));
+                self.recycle(&mut state);
                 return Ok(());
             }
+        }
+    }
+
+    fn parker(&self) -> &Parker {
+        self.parker.as_ref().expect("live synchronization ticket")
+    }
+
+    fn recycle(&mut self, state: &mut State) {
+        let parker = self.parker.take().expect("live synchronization ticket");
+        if parker.wait.recycle() {
+            state.vacant.push(parker.wait);
         }
     }
 }
 
 impl Drop for Ticket<'_> {
     fn drop(&mut self) {
+        let Some(parker) = self.parker.take() else {
+            return;
+        };
         let wake = {
             let mut state = lock(&self.gate.state);
             let Some(index) = state
                 .entries
                 .iter()
-                .position(|entry| entry.wait.identity() == self.parker.wait.identity())
+                .position(|entry| entry.wait.same_cell(&parker.wait))
             else {
                 return;
             };
             let entry = state.entries.remove(index).expect("ticket position");
-            if entry.granted == Some(true) && !state.closed {
+            let granted = entry.granted;
+            drop(entry);
+            if parker.wait.recycle() {
+                state.vacant.push(parker.wait);
+            }
+            if granted == Some(true) && !self.gate.closed.load(Ordering::Acquire) {
                 self.gate.return_permit(&mut state)
             } else {
                 None

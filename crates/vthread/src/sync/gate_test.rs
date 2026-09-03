@@ -50,3 +50,17 @@ fn close_discards_selected_and_stored_permits() {
     assert!(matches!(gate.try_take(), Err(Error::Closed)));
     assert!(matches!(gate.subscribe(), Err(Error::Closed)));
 }
+
+#[test]
+fn abandoned_tickets_reuse_the_wait_cache_high_water() {
+    let gate = Gate::new(0, 1, 2).unwrap();
+    let first = gate.subscribe().unwrap();
+    let identity = first.parker().wait.identity();
+    drop(first);
+    assert_eq!(lock(&gate.state).vacant.len(), 1);
+
+    let second = gate.subscribe().unwrap();
+    assert_eq!(second.parker().wait.identity(), identity);
+    drop(second);
+    assert_eq!(lock(&gate.state).vacant.len(), 1);
+}

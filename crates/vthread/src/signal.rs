@@ -33,10 +33,25 @@ impl Signal {
         }
     }
 
+    pub(crate) fn notify_if_waiting(&self) {
+        if self.waiters.load(Ordering::SeqCst) != 0 {
+            self.notify();
+        }
+    }
+
     pub(crate) fn wait(&self, observed: u64, deadline: Option<Instant>) {
+        self.wait_while(observed, deadline, || false);
+    }
+
+    pub(crate) fn wait_while(
+        &self,
+        observed: u64,
+        deadline: Option<Instant>,
+        mut ready: impl FnMut() -> bool,
+    ) {
         let mut gate = lock(&self.gate);
         self.waiters.fetch_add(1, Ordering::SeqCst);
-        while self.epoch.load(Ordering::SeqCst) == observed {
+        while self.epoch.load(Ordering::SeqCst) == observed && !ready() {
             gate = if let Some(deadline) = deadline {
                 let remaining = deadline.saturating_duration_since(Instant::now());
                 if remaining.is_zero() {
@@ -54,6 +69,11 @@ impl Signal {
             };
         }
         self.waiters.fetch_sub(1, Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn waiting(&self) -> usize {
+        self.waiters.load(Ordering::SeqCst)
     }
 }
 

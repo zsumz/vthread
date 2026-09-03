@@ -12,12 +12,14 @@ use std::{
 #[derive(Debug)]
 pub struct TcpListener {
     inner: std::net::TcpListener,
+    readiness: io::ReadinessSource,
 }
 /// An owned nonblocking TCP stream, shareable across virtual threads.
 /// Concurrent readers/writers follow OS stream semantics; they are not message framing.
 #[derive(Debug)]
 pub struct TcpStream {
     pub(super) inner: std::net::TcpStream,
+    readiness: io::ReadinessSource,
 }
 
 impl TcpListener {
@@ -30,7 +32,10 @@ impl TcpListener {
             inner.as_fd(),
             inner.set_nonblocking(true),
         )?;
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            readiness: io::ReadinessSource::default(),
+        })
     }
     /// Returns the bound address.
     pub fn local_addr(&self) -> Result<SocketAddr> {
@@ -38,8 +43,9 @@ impl TcpListener {
     }
     /// Accepts a connection, parking for read readiness when none is queued.
     pub fn accept(&self) -> Result<(TcpStream, SocketAddr)> {
-        let (stream, address) = io::operation(
+        let (stream, address) = io::operation_cached(
             self.inner.as_fd(),
+            &self.readiness,
             zio::Interest::READABLE,
             SuspensionReason::IoAccept,
             || self.inner.accept(),
@@ -49,7 +55,13 @@ impl TcpListener {
             stream.as_fd(),
             stream.set_nonblocking(true),
         )?;
-        Ok((TcpStream { inner: stream }, address))
+        Ok((
+            TcpStream {
+                inner: stream,
+                readiness: io::ReadinessSource::default(),
+            },
+            address,
+        ))
     }
 }
 impl TcpStream {
@@ -57,12 +69,14 @@ impl TcpStream {
     pub fn connect(address: SocketAddr) -> Result<Self> {
         Ok(Self {
             inner: super::connect::tcp(address)?,
+            readiness: io::ReadinessSource::default(),
         })
     }
     /// Receives bytes, returning zero at EOF. Cancellation may follow earlier partial reads.
     pub fn read(&self, buffer: &mut [u8]) -> Result<usize> {
-        io::operation(
+        io::operation_cached(
             self.inner.as_fd(),
+            &self.readiness,
             zio::Interest::READABLE,
             SuspensionReason::IoRead,
             || (&self.inner).read(buffer),
@@ -77,8 +91,9 @@ impl TcpStream {
     }
     /// Sends bytes; readiness does not imply the whole input fits.
     pub fn write(&self, buffer: &[u8]) -> Result<usize> {
-        io::operation(
+        io::operation_cached(
             self.inner.as_fd(),
+            &self.readiness,
             zio::Interest::WRITABLE,
             SuspensionReason::IoWrite,
             || (&self.inner).write(buffer),

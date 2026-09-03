@@ -29,8 +29,8 @@ impl Kernel {
             .collect::<Vec<_>>();
         for token in tokens {
             let parked = self.parked.remove(&token).expect("revoked park");
+            self.local.unregister_wake(token);
             parked.registration.abandon(token);
-            self.inbox.hub.unregister(token);
             if self.timers.cancel(token) {
                 #[cfg(feature = "runtime-evidence")]
                 self.shared.record(

@@ -13,7 +13,7 @@ pub(super) enum Direction {
 pub(super) struct Ticket<'a, T> {
     core: &'a Core<T>,
     direction: Direction,
-    pub(super) parker: Parker,
+    parker: Option<Parker>,
     queued: bool,
 }
 
@@ -22,6 +22,13 @@ impl<T> State<T> {
         match direction {
             Direction::Send => &mut self.send_waits,
             Direction::Recv => &mut self.recv_waits,
+        }
+    }
+
+    fn vacant(&mut self, direction: Direction) -> &mut Vec<WaitCell> {
+        match direction {
+            Direction::Send => &mut self.send_vacant,
+            Direction::Recv => &mut self.recv_vacant,
         }
     }
 
@@ -47,9 +54,7 @@ impl<'a, T> Ticket<'a, T> {
         Self {
             core,
             direction,
-            parker: Parker {
-                wait: WaitCell::new(),
-            },
+            parker: None,
             queued: false,
         }
     }
@@ -58,21 +63,24 @@ impl<'a, T> Ticket<'a, T> {
         state
             .queue(self.direction)
             .front()
-            .is_none_or(|wait| self.queued && wait.identity() == self.parker.wait.identity())
+            .is_none_or(|wait| self.queued && wait.same_cell(&self.parker().wait))
     }
 
     pub(super) fn enqueue(&mut self, state: &mut State<T>) -> Result<()> {
         if self.queued {
             return Ok(());
         }
-        let queue = state.queue(self.direction);
-        if queue.len() == self.core.wait_capacity {
+        if state.queue(self.direction).len() == self.core.wait_capacity {
             return Err(Error::Capacity {
                 resource: crate::error::CapacityResource::Waiters,
                 limit: self.core.wait_capacity,
             });
         }
-        queue.push_back(self.parker.wait.clone());
+        let wait = state.vacant(self.direction).pop().unwrap_or_default();
+        self.parker = Some(Parker { wait });
+        state
+            .queue(self.direction)
+            .push_back(self.parker().wait.clone());
         self.queued = true;
         Ok(())
     }
@@ -84,11 +92,19 @@ impl<'a, T> Ticket<'a, T> {
         let queue = state.queue(self.direction);
         if let Some(index) = queue
             .iter()
-            .position(|wait| wait.identity() == self.parker.wait.identity())
+            .position(|wait| wait.same_cell(&self.parker().wait))
         {
-            queue.remove(index);
+            drop(queue.remove(index));
         }
         self.queued = false;
+        let parker = self.parker.take().expect("queued channel ticket");
+        if parker.wait.recycle() {
+            state.vacant(self.direction).push(parker.wait);
+        }
+    }
+
+    pub(super) fn parker(&self) -> &Parker {
+        self.parker.as_ref().expect("queued channel ticket")
     }
 }
 
@@ -97,7 +113,8 @@ impl<T> Drop for Ticket<'_, T> {
         if !self.queued {
             return;
         }
-        let mut state = lock(&self.core.state);
+        let core = self.core;
+        let mut state = lock(&core.state);
         self.remove(&mut state);
         state.wake_fronts();
     }
