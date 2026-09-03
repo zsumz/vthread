@@ -135,7 +135,8 @@ fn run_vthread_task(scenario: Scenario) {
 fn run_may(config: &Config) -> Result<(), String> {
     may::config()
         .set_workers(config.workers)
-        .set_stack_size(STACK_SIZE)
+        // May configures stacks in machine words; vthread configures bytes.
+        .set_stack_size(STACK_SIZE / std::mem::size_of::<usize>())
         .set_pool_capacity(config.tasks);
     measure(config, || {
         may::coroutine::scope(|scope| {
