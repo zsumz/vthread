@@ -1,17 +1,15 @@
 //! Typed task completion handles.
 
-use std::{
-    fmt,
-    sync::{Arc, Mutex},
-};
+use std::{fmt, sync::Arc};
 
-use crate::{
-    Error, PanicReport, Result, TaskId, context, control::Shared, signal::lock,
-    task::SharedTaskRecord,
-};
+use crate::{Error, PanicReport, Result, TaskId, context, control::Shared, task::SharedTaskRecord};
 
 pub(crate) struct JoinCell<T> {
     pub(crate) outcome: Option<std::result::Result<T, PanicReport>>,
+}
+
+pub(crate) trait JoinOutcome<T>: Send + Sync {
+    fn take(&self) -> Option<std::result::Result<T, PanicReport>>;
 }
 
 /// A typed result handle whose completion follows carrier-side stack reclamation.
@@ -19,7 +17,7 @@ pub(crate) struct JoinCell<T> {
 pub struct JoinHandle<T> {
     shared: Arc<Shared>,
     id: TaskId,
-    cell: Arc<Mutex<JoinCell<T>>>,
+    cell: Arc<dyn JoinOutcome<T>>,
     record: SharedTaskRecord,
     taken: bool,
 }
@@ -28,7 +26,7 @@ impl<T> JoinHandle<T> {
     pub(crate) fn new(
         shared: Arc<Shared>,
         id: TaskId,
-        cell: Arc<Mutex<JoinCell<T>>>,
+        cell: Arc<dyn JoinOutcome<T>>,
         record: SharedTaskRecord,
     ) -> Self {
         Self {
@@ -116,7 +114,7 @@ impl<T> JoinHandle<T> {
             let name = self.record.lock().name.to_string();
             return Err(Error::task_panicked(self.id, name, panic));
         }
-        let outcome = lock(&self.cell).outcome.take().ok_or(Error::fault(
+        let outcome = self.cell.take().ok_or(Error::fault(
             crate::error::FaultComponent::Scheduler,
             "completed task has no join outcome",
         ))?;
