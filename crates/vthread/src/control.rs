@@ -26,8 +26,7 @@ use std::{
 };
 
 use crate::{
-    CarrierId, CarrierSnapshot, CarrierStatus, RuntimeConfig, TaskId,
-    id_map::IdMap,
+    CarrierId, CarrierSnapshot, CarrierStatus, RuntimeConfig,
     inbox::Inbox,
     signal::{Signal, lock},
     task::SharedTaskRecord,
@@ -93,7 +92,7 @@ struct State {
     loads: Vec<usize>,
     rejected: u64,
     admitted: u64,
-    records: IdMap<TaskId, SharedTaskRecord>,
+    record_count: usize,
     record_cache: Vec<SharedTaskRecord>,
     carriers: Vec<CarrierSnapshot>,
 }
@@ -194,7 +193,7 @@ impl Shared {
                 loads: vec![0; config.carriers()],
                 rejected: 0,
                 admitted: 0,
-                records: IdMap::default(),
+                record_count: 0,
                 record_cache: Vec::new(),
                 carriers: (0..config.carriers())
                     .map(|id| CarrierSnapshot::new(CarrierId(id)))

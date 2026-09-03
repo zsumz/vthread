@@ -75,7 +75,7 @@ impl<T> JoinHandle<T> {
             )?;
         } else {
             let scope = self.record.lock().scope;
-            self.shared.wait(scope, Some(self.id))?;
+            self.shared.wait(scope, Some(&self.record))?;
         }
         Ok(())
     }

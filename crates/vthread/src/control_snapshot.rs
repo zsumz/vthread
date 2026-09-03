@@ -19,7 +19,11 @@ impl Shared {
             for (carrier, load) in snapshot.carriers.iter_mut().zip(&state.loads) {
                 carrier.active = *load;
             }
-            let mut records = state.records.values().cloned().collect::<Vec<_>>();
+            let mut records = state
+                .scopes
+                .values()
+                .flat_map(|scope| scope.records.iter().map(|entry| entry.record.clone()))
+                .collect::<Vec<_>>();
             records.sort_unstable_by_key(|record| record.lock().id);
             (snapshot, records, state.last_stall.clone())
         };

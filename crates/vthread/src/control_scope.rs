@@ -1,14 +1,23 @@
 //! Scope ownership, inherited policy, and explicit supervision records.
 
 use super::Shared;
-use crate::{Error, Result, ScopeOptions, TaskFailure, options::TaskOptions, signal::lock};
+use crate::{
+    Error, Result, ScopeOptions, TaskFailure, options::TaskOptions, signal::lock,
+    task::SharedTaskRecord,
+};
 use std::sync::{Arc, atomic::Ordering};
+
+pub(super) struct ScopeRecord {
+    pub(super) id: crate::TaskId,
+    pub(super) record: SharedTaskRecord,
+}
 
 pub(super) struct ScopeState {
     pub(super) admitting: bool,
     pub(super) active: usize,
     pub(super) activity: u64,
-    pub(super) records: Vec<crate::TaskId>,
+    // Monotonic task identities keep this admission-ordered vector searchable.
+    pub(super) records: Vec<ScopeRecord>,
     pub(super) failed_tasks: Vec<crate::TaskId>,
     pub(super) options: TaskOptions,
     pub(super) supervised: bool,
@@ -156,11 +165,9 @@ impl Shared {
         let mut retired = 0;
         let mut state = lock(&self.state);
         if let Some(scope_state) = state.scopes.remove(&scope) {
+            state.record_count -= scope_state.records.len();
             let mut cache = std::mem::take(&mut state.record_cache);
-            for task in scope_state.records {
-                let Some(mut record) = state.records.remove(&task) else {
-                    continue;
-                };
+            for ScopeRecord { mut record, .. } in scope_state.records {
                 #[cfg(feature = "lifecycle-profiling")]
                 {
                     retired += 1;
@@ -204,9 +211,13 @@ impl Shared {
         };
         let mut children = Vec::with_capacity(scope_state.failed_tasks.len());
         for task in &scope_state.failed_tasks {
-            let Some(record) = state.records.get(task) else {
+            let Ok(index) = scope_state
+                .records
+                .binary_search_by_key(task, |record| record.id)
+            else {
                 continue;
             };
+            let record = &scope_state.records[index].record;
             let record = record.lock();
             if record.outcome_observed {
                 continue;
