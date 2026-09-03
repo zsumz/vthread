@@ -136,8 +136,15 @@ thread_local! {
     static CARRIER_RUNNABLE: Cell<bool> = const { Cell::new(false) };
 }
 
+pub(crate) static MOUNTED_EXECUTION: vthread_stack::ContextKey<Rc<Execution>> =
+    vthread_stack::ContextKey::new();
+
 pub(crate) fn current() -> Option<MountedTask> {
-    CURRENT.with(|current| current.borrow().clone())
+    CURRENT
+        .with(|current| current.borrow().clone())
+        .or_else(|| {
+            MOUNTED_EXECUTION.with(|execution| MountedTask::Execution(Rc::clone(execution)))
+        })
 }
 
 pub(crate) fn mount(task: TaskId, hub: Arc<WaitHub>) -> MountGuard {
@@ -148,22 +155,6 @@ pub(crate) fn mount_execution(execution: Rc<Execution>) -> MountGuard {
     install(MountedTask::Execution(execution))
 }
 
-pub(crate) fn with_execution_slot<R>(
-    slot: &mut Option<Rc<Execution>>,
-    body: impl FnOnce(&Rc<Execution>) -> R,
-) -> R {
-    CURRENT.with(|current| {
-        let execution = slot.take().expect("unmounted task execution");
-        let previous = current.replace(Some(MountedTask::Execution(execution)));
-        let mounted = ExecutionSlotMount {
-            current,
-            slot,
-            previous,
-        };
-        mounted.with_execution(body)
-    })
-}
-
 fn install(mounted: MountedTask) -> MountGuard {
     let previous = CURRENT.with(|current| current.replace(Some(mounted)));
     MountGuard { previous }
@@ -172,15 +163,11 @@ fn install(mounted: MountedTask) -> MountGuard {
 /// Checks inherited cancellation and the earliest deadline at a cooperative boundary.
 #[inline]
 pub fn checkpoint() -> Result<()> {
-    CURRENT.with(|current| {
-        current
-            .borrow()
-            .as_ref()
-            .ok_or(Error::OutsideVThread)?
-            .execution()?
-            .data
-            .check()
-    })
+    current()
+        .ok_or(Error::OutsideVThread)?
+        .execution()?
+        .data
+        .check()
 }
 
 pub(crate) fn set_carrier_runnable(runnable: bool) {
@@ -215,45 +202,12 @@ pub(crate) struct MountGuard {
     previous: Option<MountedTask>,
 }
 
-pub(crate) struct ExecutionSlotMount<'a> {
-    current: &'a RefCell<Option<MountedTask>>,
-    slot: &'a mut Option<Rc<Execution>>,
-    previous: Option<MountedTask>,
-}
-
-impl ExecutionSlotMount<'_> {
-    pub(crate) fn with_execution<R>(&self, body: impl FnOnce(&Rc<Execution>) -> R) -> R {
-        let mounted = self.current.borrow();
-        let execution = mounted
-            .as_ref()
-            .expect("mounted task execution")
-            .execution()
-            .expect("mounted execution context");
-        body(execution)
-    }
-}
-
 impl Drop for MountGuard {
     fn drop(&mut self) {
         let previous = self.previous.take();
         CURRENT.with(|current| {
             drop(current.replace(previous));
         });
-    }
-}
-
-impl Drop for ExecutionSlotMount<'_> {
-    fn drop(&mut self) {
-        let previous = self.previous.take();
-        let mounted = self.current.replace(previous);
-        let execution = match mounted {
-            Some(MountedTask::Execution(execution)) => execution,
-            _ => panic!("task execution mount was replaced"),
-        };
-        assert!(
-            self.slot.replace(execution).is_none(),
-            "occupied execution slot"
-        );
     }
 }
 

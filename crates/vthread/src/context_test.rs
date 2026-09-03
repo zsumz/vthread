@@ -1,11 +1,11 @@
-use std::{panic::AssertUnwindSafe, rc::Rc, sync::Arc};
-
-use crate::{
-    CarrierId, RuntimeConfig, TaskId, control::Shared, kernel::Kernel, kernel_tasks::TaskMut,
-    wait::WaitHub,
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
 };
 
-use super::{current, mount, with_execution_slot};
+use crate::{CarrierId, RuntimeConfig, TaskId, control::Shared, kernel::Kernel, wait::WaitHub};
+
+use super::{current, mount};
 
 #[test]
 fn mounted_execution_hot_state_fits_with_its_rc_header_in_one_cache_line() {
@@ -29,31 +29,36 @@ fn mounts_restore_the_previous_task() {
 }
 
 #[test]
-fn slot_mount_restores_execution_ownership_during_unwind() {
+fn dispatch_mounts_execution_context_and_restores_cleanup_overrides() {
     let shared = Arc::new(Shared::new(RuntimeConfig::default()));
     let scope = shared.begin_scope().expect("scope");
-    shared.submit(scope, "task".into(), || ()).expect("task");
+    let expected = Arc::new(AtomicU64::new(0));
+    let body_expected = Arc::clone(&expected);
+    let cleanup_hub = Arc::new(WaitHub::new(64, Arc::default()));
+    let body_hub = Arc::clone(&cleanup_hub);
+    let spawned = shared
+        .submit(scope, "task".into(), move || {
+            let expected = TaskId::new(body_expected.load(Ordering::Relaxed));
+            assert_eq!(current().expect("running task").task_id(), expected);
+            {
+                let _cleanup = mount(TaskId::new(u64::MAX), Arc::clone(&body_hub));
+                assert_eq!(
+                    current().expect("cleanup override").task_id(),
+                    TaskId::new(u64::MAX)
+                );
+            }
+            assert_eq!(current().expect("restored task").task_id(), expected);
+            crate::yield_now().expect("yield");
+            assert_eq!(current().expect("resumed task").task_id(), expected);
+        })
+        .expect("task");
+    expected.store(spawned.id.get(), Ordering::Relaxed);
     let mut kernel = Kernel::new(shared, CarrierId(0));
     kernel.receive();
-    let key = *kernel.ready.front().expect("ready task");
-    let mut task = kernel.tasks.get_mut(key).expect("task slot");
-    let slot = match &mut task {
-        TaskMut::Owned(task) => &mut task.execution,
-        TaskMut::Borrowed(_) => panic!("remote task must be owned"),
-    };
-    let pointer = Rc::as_ptr(slot.as_ref().expect("execution"));
 
-    let failure = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        with_execution_slot(slot, |execution| {
-            assert_eq!(Rc::as_ptr(execution), pointer);
-            panic!("injected mount failure");
-        });
-    }));
-
-    assert!(failure.is_err());
-    assert_eq!(
-        Rc::as_ptr(slot.as_ref().expect("restored execution")),
-        pointer
-    );
+    assert!(kernel.tick(false).expect("initial dispatch"));
     assert!(current().is_none());
+    assert!(kernel.tick(false).expect("resumed dispatch"));
+    assert!(current().is_none());
+    assert!(!kernel.tick(false).expect("idle kernel"));
 }

@@ -21,15 +21,17 @@ const _: () = {
 
 mod fiber;
 mod lease;
+mod mount;
 #[doc(hidden)]
 pub mod panic_payload;
 mod pool;
 mod scoped;
 
-pub use fiber::{
-    Fiber, FiberState, ParkRequest, ParkToken, Resume, SuspendError, Suspension, suspend,
-};
+pub use fiber::{Fiber, FiberState, ParkRequest, ParkToken, Resume, SuspendError, Suspension};
 pub use lease::FiberLease;
+#[doc(hidden)]
+pub use mount::ContextKey;
+pub use mount::suspend;
 pub use pool::{StackPool, StackPoolSnapshot};
 pub use scoped::{FiberScope, fiber_scope};
 

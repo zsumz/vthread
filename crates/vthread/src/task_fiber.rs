@@ -19,8 +19,18 @@ impl OwnedFiber {
         Self { fiber }
     }
 
+    #[cfg(test)]
     pub(crate) fn resume_with(&mut self, resume: Resume) -> Option<FiberState> {
         Some(self.fiber.resume_with(resume))
+    }
+
+    pub(crate) fn resume_with_context<T>(
+        &mut self,
+        resume: Resume,
+        key: &'static vthread_stack::ContextKey<T>,
+        value: &T,
+    ) -> Option<FiberState> {
+        Some(self.fiber.resume_with_context(resume, key, value))
     }
 
     #[cfg(feature = "runtime-evidence")]
@@ -64,8 +74,13 @@ impl BorrowedFiber {
         self.fiber.as_ref().is_none_or(|fiber| !fiber.live())
     }
 
-    pub(crate) fn resume_with(&mut self, resume: Resume) -> Option<FiberState> {
-        self.fiber.as_ref()?.resume_with(resume)
+    pub(crate) fn resume_with_context<T>(
+        &mut self,
+        resume: Resume,
+        key: &'static vthread_stack::ContextKey<T>,
+        value: &T,
+    ) -> Option<FiberState> {
+        self.fiber.as_ref()?.resume_with_context(resume, key, value)
     }
 
     #[cfg(feature = "runtime-evidence")]

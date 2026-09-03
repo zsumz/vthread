@@ -1,14 +1,15 @@
 //! Carrier-local stackful fiber wrapper.
 
 use std::{
-    cell::Cell,
     error::Error,
     fmt,
     ptr::{self, NonNull},
     time::Instant,
 };
 
-use corosensei::{Coroutine, CoroutineResult, Yielder, stack::DefaultStack};
+use corosensei::{Coroutine, CoroutineResult, stack::DefaultStack};
+
+use crate::mount::{ContextSlot, MountGuard, RawYielder, YielderMount, mounted_yielder};
 
 /// Identity for one generation of a parking operation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -98,12 +99,6 @@ impl fmt::Display for SuspendError {
 
 impl Error for SuspendError {}
 
-type RawYielder = Yielder<Resume, Suspension>;
-
-thread_local! {
-    static CURRENT_YIELDER: Cell<*const RawYielder> = const { Cell::new(ptr::null()) };
-}
-
 /// One carrier-local stackful execution context.
 ///
 /// ```compile_fail
@@ -131,7 +126,7 @@ impl Fiber {
         let coroutine = unsafe {
             Coroutine::with_stack_unchecked(stack, move |current, _resume| {
                 let pointer = current as *const RawYielder;
-                let _mount = MountGuard::install(pointer);
+                let _mount = YielderMount::install(pointer);
                 entry();
             })
         };
@@ -158,9 +153,27 @@ impl Fiber {
 
     /// Mounts the fiber and delivers a decision to its last suspension point.
     pub fn resume_with(&mut self, resume: Resume) -> FiberState {
+        self.resume_mounted(resume, None)
+    }
+
+    /// Mounts the fiber with typed runtime context for this resume only.
+    #[doc(hidden)]
+    #[inline]
+    pub fn resume_with_context<T>(
+        &mut self,
+        resume: Resume,
+        key: &'static crate::ContextKey<T>,
+        value: &T,
+    ) -> FiberState {
+        let context = ContextSlot::new(key, value);
+        self.resume_mounted(resume, Some(&context))
+    }
+
+    #[inline]
+    fn resume_mounted(&mut self, resume: Resume, context: Option<&ContextSlot<'_>>) -> FiberState {
         // Reject the transition before a panic hook can observe a stale mount.
         assert!(!self.is_complete(), "a completed fiber cannot be resumed");
-        let _mount = MountGuard::install(self.mounted_yielder());
+        let _mount = MountGuard::install(self.mounted_yielder(), context);
         let coroutine = self
             .coroutine
             .as_mut()
@@ -173,7 +186,7 @@ impl Fiber {
             FiberState::Suspended(_) if self.yielder == NonNull::dangling() => {
                 // The yielder lives on this coroutine's owned stack. Its entry
                 // installed the pointer before the first possible suspension.
-                let yielder = CURRENT_YIELDER.with(Cell::get);
+                let yielder = mounted_yielder();
                 self.yielder =
                     NonNull::new(yielder.cast_mut()).expect("suspended fiber has no yielder");
             }
@@ -208,39 +221,8 @@ impl Fiber {
 
 impl Drop for Fiber {
     fn drop(&mut self) {
-        let _mount = MountGuard::install(self.mounted_yielder());
+        let _mount = YielderMount::install(self.mounted_yielder());
         drop(self.coroutine.take());
-    }
-}
-
-/// Suspends the currently mounted fiber.
-pub fn suspend(reason: Suspension) -> Result<Resume, SuspendError> {
-    CURRENT_YIELDER.with(|current| {
-        let pointer = current.get();
-        if pointer.is_null() {
-            return Err(SuspendError);
-        }
-
-        // The pointer is carrier-local and restored before leaving this mount.
-        // SAFETY: it belongs to the currently mounted, non-Send coroutine.
-        unsafe { Ok((&*pointer).suspend(reason)) }
-    })
-}
-
-struct MountGuard {
-    previous: *const RawYielder,
-}
-
-impl MountGuard {
-    fn install(pointer: *const RawYielder) -> Self {
-        let previous = CURRENT_YIELDER.with(|current| current.replace(pointer));
-        Self { previous }
-    }
-}
-
-impl Drop for MountGuard {
-    fn drop(&mut self) {
-        CURRENT_YIELDER.with(|current| current.set(self.previous));
     }
 }
 
