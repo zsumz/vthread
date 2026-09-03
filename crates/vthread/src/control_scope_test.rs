@@ -185,3 +185,32 @@ fn uniquely_owned_terminal_task_cells_are_reset_and_reused() {
     drop(second);
     shared.finish_scope(second_scope);
 }
+
+#[test]
+fn interleaved_scope_rollback_preserves_record_lookup_and_capacity() {
+    let config = crate::Runtime::builder()
+        .max_vthreads(3)
+        .max_owned_scopes(2)
+        .stack_cache_capacity(0)
+        .build()
+        .unwrap()
+        .config();
+    let shared = Shared::new(config);
+    let left = shared.begin_owned(ScopeOptions::default(), true).unwrap();
+    let right = shared.begin_owned(ScopeOptions::default(), true).unwrap();
+    let first = shared.reserve(left, "first".into(), None).unwrap();
+    let rolled_back = shared.reserve(right, "rollback".into(), None).unwrap();
+    let failed = shared.reserve(left, "failed".into(), None).unwrap();
+
+    shared.release_reservation(&rolled_back);
+    shared.complete(&first, None);
+    shared.complete(&failed, Some(crate::TaskFailure::SupervisorStopped));
+
+    assert_eq!(shared.unobserved(left).failure_count(), 1);
+    assert_eq!(shared.snapshot().tasks.len(), 2);
+    assert_eq!(crate::signal::lock(&shared.state).record_count, 2);
+
+    shared.finish_scope(right);
+    shared.finish_scope(left);
+    assert_eq!(crate::signal::lock(&shared.state).record_count, 0);
+}

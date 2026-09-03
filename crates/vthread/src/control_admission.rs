@@ -1,6 +1,6 @@
 //! Atomic bounded admission of transferable and carrier-local work.
 
-use super::Shared;
+use super::{Shared, control_scope::ScopeRecord};
 use crate::{
     CarrierId, Error, Result, TaskId, TaskStatus,
     id_map::IdHashSet,
@@ -68,22 +68,22 @@ impl Shared {
             |local| local.2.clone(),
         );
         options.check()?;
-        if state.records.len() >= self.config.max_vthreads() {
+        if state.record_count >= self.config.max_vthreads() {
             let mut reclaimed = IdHashSet::default();
-            state.records.retain(|id, record| {
-                let record = record.lock();
-                let remove = record.status.is_terminal() && record.outcome_observed;
-                if remove {
-                    reclaimed.insert(*id);
-                }
-                !remove
-            });
             for scope in state.scopes.values_mut() {
-                scope.records.retain(|task| !reclaimed.contains(task));
+                scope.records.retain(|entry| {
+                    let record = entry.record.lock();
+                    let remove = record.status.is_terminal() && record.outcome_observed;
+                    if remove {
+                        reclaimed.insert(entry.id);
+                    }
+                    !remove
+                });
                 scope.failed_tasks.retain(|task| !reclaimed.contains(task));
             }
+            state.record_count -= reclaimed.len();
         }
-        if state.records.len() >= self.config.max_vthreads() {
+        if state.record_count >= self.config.max_vthreads() {
             state.rejected += 1;
             #[cfg(feature = "runtime-evidence")]
             self.record_admission_rejected(
@@ -149,12 +149,15 @@ impl Shared {
         } else {
             Arc::new(TaskCell::new(task, self.config.max_vthreads()))
         };
-        state.records.insert(id, Arc::clone(&record));
+        state.record_count += 1;
         state.active += 1;
         state.loads[owner] += 1;
         state.admitted += 1;
         if let Some(scope) = state.scopes.get_mut(&scope) {
-            scope.records.push(id);
+            scope.records.push(ScopeRecord {
+                id,
+                record: Arc::clone(&record),
+            });
             scope.active += 1;
             scope.activity = scope.activity.wrapping_add(1);
         }
@@ -169,7 +172,7 @@ impl Shared {
     pub(crate) fn release_reservation(&self, record: &SharedTaskRecord) {
         let mut state = lock(&self.state);
         let record = record.lock();
-        state.records.remove(&record.id);
+        state.record_count -= 1;
         state.active -= 1;
         state.loads[record.carrier.0] -= 1;
         state.admitted -= 1;
@@ -177,10 +180,9 @@ impl Shared {
         if let Some(scope) = state.scopes.get_mut(&record.scope) {
             let index = scope
                 .records
-                .iter()
-                .position(|task| *task == record.id)
+                .binary_search_by_key(&record.id, |entry| entry.id)
                 .expect("reserved task belongs to its scope");
-            scope.records.swap_remove(index);
+            scope.records.remove(index);
             scope.active -= 1;
             scope.activity = scope.activity.wrapping_add(1);
         }

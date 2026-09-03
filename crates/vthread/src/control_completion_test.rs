@@ -37,10 +37,10 @@ fn target_waiter_is_notified_before_its_scope_drains() {
     let scope = shared.begin_scope().unwrap();
     let target = shared.reserve(scope, "target".into(), None).unwrap();
     let sibling = shared.reserve(scope, "sibling".into(), None).unwrap();
-    let target_id = target.lock().id;
+    let waiting_for = Arc::clone(&target);
     let observer = Arc::clone(&shared);
     let (sent, received) = mpsc::sync_channel(1);
-    let waiter = std::thread::spawn(move || sent.send(observer.wait(scope, Some(target_id))));
+    let waiter = std::thread::spawn(move || sent.send(observer.wait(scope, Some(&waiting_for))));
 
     let deadline = Instant::now() + Duration::from_secs(1);
     while shared.target_waiters.load(Ordering::SeqCst) == 0 {

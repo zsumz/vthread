@@ -6,7 +6,8 @@ use std::{
 };
 
 use super::Shared;
-use crate::{Error, Result, SuspensionReason, TaskFailure, TaskId, TaskStatus, signal::lock};
+use crate::task::SharedTaskRecord;
+use crate::{Error, Result, SuspensionReason, TaskFailure, TaskStatus, signal::lock};
 
 struct TargetWaiter<'a> {
     count: &'a AtomicUsize,
@@ -26,19 +27,20 @@ impl Drop for TargetWaiter<'_> {
 }
 
 impl Shared {
-    pub(crate) fn wait(&self, scope: u64, target: Option<TaskId>) -> Result<()> {
+    pub(crate) fn wait(&self, scope: u64, target: Option<&SharedTaskRecord>) -> Result<()> {
         self.wait_until(scope, target, None).map(|_| ())
     }
 
     pub(crate) fn wait_until(
         &self,
         scope: u64,
-        target: Option<TaskId>,
+        target: Option<&SharedTaskRecord>,
         until: Option<Instant>,
     ) -> Result<bool> {
         // Register before observing either the signal epoch or target state. A
         // racing completion must then either notify us or be visible below.
         let _target_waiter = target.map(|_| TargetWaiter::new(&self.target_waiters));
+        let target_id = target.map(|record| record.lock().id);
         let mut quiescent_since = None;
         let mut stalled = None;
         let mut activity = None;
@@ -56,12 +58,14 @@ impl Shared {
             let mut quiescent = true;
             let mut target_done = target.is_none();
             if self.config.stall_policy().timeout().is_some() {
-                for record in state.records.values() {
-                    let record = record.lock();
-                    if record.scope != scope {
-                        continue;
-                    }
-                    if target == Some(record.id) {
+                for entry in state
+                    .scopes
+                    .get(&scope)
+                    .into_iter()
+                    .flat_map(|scope| &scope.records)
+                {
+                    let record = entry.record.lock();
+                    if target_id == Some(entry.id) {
                         target_done = record.status.is_terminal();
                     }
                     if !record.status.is_terminal() {
@@ -73,10 +77,7 @@ impl Shared {
                     }
                 }
             } else if let Some(target) = target {
-                target_done = state
-                    .records
-                    .get(&target)
-                    .is_none_or(|record| record.lock().status.is_terminal());
+                target_done = target.lock().status.is_terminal();
             }
             if active == 0 || (target.is_some() && target_done && stalled.is_none()) {
                 return stalled.map_or(Ok(true), |active| Err(Error::RuntimeStalled { active }));
@@ -90,10 +91,12 @@ impl Shared {
             let supervised = scope_state.is_some_and(|scope| scope.supervised);
             quiescent &= !self.inboxes.iter().any(|inbox| {
                 inbox.hub.pending_tasks().iter().any(|task| {
-                    state
-                        .records
-                        .get(task)
-                        .is_some_and(|record| record.lock().scope == scope)
+                    state.scopes.get(&scope).is_some_and(|scope| {
+                        scope
+                            .records
+                            .binary_search_by_key(task, |entry| entry.id)
+                            .is_ok()
+                    })
                 })
             });
             let deadline =
@@ -120,14 +123,16 @@ impl Shared {
                     detected_at,
                     quiescent_for: detected_at.duration_since(quiescent_since.expect("quiescent")),
                     tasks: state
-                        .records
-                        .values()
+                        .scopes
+                        .get(&scope)
+                        .into_iter()
+                        .flat_map(|scope| &scope.records)
                         .filter_map(|record| {
                             let include = {
-                                let task = record.lock();
-                                task.scope == scope && !task.status.is_terminal()
+                                let task = record.record.lock();
+                                !task.status.is_terminal()
                             };
-                            include.then(|| record.snapshot(&mounted))
+                            include.then(|| record.record.snapshot(&mounted))
                         })
                         .collect(),
                 }));

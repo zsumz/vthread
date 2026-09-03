@@ -73,12 +73,13 @@ fn target_waiter_forces_prompt_completion_publication() {
         .config();
     let shared = Arc::new(Shared::new(config));
     let scope = shared.begin_scope().unwrap();
-    let target = shared.submit(scope, "target".into(), || ()).unwrap().id;
+    let target = shared.submit(scope, "target".into(), || ()).unwrap();
+    let waiting_for = Arc::clone(&target.record);
     shared.submit(scope, "sibling".into(), || ()).unwrap();
     let observer = Arc::clone(&shared);
     let (sent, received) = std::sync::mpsc::sync_channel(1);
     let waiter = std::thread::spawn(move || {
-        observer.wait(scope, Some(target)).unwrap();
+        observer.wait(scope, Some(&waiting_for)).unwrap();
         sent.send(()).unwrap();
     });
     crate::support_test::until(|| !shared.may_defer_completion());
