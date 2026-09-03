@@ -114,6 +114,27 @@ impl Graph {
     }
 
     pub(super) fn remove(&mut self, id: usize) {
+        let direct_parent = {
+            let entry = &self.nodes[&id];
+            if entry.children.is_empty()
+                && let ParentSet::One(parent) = entry.parents
+                && self.nodes[&parent].kind == Kind::Token
+            {
+                Some(parent)
+            } else {
+                None
+            }
+        };
+        if let Some(parent) = direct_parent {
+            let entry = self.nodes.remove(&id).expect("live cancellation leaf");
+            assert_eq!(entry.kind, Kind::Token, "token removed twice");
+            self.nodes
+                .get_mut(&parent)
+                .expect("live predecessor")
+                .children
+                .remove(&id);
+            return;
+        }
         let direct_leaf = {
             let entry = &self.nodes[&id];
             entry.children.is_empty()
