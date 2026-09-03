@@ -9,6 +9,7 @@ use std::{
 
 impl Kernel {
     pub(crate) fn abort(&mut self, scope: Option<u64>, reason: TaskFailure) {
+        self.flush_completions();
         if self
             .pending
             .as_ref()
@@ -17,6 +18,15 @@ impl Kernel {
             self.discard_pending(reason);
         }
         let retained_pending = self.pending.take();
+        for _ in 0..self.incoming.len() {
+            let packet = self.incoming.pop_front().expect("drained start packet");
+            if scope.is_none_or(|scope| packet.record.lock().scope == scope) {
+                self.pending = Some(packet);
+                self.discard_pending(reason);
+            } else {
+                self.incoming.push_back(packet);
+            }
+        }
         while let Some(packet) = self.inbox.pop_scope(scope) {
             self.pending = Some(packet);
             self.discard_pending(reason);
@@ -130,6 +140,7 @@ impl Kernel {
                 record.lock().panic.get_or_insert(panic);
             }
         }
+        self.recycle_execution(task_key);
         #[cfg(feature = "runtime-evidence")]
         if let Some(identity) = stack {
             self.local.stacks.borrow_mut().retire(identity);

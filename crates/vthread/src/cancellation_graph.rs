@@ -2,11 +2,15 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Weak, atomic::Ordering},
 };
+
+use super::Node;
+use crate::id_map::IdMap;
+
+#[path = "cancellation_id_set.rs"]
+mod id_set;
+use id_set::IdSet;
 
 #[path = "cancellation_signature.rs"]
 mod signature;
@@ -26,10 +30,10 @@ enum Kind {
 
 struct Entry {
     kind: Kind,
-    flag: Option<Arc<AtomicBool>>,
+    flag: Option<Weak<Node>>,
     cancelled: bool,
-    parents: BTreeSet<usize>,
-    children: BTreeSet<usize>,
+    parents: IdSet,
+    children: IdSet,
     signature: Signature,
 }
 
@@ -48,22 +52,29 @@ pub(super) struct WorkSnapshot {
 pub(super) struct Graph {
     next: usize,
     relays: usize,
-    nodes: BTreeMap<usize, Entry>,
+    nodes: IdMap<usize, Entry>,
     relay_index: BTreeMap<Candidate, BTreeSet<usize>>,
     #[cfg(test)]
     work: WorkSnapshot,
 }
 
 impl Graph {
-    pub(super) fn insert(&mut self, parents: &[usize], flag: Arc<AtomicBool>) -> usize {
+    pub(super) fn reserve(&mut self) -> usize {
         let id = self.next;
         self.next = self
             .next
             .checked_add(1)
             .expect("cancellation identity exhausted");
-        let parents = parents.iter().copied().collect::<BTreeSet<_>>();
+        id
+    }
+
+    pub(super) fn insert(&mut self, id: usize, parents: &[usize], flag: Weak<Node>) {
+        assert_eq!(id + 1, self.next, "cancellation identity not reserved");
+        let parents = parents.iter().copied().collect::<IdSet>();
         let cancelled = parents.iter().any(|parent| self.nodes[parent].cancelled);
-        flag.store(cancelled, Ordering::Release);
+        if let Some(node) = flag.upgrade() {
+            node.cancelled.store(cancelled, Ordering::Release);
+        }
         for parent in &parents {
             self.nodes
                 .get_mut(parent)
@@ -78,14 +89,40 @@ impl Graph {
                 flag: Some(flag),
                 cancelled,
                 parents,
-                children: BTreeSet::new(),
+                children: IdSet::default(),
                 signature: Signature::singleton(id),
             },
         );
+    }
+
+    #[cfg(test)]
+    fn insert_inert(&mut self, parents: &[usize]) -> usize {
+        let id = self.reserve();
+        self.insert(id, parents, Weak::new());
         id
     }
 
     pub(super) fn remove(&mut self, id: usize) {
+        let direct_leaf = {
+            let entry = &self.nodes[&id];
+            entry.children.is_empty()
+                && entry
+                    .parents
+                    .iter()
+                    .all(|parent| self.nodes[parent].kind == Kind::Token)
+        };
+        if direct_leaf {
+            let entry = self.nodes.remove(&id).expect("live cancellation leaf");
+            assert_eq!(entry.kind, Kind::Token, "token removed twice");
+            for parent in entry.parents {
+                self.nodes
+                    .get_mut(&parent)
+                    .expect("live predecessor")
+                    .children
+                    .remove(&id);
+            }
+            return;
+        }
         let (parents, children, inherited, relay) = {
             let entry = self.nodes.get(&id).expect("live cancellation node");
             assert_eq!(entry.kind, Kind::Token, "token removed twice");
@@ -129,7 +166,9 @@ impl Graph {
                 }
                 node.cancelled = true;
                 if let Some(flag) = &node.flag {
-                    flag.store(true, Ordering::Release);
+                    if let Some(node) = flag.upgrade() {
+                        node.cancelled.store(true, Ordering::Release);
+                    }
                 } else {
                     changed_relays.push(id);
                 }

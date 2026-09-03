@@ -209,6 +209,35 @@ impl TaskCell {
         &self.completion
     }
 
+    pub(crate) fn recycle(&mut self) -> crate::CancellationToken {
+        self.progress.reset();
+        self.completion.reset();
+        let record = self
+            .record
+            .get_mut()
+            .unwrap_or_else(|error| error.into_inner());
+        assert!(
+            record.status.is_terminal(),
+            "recycled task must be terminal"
+        );
+        record.name.clear();
+        record.panic = None;
+        record
+            .options
+            .take()
+            .expect("live task options")
+            .cancellation
+    }
+
+    pub(crate) fn reuse(&mut self, record: TaskRecord) {
+        let slot = self
+            .record
+            .get_mut()
+            .unwrap_or_else(|error| error.into_inner());
+        assert!(slot.options.is_none(), "task cell reused before recycling");
+        *slot = record;
+    }
+
     pub(crate) fn subscribe_completion(
         self: &Arc<Self>,
         wait: &crate::wait::WaitCell,
@@ -224,10 +253,10 @@ impl TaskCell {
             name: record.name.to_string(),
             carrier: record.carrier,
             deadline: record.deadline,
-            inherited_deadline: record.options.deadline,
+            inherited_deadline: record.options().deadline,
             scope: record.scope,
             parent: record.parent,
-            cancellation_requested: record.options.cancellation.is_cancelled(),
+            cancellation_requested: record.options().cancellation.is_cancelled(),
             failure: record.failure,
             status: self.progress.status(record.status, running),
             mounts: self.progress.mounts(),
@@ -244,8 +273,8 @@ pub(crate) struct TaskRecord {
     pub(crate) id: TaskId,
     pub(crate) scope: u64,
     pub(crate) parent: Option<TaskId>,
-    pub(crate) options: TaskOptions,
-    pub(crate) name: Arc<str>,
+    pub(crate) options: Option<TaskOptions>,
+    pub(crate) name: String,
     pub(crate) carrier: CarrierId,
     pub(crate) deadline: Option<Instant>,
     pub(crate) failure: Option<TaskFailure>,
@@ -255,6 +284,12 @@ pub(crate) struct TaskRecord {
     pub(crate) last_wake: Option<WakeReason>,
     pub(crate) outcome_observed: bool,
     pub(crate) panic: Option<PanicReport>,
+}
+
+impl TaskRecord {
+    pub(crate) fn options(&self) -> &TaskOptions {
+        self.options.as_ref().expect("live task options")
+    }
 }
 
 #[cfg(test)]

@@ -40,6 +40,7 @@ mod diagnostics_accessors;
 mod dump;
 pub mod error;
 pub mod fs;
+mod id_map;
 mod identity;
 mod inbox;
 mod join;

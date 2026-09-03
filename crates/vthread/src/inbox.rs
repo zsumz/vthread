@@ -115,6 +115,7 @@ impl Inbox {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn pop(&self) -> Option<SpawnPacket> {
         if self.pending_starts.load(Ordering::Acquire) == 0 {
             return None;
@@ -131,6 +132,28 @@ impl Inbox {
         }
         drop(state);
         packet
+    }
+
+    pub(crate) fn drain_into(&self, packets: &mut VecDeque<SpawnPacket>, limit: usize) -> usize {
+        if limit == 0 || self.pending_starts.load(Ordering::Acquire) == 0 {
+            return 0;
+        }
+        let mut state = lock(&self.state);
+        let initial_depth = state.starts.len();
+        let count = initial_depth.min(limit);
+        packets.extend(state.starts.drain(..count));
+        if count != 0 {
+            self.pending_starts.fetch_sub(count, Ordering::Release);
+        }
+        #[cfg(feature = "runtime-evidence")]
+        {
+            let remaining = state.starts.len();
+            for depth in (remaining..initial_depth).rev() {
+                self.record_depth(depth);
+            }
+        }
+        drop(state);
+        count
     }
 
     pub(crate) fn pop_scope(&self, scope: Option<u64>) -> Option<SpawnPacket> {

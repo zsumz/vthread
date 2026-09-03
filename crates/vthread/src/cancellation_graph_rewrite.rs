@@ -1,7 +1,6 @@
 //! Topology rewrites after token pruning and relay equivalence.
 
-use super::{Graph, Kind, normalize::RelayWork};
-use std::collections::BTreeSet;
+use super::{Graph, Kind, id_set::IdSet, normalize::RelayWork};
 
 impl Graph {
     pub(super) fn erase(
@@ -49,7 +48,7 @@ impl Graph {
             .collect()
     }
 
-    fn splice(&mut self, parents: &BTreeSet<usize>, children: &BTreeSet<usize>) {
+    fn splice(&mut self, parents: &IdSet, children: &IdSet) {
         for parent in parents {
             for child in children {
                 if self
@@ -100,7 +99,7 @@ impl Graph {
             .get_mut(&keep)
             .expect("retained relay")
             .children
-            .extend(&entry.children);
+            .extend_set(&entry.children);
         entry
             .parents
             .into_iter()

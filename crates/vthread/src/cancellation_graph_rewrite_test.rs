@@ -1,8 +1,7 @@
 use super::super::Graph;
-use std::sync::{Arc, atomic::AtomicBool};
 
 fn insert(graph: &mut Graph, parents: &[usize]) -> usize {
-    graph.insert(parents, Arc::new(AtomicBool::new(false)))
+    graph.insert_inert(parents)
 }
 
 #[test]

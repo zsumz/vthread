@@ -14,6 +14,18 @@ fn cancellation_flows_down_but_never_up_or_across_siblings() {
 }
 
 #[test]
+fn leaf_retirement_is_batched_with_a_fixed_residual_bound() {
+    let parent = CancellationToken::root(64);
+    let children = (0..63).map(|_| parent.child_token()).collect::<Vec<_>>();
+    drop(children);
+    assert_eq!(parent.pending_retirements(), 63);
+
+    drop(parent.child_token());
+    assert_eq!(parent.pending_retirements(), 0);
+    assert_eq!(parent.graph_snapshot(), (1, 0, 0));
+}
+
+#[test]
 fn inherited_cancellation_wakes_children_and_drains_borrowed_stacks() {
     use crate::{Error, Runtime, local_scope, park_pair, support_test::until};
     use std::sync::{

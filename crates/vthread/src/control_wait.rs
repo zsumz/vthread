@@ -1,9 +1,29 @@
 //! Completion waits and explicit quiescent-scope recovery policy.
 
-use std::{sync::atomic::Ordering, time::Instant};
+use std::{
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Instant,
+};
 
 use super::Shared;
 use crate::{Error, Result, SuspensionReason, TaskFailure, TaskId, TaskStatus, signal::lock};
+
+struct TargetWaiter<'a> {
+    count: &'a AtomicUsize,
+}
+
+impl<'a> TargetWaiter<'a> {
+    fn new(count: &'a AtomicUsize) -> Self {
+        count.fetch_add(1, Ordering::SeqCst);
+        Self { count }
+    }
+}
+
+impl Drop for TargetWaiter<'_> {
+    fn drop(&mut self) {
+        self.count.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 impl Shared {
     pub(crate) fn wait(&self, scope: u64, target: Option<TaskId>) -> Result<()> {
@@ -16,6 +36,9 @@ impl Shared {
         target: Option<TaskId>,
         until: Option<Instant>,
     ) -> Result<bool> {
+        // Register before observing either the signal epoch or target state. A
+        // racing completion must then either notify us or be visible below.
+        let _target_waiter = target.map(|_| TargetWaiter::new(&self.target_waiters));
         let mut quiescent_since = None;
         let mut stalled = None;
         let mut activity = None;
@@ -29,25 +52,31 @@ impl Shared {
                 reported = false;
                 activity = current_activity;
             }
-            let mut active = 0;
+            let active = state.scopes.get(&scope).map_or(0, |scope| scope.active);
             let mut quiescent = true;
             let mut target_done = target.is_none();
-            for record in state.records.values() {
-                let record = record.lock();
-                if record.scope != scope {
-                    continue;
+            if self.config.stall_policy().timeout().is_some() {
+                for record in state.records.values() {
+                    let record = record.lock();
+                    if record.scope != scope {
+                        continue;
+                    }
+                    if target == Some(record.id) {
+                        target_done = record.status.is_terminal();
+                    }
+                    if !record.status.is_terminal() {
+                        quiescent &= matches!(record.status, TaskStatus::Suspended(reason) if !matches!(reason,
+                            SuspensionReason::IoRead | SuspensionReason::IoWrite |
+                            SuspensionReason::IoAccept | SuspensionReason::IoConnect |
+                            SuspensionReason::Blocking | SuspensionReason::Dns | SuspensionReason::FileIo))
+                            && record.deadline.is_none();
+                    }
                 }
-                if target == Some(record.id) {
-                    target_done = record.status.is_terminal();
-                }
-                if !record.status.is_terminal() {
-                    active += 1;
-                    quiescent &= matches!(record.status, TaskStatus::Suspended(reason) if !matches!(reason,
-                        SuspensionReason::IoRead | SuspensionReason::IoWrite |
-                        SuspensionReason::IoAccept | SuspensionReason::IoConnect |
-                        SuspensionReason::Blocking | SuspensionReason::Dns | SuspensionReason::FileIo))
-                        && record.deadline.is_none();
-                }
+            } else if let Some(target) = target {
+                target_done = state
+                    .records
+                    .get(&target)
+                    .is_none_or(|record| record.lock().status.is_terminal());
             }
             if active == 0 || (target.is_some() && target_done && stalled.is_none()) {
                 return stalled.map_or(Ok(true), |active| Err(Error::RuntimeStalled { active }));

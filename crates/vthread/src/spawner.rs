@@ -69,7 +69,7 @@ impl Spawner {
                 SpawnParent {
                     id: record.id,
                     scope: record.scope,
-                    options: execution.data.options().clone(),
+                    options: execution.data.options(),
                 }
             })
         } else {
@@ -79,7 +79,6 @@ impl Spawner {
         Ok(JoinHandle::new(
             shared,
             spawned.id,
-            spawned.name,
             spawned.cell,
             spawned.record,
         ))

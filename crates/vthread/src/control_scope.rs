@@ -2,11 +2,14 @@
 
 use super::Shared;
 use crate::{Error, Result, ScopeOptions, TaskFailure, options::TaskOptions, signal::lock};
-use std::sync::atomic::Ordering;
+use std::sync::{Arc, atomic::Ordering};
 
 pub(super) struct ScopeState {
     pub(super) admitting: bool,
+    pub(super) active: usize,
     pub(super) activity: u64,
+    pub(super) records: Vec<crate::TaskId>,
+    pub(super) failed_tasks: Vec<crate::TaskId>,
     pub(super) options: TaskOptions,
     pub(super) supervised: bool,
     pub(super) aborting: Option<TaskFailure>,
@@ -85,7 +88,10 @@ impl Shared {
             id,
             ScopeState {
                 admitting: true,
+                active: 0,
                 activity: 0,
+                records: Vec::new(),
+                failed_tasks: Vec::new(),
                 options: TaskOptions {
                     cancellation: self.cancellation.child_token(),
                     deadline: options.deadline,
@@ -145,10 +151,21 @@ impl Shared {
 
     pub(crate) fn finish_scope(&self, scope: u64) {
         let mut state = lock(&self.state);
-        state
-            .records
-            .retain(|_, record| record.lock().scope != scope);
-        state.scopes.remove(&scope);
+        if let Some(scope_state) = state.scopes.remove(&scope) {
+            let mut cache = std::mem::take(&mut state.record_cache);
+            for task in scope_state.records {
+                let Some(mut record) = state.records.remove(&task) else {
+                    continue;
+                };
+                if cache.len() < self.config.stack_cache_capacity()
+                    && let Some(cell) = Arc::get_mut(&mut record)
+                {
+                    drop(cell.recycle());
+                    cache.push(record);
+                }
+            }
+            state.record_cache = cache;
+        }
         if state.active_scope == Some(scope) {
             state.active_scope = None;
         }
@@ -170,23 +187,35 @@ impl Shared {
 
     pub(crate) fn unobserved(&self, scope: u64) -> crate::ScopeFailure {
         let mut failures = crate::ScopeFailure::default();
-        for record in lock(&self.state).records.values() {
+        let state = lock(&self.state);
+        let Some(scope_state) = state.scopes.get(&scope) else {
+            return failures;
+        };
+        let mut children = Vec::with_capacity(scope_state.failed_tasks.len());
+        for task in &scope_state.failed_tasks {
+            let Some(record) = state.records.get(task) else {
+                continue;
+            };
             let record = record.lock();
-            if record.scope != scope || record.outcome_observed {
+            if record.outcome_observed {
                 continue;
             }
-            if let Some(reason) = record.failure {
-                failures.child_failed(Error::TaskAborted {
+            let error = if let Some(reason) = record.failure {
+                Some(Error::TaskAborted {
                     task: record.id,
                     reason,
-                });
-            } else if let Some(panic) = &record.panic {
-                failures.child_failed(Error::task_panicked(
-                    record.id,
-                    record.name.to_string(),
-                    panic.clone(),
-                ));
-            }
+                })
+            } else {
+                record.panic.as_ref().map(|panic| {
+                    Error::task_panicked(record.id, record.name.to_string(), panic.clone())
+                })
+            };
+            children.extend(error.map(|error| (record.id, error)));
+        }
+        drop(state);
+        children.sort_unstable_by_key(|(task, _)| *task);
+        for (_, error) in children {
+            failures.child_failed(error);
         }
         failures
     }

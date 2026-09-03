@@ -70,6 +70,13 @@ impl TaskMut<'_> {
             Self::Borrowed(task) => task.fiber.take().map(TakenFiber::Borrowed),
         }
     }
+
+    pub(crate) fn take_execution(&mut self) -> Option<Rc<Execution>> {
+        match self {
+            Self::Owned(task) => task.execution.take(),
+            Self::Borrowed(task) => task.execution.take(),
+        }
+    }
 }
 
 pub(crate) struct KernelTasks {

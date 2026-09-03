@@ -1,6 +1,8 @@
 fn max_depth(signature: &Signature) -> usize {
-    let Some(root) = &signature.0 else {
-        return 0;
+    let root = match &signature.0 {
+        Root::Empty => return 0,
+        Root::Singleton(_) => return 1,
+        Root::Tree(root) => root,
     };
     let mut depth = 0;
     let mut pending = vec![(root.as_ref(), 1)];
@@ -14,7 +16,12 @@ fn max_depth(signature: &Signature) -> usize {
     depth
 }
 
-use super::{NodeKind, Signature};
+use super::{NodeKind, Root, Signature};
+
+#[test]
+fn singleton_signatures_stay_inline() {
+    assert!(matches!(Signature::singleton(7).0, Root::Singleton(7)));
+}
 
 #[test]
 fn insertion_order_does_not_change_exact_set_identity() {

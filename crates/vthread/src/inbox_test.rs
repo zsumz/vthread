@@ -1,4 +1,29 @@
 use crate::{Error, Runtime, control::Shared};
+use std::collections::VecDeque;
+
+#[test]
+fn bounded_batch_drain_preserves_fifo_and_pending_count() {
+    let config = Runtime::builder()
+        .carrier_queue_capacity(3)
+        .build()
+        .expect("config")
+        .config();
+    let shared = Shared::new(config);
+    let scope = shared.begin_scope().expect("scope");
+    let inbox = &shared.inboxes[0];
+    for name in ["first", "second", "third"] {
+        shared.submit(scope, name.into(), || ()).expect("submit");
+    }
+
+    let mut drained = VecDeque::new();
+    assert_eq!(inbox.drain_into(&mut drained, 2), 2);
+    assert_eq!(inbox.pending(), 1);
+    assert_eq!(drained.len(), 2);
+    assert_eq!(drained.pop_front().unwrap().record.lock().id.get(), 1);
+    assert_eq!(drained.pop_front().unwrap().record.lock().id.get(), 2);
+    assert_eq!(inbox.pop().unwrap().record.lock().id.get(), 3);
+    assert_eq!(inbox.pending(), 0);
+}
 
 #[test]
 fn queued_starts_coalesce_notifications_until_the_inbox_is_drained() {

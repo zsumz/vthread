@@ -19,7 +19,8 @@ impl Shared {
             for (carrier, load) in snapshot.carriers.iter_mut().zip(&state.loads) {
                 carrier.active = *load;
             }
-            let records = state.records.values().cloned().collect::<Vec<_>>();
+            let mut records = state.records.values().cloned().collect::<Vec<_>>();
+            records.sort_unstable_by_key(|record| record.lock().id);
             (snapshot, records, state.last_stall.clone())
         };
         // No service, inbox, failure-store or task-record lock is acquired while

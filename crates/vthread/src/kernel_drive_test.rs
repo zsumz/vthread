@@ -6,6 +6,85 @@ use std::{
 use crate::{ParkOutcome, Runtime, WakeReason, park_pair};
 
 #[test]
+fn first_mount_publication_lag_is_bounded_by_one_batch() {
+    use crate::{CarrierId, control::Shared, kernel::Kernel};
+
+    let config = Runtime::builder()
+        .max_vthreads(64)
+        .carrier_queue_capacity(64)
+        .build()
+        .expect("config")
+        .config();
+    let shared = Arc::new(Shared::new(config));
+    let scope = shared.begin_scope().expect("scope");
+    for _ in 0..64 {
+        shared
+            .submit(scope, "yield once".into(), crate::yield_now)
+            .expect("submit");
+    }
+    let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
+    kernel.receive();
+
+    for _ in 0..63 {
+        assert!(kernel.tick(true).expect("first mount"));
+    }
+    assert_eq!(shared.snapshot().stats.mounts, 0);
+    assert!(kernel.tick(true).expect("publication boundary"));
+    assert_eq!(shared.snapshot().stats.mounts, 64);
+    kernel.abort(None, crate::TaskFailure::RuntimeStopped);
+}
+
+#[test]
+fn a_lone_first_mount_is_published_before_user_code_runs() {
+    use crate::{CarrierId, RuntimeConfig, control::Shared, kernel::Kernel};
+
+    let shared = Arc::new(Shared::new(RuntimeConfig::default()));
+    let scope = shared.begin_scope().expect("scope");
+    let observer = Arc::clone(&shared);
+    shared
+        .submit(scope, "lone".into(), move || {
+            assert_eq!(observer.snapshot().stats.mounts, 1);
+        })
+        .expect("submit");
+    let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
+    kernel.receive();
+
+    assert!(kernel.tick(true).expect("complete task"));
+    assert!(shared.wait(scope, None).is_ok());
+    shared.finish_scope(scope);
+}
+
+#[test]
+fn bulk_completion_publication_lag_is_bounded_and_the_last_task_flushes() {
+    use crate::{CarrierId, control::Shared, kernel::Kernel};
+
+    let config = Runtime::builder()
+        .max_vthreads(64)
+        .carrier_queue_capacity(64)
+        .build()
+        .expect("config")
+        .config();
+    let shared = Arc::new(Shared::new(config));
+    let scope = shared.begin_scope().expect("scope");
+    for _ in 0..64 {
+        shared
+            .submit(scope, "complete".into(), || ())
+            .expect("submit");
+    }
+    let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
+    kernel.receive();
+
+    for _ in 0..31 {
+        assert!(kernel.tick(true).expect("complete task"));
+    }
+    assert_eq!(shared.snapshot().stats.completed, 0);
+    assert!(kernel.tick(true).expect("publication boundary"));
+    assert_eq!(shared.snapshot().stats.completed, 32);
+    while kernel.tick(true).expect("drain") {}
+    assert_eq!(shared.snapshot().stats.completed, 64);
+}
+
+#[test]
 fn wake_processing_follows_the_observed_signal_epoch() {
     use crate::{CarrierId, RuntimeConfig, control::Shared, kernel::Kernel};
 

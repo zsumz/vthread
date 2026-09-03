@@ -1,4 +1,8 @@
 use crate::{RuntimeConfig, ScopeOptions, control::Shared};
+use std::{
+    sync::{Arc, mpsc},
+    time::Duration,
+};
 
 #[test]
 fn a_supervisor_does_not_take_the_lexical_scope_slot() {
@@ -109,4 +113,75 @@ fn an_explicit_owned_scope_budget_is_independent_of_task_capacity() {
     assert_eq!(left.join().unwrap() + right.join().unwrap(), 3);
     supervisor.shutdown().unwrap();
     runtime.run_scope(|_| Ok(())).unwrap();
+}
+
+#[test]
+fn finishing_a_scope_does_not_relock_each_terminal_record() {
+    let shared = Arc::new(Shared::new(RuntimeConfig::default()));
+    let scope = shared.begin_scope().unwrap();
+    let record = shared.reserve(scope, "terminal".into(), None).unwrap();
+    shared.complete(&record, None);
+    let record_guard = record.lock();
+    let finishing = Arc::clone(&shared);
+    let (sent, received) = mpsc::sync_channel(1);
+    let worker = std::thread::spawn(move || {
+        finishing.finish_scope(scope);
+        sent.send(()).unwrap();
+    });
+
+    received
+        .recv_timeout(Duration::from_secs(1))
+        .expect("scope reclamation relocked a terminal record");
+    drop(record_guard);
+    worker.join().unwrap();
+}
+
+#[test]
+fn successful_scope_failure_collection_does_not_lock_terminal_records() {
+    let shared = Arc::new(Shared::new(RuntimeConfig::default()));
+    let scope = shared.begin_scope().unwrap();
+    let record = shared.reserve(scope, "successful".into(), None).unwrap();
+    shared.complete(&record, None);
+    let record_guard = record.lock();
+    let observing = Arc::clone(&shared);
+    let (sent, received) = mpsc::sync_channel(1);
+    let worker = std::thread::spawn(move || {
+        sent.send(observing.unobserved(scope).failure_count())
+            .unwrap();
+    });
+
+    let failure_count = received
+        .recv_timeout(Duration::from_secs(1))
+        .expect("successful failure collection locked a terminal record");
+    assert_eq!(failure_count, 0);
+    drop(record_guard);
+    worker.join().unwrap();
+    shared.finish_scope(scope);
+}
+
+#[test]
+fn uniquely_owned_terminal_task_cells_are_reset_and_reused() {
+    let config = crate::Runtime::builder()
+        .max_vthreads(1)
+        .stack_cache_capacity(1)
+        .build()
+        .unwrap()
+        .config();
+    let shared = Shared::new(config);
+    let first_scope = shared.begin_scope().unwrap();
+    let first = shared.reserve(first_scope, "first".into(), None).unwrap();
+    let address = Arc::as_ptr(&first);
+    shared.complete(&first, None);
+    drop(first);
+    shared.finish_scope(first_scope);
+    assert_eq!(crate::signal::lock(&shared.state).record_cache.len(), 1);
+
+    let second_scope = shared.begin_scope().unwrap();
+    let second = shared.reserve(second_scope, "second".into(), None).unwrap();
+    assert_eq!(Arc::as_ptr(&second), address);
+    assert!(!second.completion().done());
+    assert_eq!(second.lock().name, "second");
+    shared.complete(&second, None);
+    drop(second);
+    shared.finish_scope(second_scope);
 }

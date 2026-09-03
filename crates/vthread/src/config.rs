@@ -73,7 +73,7 @@ impl RuntimeConfig {
         self.stack_size
     }
 
-    /// Maximum completed stacks retained for reuse per carrier.
+    /// Maximum completed stacks and matching scheduler storage retained per carrier.
     pub fn stack_cache_capacity(self) -> usize {
         self.stack_cache_capacity
     }

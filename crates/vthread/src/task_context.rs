@@ -1,5 +1,8 @@
 //! Per-virtual-thread state, separate from the native carrier's thread-local storage.
 
+#[path = "task_context_reuse.rs"]
+mod task_context_reuse;
+
 use crate::{Error, Result, SuspensionReason, context, options::TaskOptions};
 use std::{
     any::Any,
@@ -8,7 +11,7 @@ use std::{
     rc::Rc,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicU64, Ordering},
     },
 };
 
@@ -22,7 +25,7 @@ pub(crate) struct TaskContext {
 }
 
 pub(crate) struct TaskPolicy {
-    cancellation: Arc<AtomicBool>,
+    cancellation: crate::CancellationToken,
     cancellation_epoch: Arc<AtomicU64>,
     observed_epoch: Cell<u64>,
     masked: Cell<usize>,
@@ -30,7 +33,7 @@ pub(crate) struct TaskPolicy {
 }
 
 struct TaskCold {
-    options: TaskOptions,
+    deadline: Option<std::time::Instant>,
     reason: Cell<SuspensionReason>,
     capacity: usize,
     values: RefCell<BTreeMap<usize, Value>>,
@@ -66,10 +69,11 @@ impl Drop for Initializing<'_> {
 
 impl TaskContext {
     pub(crate) fn new(options: TaskOptions, capacity: usize) -> Self {
+        let deadline = options.deadline;
         Self {
-            policy: TaskPolicy::new(&options),
+            policy: TaskPolicy::new(options.cancellation, deadline.is_some()),
             cold: Box::new(TaskCold {
-                options,
+                deadline,
                 capacity,
                 reason: Cell::new(SuspensionReason::Park),
                 values: RefCell::new(BTreeMap::new()),
@@ -93,12 +97,19 @@ impl TaskContext {
         self.checkpoint_decision() != CheckpointDecision::Continue
     }
 
-    pub(crate) fn options(&self) -> &TaskOptions {
-        &self.cold.options
+    pub(crate) fn options(&self) -> TaskOptions {
+        TaskOptions {
+            cancellation: self.policy.cancellation.clone(),
+            deadline: self.cold.deadline,
+        }
+    }
+
+    pub(crate) fn cancellation(&self) -> &crate::CancellationToken {
+        &self.policy.cancellation
     }
 
     pub(crate) fn deadline(&self) -> Option<std::time::Instant> {
-        self.cold.options.deadline
+        self.cold.deadline
     }
 
     pub(crate) fn reason(&self) -> SuspensionReason {
@@ -147,7 +158,6 @@ impl TaskContext {
             CheckpointDecision::CheckDeadline => {
                 if self
                     .cold
-                    .options
                     .deadline
                     .is_some_and(|deadline| deadline <= std::time::Instant::now())
                 {
@@ -162,18 +172,14 @@ impl TaskContext {
 }
 
 impl TaskPolicy {
-    fn new(options: &TaskOptions) -> Self {
-        let (cancellation, cancellation_epoch) = options.cancellation.cancellation_probe();
+    fn new(cancellation: crate::CancellationToken, has_deadline: bool) -> Self {
+        let (cancellation, cancellation_epoch) = cancellation.into_cancellation_probe();
         Self {
             cancellation,
             cancellation_epoch,
             observed_epoch: Cell::new(0),
             masked: Cell::new(0),
-            state: Cell::new(if options.deadline.is_some() {
-                POLICY_DEADLINE
-            } else {
-                0
-            }),
+            state: Cell::new(if has_deadline { POLICY_DEADLINE } else { 0 }),
         }
     }
 
@@ -192,7 +198,7 @@ impl TaskPolicy {
         let epoch = self.cancellation_epoch.load(Ordering::Acquire);
         if epoch != self.observed_epoch.get() {
             self.observed_epoch.set(epoch);
-            if self.cancellation.load(Ordering::Acquire) {
+            if self.cancellation.is_cancelled() {
                 self.state.set(state | POLICY_CANCELLED);
                 return CheckpointDecision::Cancelled;
             }

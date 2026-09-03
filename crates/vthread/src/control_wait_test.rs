@@ -2,6 +2,31 @@ use crate::{Error, Runtime, park_pair};
 use std::time::Duration;
 
 #[test]
+fn disabled_stall_detection_drains_from_scope_activity_without_record_locks() {
+    use std::sync::{Arc, mpsc};
+
+    let config = Runtime::builder().build().unwrap().config();
+    let shared = Arc::new(super::Shared::new(config));
+    let scope = shared.begin_scope().unwrap();
+    let record = shared.reserve(scope, "terminal".into(), None).unwrap();
+    shared.complete(&record, None);
+    let record_guard = record.lock();
+    let observer = Arc::clone(&shared);
+    let (sent, received) = mpsc::sync_channel(1);
+    let waiter = std::thread::spawn(move || sent.send(observer.wait(scope, None)));
+
+    let result = received.recv_timeout(Duration::from_secs(1));
+    drop(record_guard);
+    waiter.join().unwrap().unwrap();
+    assert!(
+        result
+            .expect("scope drain touched a terminal record")
+            .is_ok()
+    );
+    shared.finish_scope(scope);
+}
+
+#[test]
 fn a_pending_wake_for_another_scope_does_not_mask_a_stall() {
     use crate::{
         ScopeOptions, SuspensionReason, TaskFailure, TaskStatus,

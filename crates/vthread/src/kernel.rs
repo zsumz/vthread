@@ -4,31 +4,35 @@
 mod kernel_cleanup;
 #[path = "kernel_drive.rs"]
 mod kernel_drive;
+#[path = "kernel_execution.rs"]
+mod kernel_execution;
+#[path = "kernel_receive.rs"]
+mod kernel_receive;
 #[path = "kernel_revoked.rs"]
 mod kernel_revoked;
 #[path = "kernel_task.rs"]
 mod kernel_task;
 
 use crate::{
-    CarrierId, CarrierSnapshot, CarrierStatus, RuntimeStats, StackSnapshot, TaskFailure,
-    TaskStatus,
-    control::Shared,
+    CarrierId, CarrierSnapshot, CarrierStatus, RuntimeStats, StackSnapshot,
+    control::{CompletionUpdate, Shared},
     inbox::{Inbox, SpawnPacket},
-    kernel_tasks::{KernelTasks, OwnedTask, TaskMut, TaskRef},
+    kernel_tasks::{KernelTasks, TaskMut, TaskRef},
     task_slab::TaskKey,
     timer::TimerQueue,
     wait::WaitRegistration,
 };
-use crate::{
-    context::Execution, local_carrier::LocalCarrier, task_context::TaskContext,
-    task_fiber::OwnedFiber,
-};
+use crate::{context::Execution, local_carrier::LocalCarrier};
 use std::{
+    cell::Cell,
     collections::{BTreeMap, VecDeque},
     rc::Rc,
     sync::Arc,
 };
-use vthread_stack::{Fiber, ParkToken};
+use vthread_stack::ParkToken;
+
+const PROGRESS_PUBLICATION_BATCH: u8 = 64;
+const COMPLETION_BATCH: usize = 64;
 
 pub(crate) struct Kernel {
     pub(super) shared: Arc<Shared>,
@@ -39,10 +43,15 @@ pub(crate) struct Kernel {
     pub(super) parked: BTreeMap<ParkToken, ParkedTask>,
     pub(super) in_flight: Option<TaskKey>,
     pub(super) pending: Option<SpawnPacket>,
+    pub(super) incoming: VecDeque<SpawnPacket>,
+    pub(super) completions: Vec<CompletionUpdate>,
+    execution_cache: Vec<Rc<Execution>>,
     pub(crate) local: Rc<LocalCarrier>,
     pub(super) timers: TimerQueue,
     pub(super) stats: RuntimeStats,
     pub(super) has_borrowed: bool,
+    yield_pressure: u32,
+    unpublished_transitions: Cell<u8>,
     #[cfg(test)]
     pub(super) revocation_inspections: usize,
 }
@@ -64,125 +73,18 @@ impl Kernel {
             parked: BTreeMap::new(),
             in_flight: None,
             pending: None,
+            incoming: VecDeque::new(),
+            completions: Vec::with_capacity(COMPLETION_BATCH),
+            execution_cache: Vec::new(),
             local: Rc::new(LocalCarrier::new(config)),
             timers: TimerQueue::new(),
             stats: RuntimeStats::default(),
             has_borrowed: false,
+            yield_pressure: 0,
+            unpublished_transitions: Cell::new(0),
             #[cfg(test)]
             revocation_inspections: 0,
         }
-    }
-
-    pub(crate) fn receive(&mut self) -> bool {
-        let received = self.receive_local_tasks();
-        let received = self.receive_remote_tasks() || received;
-        if received {
-            self.publish(CarrierStatus::Running);
-        }
-        self.inbox.pending() != 0
-    }
-
-    pub(crate) fn receive_local(&mut self) {
-        if self.receive_local_tasks() {
-            self.publish(CarrierStatus::Running);
-        }
-    }
-
-    fn receive_local_tasks(&mut self) -> bool {
-        let mut received = false;
-        loop {
-            let task = self.local.pop_start();
-            let Some(task) = task else {
-                break;
-            };
-            received = true;
-            self.has_borrowed = true;
-            #[cfg(feature = "runtime-evidence")]
-            self.shared
-                .record(crate::diagnostics::evidence::RuntimeEventKind::QueueDepth {
-                    carrier: self.id,
-                    queue: crate::diagnostics::evidence::QueueKind::LocalStart,
-                    depth: self.local.pending_starts(),
-                    capacity: self.shared.config.carrier_queue_capacity(),
-                });
-            self.shared.transition(
-                task.execution.as_ref().expect("task execution").record(),
-                |record| record.status = TaskStatus::Ready,
-            );
-            self.ready.push_back(self.tasks.insert_borrowed(task));
-        }
-        received
-    }
-
-    fn receive_remote_tasks(&mut self) -> bool {
-        let mut received = false;
-        for _ in 0..self.shared.config.carrier_queue_capacity() {
-            self.pending = self.inbox.pop();
-            if self.pending.is_none() {
-                break;
-            }
-            #[cfg(feature = "runtime-evidence")]
-            let acquired = self.local.stacks.borrow_mut().acquire_identified();
-            #[cfg(not(feature = "runtime-evidence"))]
-            let acquired = self.local.stacks.borrow_mut().acquire();
-            #[cfg(feature = "runtime-evidence")]
-            let (stack_identity, stack) = match acquired {
-                Ok(stack) => stack,
-                Err(_) => {
-                    self.discard_pending(TaskFailure::StackAllocation);
-                    continue;
-                }
-            };
-            #[cfg(not(feature = "runtime-evidence"))]
-            let stack = match acquired {
-                Ok(stack) => stack,
-                Err(_) => {
-                    self.discard_pending(TaskFailure::StackAllocation);
-                    continue;
-                }
-            };
-            let packet = self.pending.as_mut().expect("pending packet");
-            received = true;
-            let entry = packet.entry.take().expect("unstarted packet entry");
-            let fiber = Fiber::new(stack, entry);
-            #[cfg(feature = "runtime-evidence")]
-            let task_fiber = OwnedFiber::new(fiber, stack_identity);
-            #[cfg(not(feature = "runtime-evidence"))]
-            let task_fiber = OwnedFiber::new(fiber);
-            self.shared
-                .transition(&packet.record, |record| record.status = TaskStatus::Ready);
-            let (id, scope, options) = {
-                let record = packet.record.lock();
-                (record.id, record.scope, record.options.clone())
-            };
-            let data = Rc::new(TaskContext::new(
-                options,
-                self.shared.config.task_local_capacity(),
-            ));
-            let execution = Rc::new(Execution::new(
-                id,
-                scope,
-                Arc::clone(&self.inbox.hub),
-                Arc::clone(&packet.record),
-                Arc::clone(&self.shared),
-                Rc::clone(&self.local),
-                data,
-            ));
-            let task = OwnedTask {
-                fiber: Some(task_fiber),
-                execution: Some(execution),
-            };
-            #[cfg(feature = "runtime-evidence")]
-            self.shared.record(
-                crate::diagnostics::evidence::RuntimeEventKind::StackCheckedOut {
-                    task: id,
-                    stack: crate::diagnostics::evidence::StackId::new(self.id, stack_identity),
-                },
-            );
-            self.pending = None;
-            self.ready.push_back(self.tasks.insert_owned(task));
-        }
-        received
     }
 
     pub(crate) fn execution(&self, task: TaskKey) -> Rc<Execution> {
@@ -202,8 +104,36 @@ impl Kernel {
         assert!(self.tasks.remove(key), "live in-flight task");
     }
 
+    pub(super) fn queue_completion(&mut self, completion: CompletionUpdate) {
+        assert!(
+            self.completions
+                .first()
+                .is_none_or(|queued| queued.scope == completion.scope),
+            "completion batch crossed scope ownership"
+        );
+        self.completions.push(completion);
+        if self.completions.len() == COMPLETION_BATCH || !self.shared.may_defer_completion() {
+            self.flush_completions();
+        }
+    }
+
+    pub(super) fn flush_completions(&mut self) {
+        self.shared.publish_completions(&self.completions);
+        self.completions.clear();
+    }
+
     pub(crate) fn publish(&self, status: CarrierStatus) {
+        self.unpublished_transitions.set(0);
         self.shared.publish(self.snapshot(status));
+    }
+
+    pub(super) fn publish_transition(&self) {
+        let unpublished = self.unpublished_transitions.get() + 1;
+        if unpublished == PROGRESS_PUBLICATION_BATCH {
+            self.publish(CarrierStatus::Running);
+        } else {
+            self.unpublished_transitions.set(unpublished);
+        }
     }
 
     pub(crate) fn retire(&self, status: CarrierStatus) {
@@ -222,10 +152,12 @@ impl Kernel {
 
     pub(crate) fn reclaimed(&self) -> bool {
         self.pending.is_none()
+            && self.incoming.is_empty()
             && self.in_flight.is_none()
             && self.ready.is_empty()
             && self.parked.is_empty()
             && self.tasks.is_empty()
+            && self.completions.is_empty()
             && self.shared.carrier_progress[self.id.0].mounted().is_none()
             && self.local.pending_starts() == 0
             && self.inbox.pending() == 0
@@ -253,6 +185,9 @@ impl Kernel {
     }
 }
 
+#[cfg(test)]
+#[path = "kernel_completion_test.rs"]
+mod kernel_completion_test;
 #[cfg(test)]
 #[path = "kernel_test.rs"]
 mod kernel_test;
