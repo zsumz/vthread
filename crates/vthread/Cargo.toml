@@ -18,8 +18,9 @@ all-features = true
 
 [features]
 default = []
+lifecycle-profiling = []
 runtime-evidence = ["vthread-stack/runtime-evidence"]
-qualification = ["runtime-evidence"]
+qualification = ["runtime-evidence", "lifecycle-profiling"]
 
 [dependencies]
 vthread-stack.workspace = true

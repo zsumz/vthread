@@ -25,6 +25,8 @@ impl Shared {
         record: &SharedTaskRecord,
         failure: Option<TaskFailure>,
     ) -> Option<CompletionUpdate> {
+        #[cfg(feature = "lifecycle-profiling")]
+        let completion_started = std::time::Instant::now();
         let mut task_record = record.lock();
         if task_record.status.is_terminal() {
             return None;
@@ -50,6 +52,9 @@ impl Shared {
         #[cfg(feature = "runtime-evidence")]
         self.record_terminal(terminal.0, terminal.1, terminal.2);
         record.completion().complete();
+        #[cfg(feature = "lifecycle-profiling")]
+        self.lifecycle_probe
+            .record_completion(completion_started.elapsed(), 0);
         Some(completion)
     }
 
@@ -57,6 +62,8 @@ impl Shared {
         if completions.is_empty() {
             return;
         }
+        #[cfg(feature = "lifecycle-profiling")]
+        let completion_started = std::time::Instant::now();
         let mut state = lock(&self.state);
         let mut scope_drained = false;
         for completion in completions {
@@ -84,6 +91,9 @@ impl Shared {
             || self.target_waiters.load(Ordering::SeqCst) != 0
             || self.config.stall_policy().timeout().is_some();
         drop(state);
+        #[cfg(feature = "lifecycle-profiling")]
+        self.lifecycle_probe
+            .record_completion(completion_started.elapsed(), completions.len());
         if notify {
             self.changed.notify();
         }

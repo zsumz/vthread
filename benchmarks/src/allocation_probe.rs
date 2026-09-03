@@ -65,3 +65,24 @@ pub(crate) fn finish() -> Counts {
         allocated_bytes: ALLOCATED_BYTES.load(Ordering::Relaxed),
     }
 }
+
+pub(crate) fn print_medians(config: &super::Config, samples: &mut [Counts]) {
+    let middle = samples.len() / 2;
+    samples.sort_unstable_by_key(|sample| sample.allocations);
+    let allocations = samples[middle].allocations;
+    samples.sort_unstable_by_key(|sample| sample.deallocations);
+    let deallocations = samples[middle].deallocations;
+    samples.sort_unstable_by_key(|sample| sample.allocated_bytes);
+    let allocated_bytes = samples[middle].allocated_bytes;
+    println!(
+        "engine={} phase=allocation workers={} tasks={} allocations={} deallocations={} allocated_bytes={} allocations_per_task={:.2} bytes_per_task={:.2}",
+        config.engine_name(),
+        config.workers,
+        config.tasks,
+        allocations,
+        deallocations,
+        allocated_bytes,
+        allocations as f64 / config.tasks as f64,
+        allocated_bytes as f64 / config.tasks as f64,
+    );
+}

@@ -19,3 +19,21 @@ taskset -c 0 benchmarks/target/release/vthread-benchmarks may spawn 1 1000 11
 The yield scenario reports nanoseconds per cooperative yield. The spawn scenario reports
 nanoseconds per task. Use a quiet machine and compare distributions as well as medians; carrier
 placement and host scheduling make short multi-worker samples noisy.
+
+For attributed vthread lifecycle timings, rebuild with the opt-in profiling feature:
+
+```sh
+cargo build --release --manifest-path benchmarks/Cargo.toml --features lifecycle-profiling
+benchmarks/target/release/vthread-benchmarks vthread spawn 1 1000 101
+benchmarks/target/release/vthread-benchmarks vthread spawn 1 10000 101
+```
+
+The additional lifecycle line separates stack/fiber materialization, physical reclaim, terminal
+completion publication, and unattributed scheduler work. Admission remains the independently
+timed producer-side phase. The profiler verifies that every requested task appears exactly once in
+all three carrier phases. Clock reads and atomic accounting intentionally make profiled totals
+slower; use the default build above for engine-to-engine comparisons.
+
+Heap allocation counts are independently available with `--features allocation-probe`. They cover
+the measured process-wide interval and therefore should be collected with one worker on a quiet
+machine. Rebuild without either feature before recording headline latency results.

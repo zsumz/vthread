@@ -62,6 +62,17 @@ impl Runtime {
         self.shared.snapshot()
     }
 
+    /// Returns cumulative per-phase scheduler timings for controlled performance tests.
+    ///
+    /// Read snapshots between scopes and subtract them with
+    /// [`crate::diagnostics::LifecycleProfile::checked_delta`] for one exact run. Clock reads
+    /// and atomic accounting add overhead, so this requires the opt-in `lifecycle-profiling`
+    /// feature and is not a substitute for an uninstrumented end-to-end measurement.
+    #[cfg(feature = "lifecycle-profiling")]
+    pub fn lifecycle_profile(&self) -> crate::diagnostics::LifecycleProfile {
+        self.shared.lifecycle_probe.snapshot()
+    }
+
     /// Takes the single-consumer evidence stream when recording was configured.
     /// Subsequent calls return `None`.
     #[cfg(feature = "runtime-evidence")]

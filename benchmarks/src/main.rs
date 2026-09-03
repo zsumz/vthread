@@ -2,6 +2,8 @@ use std::{env, hint::black_box, process::ExitCode, time::Instant};
 
 #[cfg(feature = "allocation-probe")]
 mod allocation_probe;
+#[cfg(feature = "lifecycle-profiling")]
+mod lifecycle_profile;
 
 const STACK_SIZE: usize = 64 * 1024;
 
@@ -23,6 +25,12 @@ struct Config {
     workers: usize,
     tasks: usize,
     samples: usize,
+}
+
+struct Round {
+    admission_ns: u128,
+    #[cfg(feature = "lifecycle-profiling")]
+    lifecycle: Option<vthread::diagnostics::LifecycleProfile>,
 }
 
 impl Config {
@@ -110,7 +118,9 @@ fn run_vthread(config: &Config) -> Result<(), String> {
         .build()
         .map_err(|error| error.to_string())?;
     measure(config, || {
-        runtime
+        #[cfg(feature = "lifecycle-profiling")]
+        let before = runtime.lifecycle_profile();
+        let admission_ns = runtime
             .run_scope(|scope| {
                 let started = Instant::now();
                 for _ in 0..config.tasks {
@@ -119,7 +129,19 @@ fn run_vthread(config: &Config) -> Result<(), String> {
                 }
                 Ok(started.elapsed().as_nanos())
             })
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        #[cfg(feature = "lifecycle-profiling")]
+        let lifecycle = Some(
+            runtime
+                .lifecycle_profile()
+                .checked_delta(before)
+                .ok_or_else(|| "lifecycle profile counters moved backward".to_owned())?,
+        );
+        Ok(Round {
+            admission_ns,
+            #[cfg(feature = "lifecycle-profiling")]
+            lifecycle,
+        })
     })?;
     runtime
         .shutdown()
@@ -152,7 +174,11 @@ fn run_may(config: &Config) -> Result<(), String> {
             }
             admission_ns = started.elapsed().as_nanos();
         });
-        Ok(admission_ns)
+        Ok(Round {
+            admission_ns,
+            #[cfg(feature = "lifecycle-profiling")]
+            lifecycle: None,
+        })
     })
 }
 
@@ -165,24 +191,38 @@ fn run_may_task(scenario: Scenario) {
     }
 }
 
-fn measure(config: &Config, mut round: impl FnMut() -> Result<u128, String>) -> Result<(), String> {
+fn measure(
+    config: &Config,
+    mut round: impl FnMut() -> Result<Round, String>,
+) -> Result<(), String> {
     round()?;
     let mut samples = Vec::with_capacity(config.samples);
     let mut admission_samples = Vec::with_capacity(config.samples);
     let mut drain_samples = Vec::with_capacity(config.samples);
     #[cfg(feature = "allocation-probe")]
     let mut allocation_samples = Vec::with_capacity(config.samples);
+    #[cfg(feature = "lifecycle-profiling")]
+    let mut lifecycle_samples = Vec::with_capacity(config.samples);
     for _ in 0..config.samples {
         #[cfg(feature = "allocation-probe")]
         allocation_probe::begin();
         let started = Instant::now();
-        let admission = round()?;
+        let round = round()?;
         let total = started.elapsed().as_nanos();
         #[cfg(feature = "allocation-probe")]
         allocation_samples.push(allocation_probe::finish());
         samples.push(total);
-        admission_samples.push(admission);
-        drain_samples.push(total.saturating_sub(admission));
+        admission_samples.push(round.admission_ns);
+        drain_samples.push(total.saturating_sub(round.admission_ns));
+        #[cfg(feature = "lifecycle-profiling")]
+        if let Some(profile) = round.lifecycle {
+            lifecycle_samples.push(lifecycle_profile::Sample::new(
+                profile,
+                total,
+                round.admission_ns,
+                config.tasks,
+            )?);
+        }
     }
     samples.sort_unstable();
     admission_samples.sort_unstable();
@@ -212,30 +252,10 @@ fn measure(config: &Config, mut round: impl FnMut() -> Result<u128, String>) -> 
         );
     }
     #[cfg(feature = "allocation-probe")]
-    print_allocation_medians(config, &mut allocation_samples);
+    allocation_probe::print_medians(config, &mut allocation_samples);
+    #[cfg(feature = "lifecycle-profiling")]
+    lifecycle_profile::print_medians(config, &lifecycle_samples);
     Ok(())
-}
-
-#[cfg(feature = "allocation-probe")]
-fn print_allocation_medians(config: &Config, samples: &mut [allocation_probe::Counts]) {
-    let middle = samples.len() / 2;
-    samples.sort_unstable_by_key(|sample| sample.allocations);
-    let allocations = samples[middle].allocations;
-    samples.sort_unstable_by_key(|sample| sample.deallocations);
-    let deallocations = samples[middle].deallocations;
-    samples.sort_unstable_by_key(|sample| sample.allocated_bytes);
-    let allocated_bytes = samples[middle].allocated_bytes;
-    println!(
-        "engine={} phase=allocation workers={} tasks={} allocations={} deallocations={} allocated_bytes={} allocations_per_task={:.2} bytes_per_task={:.2}",
-        config.engine_name(),
-        config.workers,
-        config.tasks,
-        allocations,
-        deallocations,
-        allocated_bytes,
-        allocations as f64 / config.tasks as f64,
-        allocated_bytes as f64 / config.tasks as f64,
-    );
 }
 
 fn positive(args: &mut impl Iterator<Item = String>, name: &str) -> Result<usize, String> {
