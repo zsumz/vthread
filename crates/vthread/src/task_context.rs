@@ -184,6 +184,20 @@ impl TaskPolicy {
         }
     }
 
+    fn reset(&mut self, cancellation: crate::CancellationToken, has_deadline: bool) {
+        // Carrier execution caches never cross runtimes, so every replacement
+        // shares the already-cached domain epoch.
+        assert!(
+            cancellation.shares_epoch(&self.cancellation_epoch),
+            "reused task context crossed cancellation domains"
+        );
+        self.cancellation = cancellation;
+        self.observed_epoch.set(0);
+        self.masked.set(0);
+        self.state
+            .set(if has_deadline { POLICY_DEADLINE } else { 0 });
+    }
+
     #[inline]
     fn checkpoint_decision(&self) -> CheckpointDecision {
         let state = self.state.get();
