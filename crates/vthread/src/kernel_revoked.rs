@@ -14,12 +14,7 @@ impl Kernel {
             {
                 self.revocation_inspections += 1;
             }
-            if self
-                .task(task)
-                .fiber
-                .as_ref()
-                .is_some_and(|fiber| fiber.revoked())
-            {
+            if self.task(task).revoked() {
                 self.in_flight = Some(task);
                 self.discard_in_flight(TaskFailure::ScopeClosed);
             } else {
@@ -29,12 +24,7 @@ impl Kernel {
         let tokens = self
             .parked
             .iter()
-            .filter(|(_, parked)| {
-                self.task(parked.task)
-                    .fiber
-                    .as_ref()
-                    .is_some_and(|fiber| fiber.revoked())
-            })
+            .filter(|(_, parked)| self.task(parked.task).revoked())
             .map(|(token, _)| *token)
             .collect::<Vec<_>>();
         for token in tokens {
@@ -58,22 +48,14 @@ impl Kernel {
     }
 
     pub(super) fn refresh_borrowed(&mut self) {
-        self.has_borrowed = self.in_flight.is_some_and(|task| {
-            self.task(task)
-                .fiber
-                .as_ref()
-                .is_some_and(crate::task_fiber::TaskFiber::is_borrowed)
-        }) || self.ready.iter().any(|task| {
-            self.task(*task)
-                .fiber
-                .as_ref()
-                .is_some_and(crate::task_fiber::TaskFiber::is_borrowed)
-        }) || self.parked.values().any(|parked| {
-            self.task(parked.task)
-                .fiber
-                .as_ref()
-                .is_some_and(crate::task_fiber::TaskFiber::is_borrowed)
-        });
+        self.has_borrowed = self
+            .in_flight
+            .is_some_and(|task| self.task(task).is_borrowed())
+            || self.ready.iter().any(|task| self.task(*task).is_borrowed())
+            || self
+                .parked
+                .values()
+                .any(|parked| self.task(parked.task).is_borrowed());
     }
 }
 

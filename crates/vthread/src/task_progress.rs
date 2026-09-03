@@ -101,6 +101,11 @@ pub(crate) struct TaskProgressWriter {
     started: Cell<bool>,
 }
 
+pub(crate) struct TaskProgressUpdate {
+    first_yield: bool,
+    counters: Option<(u64, u64)>,
+}
+
 impl TaskProgressWriter {
     pub(crate) fn new() -> Self {
         Self {
@@ -120,14 +125,27 @@ impl TaskProgressWriter {
         first
     }
 
-    pub(crate) fn yield_now(&self, progress: &TaskProgress, carrier: &CarrierProgress) {
+    #[inline]
+    pub(crate) fn resuming_yield(&self) -> bool {
+        self.yielded.get()
+    }
+
+    pub(crate) fn yield_now(
+        &self,
+        carrier: &CarrierProgress,
+        publish: impl FnOnce(TaskProgressUpdate),
+    ) {
         let yields = self.yields.get().wrapping_add(1);
         self.yields.set(yields);
-        if yields.is_multiple_of(COUNTER_BATCH) {
-            progress.publish(self.mounts(), yields);
-        }
-        if !self.yielded.replace(true) {
-            progress.yield_now();
+        let counters = yields
+            .is_multiple_of(COUNTER_BATCH)
+            .then(|| (self.mounts(), yields));
+        let first_yield = !self.yielded.replace(true);
+        if first_yield || counters.is_some() {
+            publish(TaskProgressUpdate {
+                first_yield,
+                counters,
+            });
         }
         carrier.unmount();
     }
@@ -157,6 +175,17 @@ impl TaskProgressWriter {
     fn mounts(&self) -> u64 {
         // Every finished mount either yields or takes one non-yield transition.
         self.yields.get().wrapping_add(self.non_yield_mounts.get())
+    }
+}
+
+impl TaskProgress {
+    pub(crate) fn apply(&self, update: TaskProgressUpdate) {
+        if let Some((mounts, yields)) = update.counters {
+            self.publish(mounts, yields);
+        }
+        if update.first_yield {
+            self.yield_now();
+        }
     }
 }
 

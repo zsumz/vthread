@@ -2,8 +2,8 @@
 
 use crate::{
     CancellationToken, Error, LocalJoinHandle, Result, SuspensionReason, context::Execution,
-    join::JoinCell, join_wait, kernel::Task, options::TaskOptions, task::SharedTaskRecord,
-    task_context::TaskContext, task_fiber::TaskFiber,
+    join::JoinCell, join_wait, kernel_tasks::BorrowedTask, options::TaskOptions,
+    task::SharedTaskRecord, task_context::TaskContext, task_fiber::BorrowedFiber,
 };
 use std::{cell::RefCell, marker::PhantomData, rc::Rc, sync::Arc, time::Instant};
 use vthread_stack::FiberScope;
@@ -42,20 +42,20 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
         self.execution.data.check()?;
         self.options.check()?;
         #[cfg(feature = "runtime-evidence")]
-        if let Err(error) = self.execution.local.check_capacity() {
-            self.execution.shared.record_admission_rejected(
+        if let Err(error) = self.execution.local().check_capacity() {
+            self.execution.shared().record_admission_rejected(
                 crate::error::CapacityResource::CarrierQueue,
-                self.execution.shared.config.carrier_queue_capacity(),
+                self.execution.shared().config.carrier_queue_capacity(),
             );
             return Err(error);
         }
         #[cfg(not(feature = "runtime-evidence"))]
-        self.execution.local.check_capacity()?;
+        self.execution.local().check_capacity()?;
         let (root, parent, carrier) = {
-            let record = self.execution.record.lock();
+            let record = self.execution.record().lock();
             (record.scope, record.id, record.carrier)
         };
-        let record = self.execution.shared.reserve(
+        let record = self.execution.shared().reserve(
             root,
             name.into(),
             Some((carrier, parent, self.options.child(options.deadline))),
@@ -63,17 +63,17 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
         #[cfg(feature = "runtime-evidence")]
         let acquired = self
             .execution
-            .local
+            .local()
             .stacks
             .borrow_mut()
             .acquire_identified();
         #[cfg(not(feature = "runtime-evidence"))]
-        let acquired = self.execution.local.stacks.borrow_mut().acquire();
+        let acquired = self.execution.local().stacks.borrow_mut().acquire();
         #[cfg(feature = "runtime-evidence")]
         let (stack_identity, stack) = match acquired {
             Ok(stack) => stack,
             Err(error) => {
-                self.execution.shared.release_reservation(&record);
+                self.execution.shared().release_reservation(&record);
                 return Err(Error::StackAllocation(error));
             }
         };
@@ -81,7 +81,7 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
         let stack = match acquired {
             Ok(stack) => stack,
             Err(error) => {
-                self.execution.shared.release_reservation(&record);
+                self.execution.shared().release_reservation(&record);
                 return Err(Error::StackAllocation(error));
             }
         };
@@ -97,32 +97,31 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
             Err(error) => {
                 #[cfg(feature = "runtime-evidence")]
                 self.execution
-                    .local
+                    .local()
                     .stacks
                     .borrow_mut()
                     .retire(stack_identity);
-                self.execution.shared.release_reservation(&record);
+                self.execution.shared().release_reservation(&record);
                 return Err(Error::StackAllocation(error));
             }
         };
         let data = Rc::new(TaskContext::new(
             record.lock().options.clone(),
-            self.execution.shared.config.task_local_capacity(),
+            self.execution.shared().config.task_local_capacity(),
         ));
         let (id, root) = {
             let record = record.lock();
             (record.id, record.scope)
         };
-        let execution = Rc::new(Execution {
+        let execution = Rc::new(Execution::new(
             id,
-            scope: root,
-            hub: Arc::clone(&self.execution.hub),
-            record: Arc::clone(&record),
-            data: Rc::clone(&data),
-            shared: Arc::clone(&self.execution.shared),
-            local: Rc::clone(&self.execution.local),
-            progress: crate::task_progress::TaskProgressWriter::new(),
-        });
+            root,
+            Arc::clone(self.execution.hub()),
+            Arc::clone(&record),
+            Arc::clone(self.execution.shared()),
+            Rc::clone(self.execution.local()),
+            Rc::clone(&data),
+        ));
         let cleanup = Rc::clone(&execution);
         lease.cleanup_context(move || {
             Box::new(crate::task_context::TaskCleanup::new(Rc::clone(&cleanup)))
@@ -133,29 +132,28 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
         });
         self.records.borrow_mut().push(Arc::clone(&record));
         #[cfg(feature = "runtime-evidence")]
-        let task_fiber = TaskFiber::borrowed(lease, stack_identity);
+        let task_fiber = BorrowedFiber::new(lease, stack_identity);
         #[cfg(not(feature = "runtime-evidence"))]
-        let task_fiber = TaskFiber::borrowed(lease);
-        self.execution.local.push_start(Task {
-            execution,
+        let task_fiber = BorrowedFiber::new(lease);
+        self.execution.local().push_start(BorrowedTask {
+            execution: Some(execution),
             fiber: Some(task_fiber),
-            checkpoint_on_resume: false,
         });
         #[cfg(feature = "runtime-evidence")]
         {
-            self.execution.shared.record_task_accepted(&record);
-            self.execution.shared.record(
+            self.execution.shared().record_task_accepted(&record);
+            self.execution.shared().record(
                 crate::diagnostics::evidence::RuntimeEventKind::StackCheckedOut {
                     task: record.lock().id,
                     stack: crate::diagnostics::evidence::StackId::new(carrier, stack_identity),
                 },
             );
-            self.execution.shared.record(
+            self.execution.shared().record(
                 crate::diagnostics::evidence::RuntimeEventKind::QueueDepth {
                     carrier,
                     queue: crate::diagnostics::evidence::QueueKind::LocalStart,
-                    depth: self.execution.local.pending_starts(),
-                    capacity: self.execution.shared.config.carrier_queue_capacity(),
+                    depth: self.execution.local().pending_starts(),
+                    capacity: self.execution.shared().config.carrier_queue_capacity(),
                 },
             );
         }

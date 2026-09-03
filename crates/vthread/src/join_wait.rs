@@ -13,8 +13,8 @@ struct WaitGuard {
 }
 impl Drop for WaitGuard {
     fn drop(&mut self) {
-        self.data.reason.set(self.reason);
-        self.data.masked.set(self.masked);
+        self.data.replace_reason(self.reason);
+        self.data.set_masked(self.masked);
     }
 }
 
@@ -28,17 +28,17 @@ pub(crate) fn wait_for(
     if !shielded {
         execution.data.check()?;
     }
-    if mounted.task_id() == record.lock().id && Arc::ptr_eq(&execution.record, record) {
+    if mounted.task_id() == record.lock().id && Arc::ptr_eq(execution.record(), record) {
         return Err(Error::JoinSelf);
     }
     let data = Rc::clone(&execution.data);
     let _guard = WaitGuard {
-        reason: data.reason.replace(reason),
-        masked: data.masked.get(),
+        reason: data.replace_reason(reason),
+        masked: data.masked(),
         data: Rc::clone(&data),
     };
     if shielded {
-        data.masked.set(data.masked.get() + 1);
+        data.set_masked(data.masked() + 1);
     }
     let parker = Parker {
         wait: WaitCell::new(),

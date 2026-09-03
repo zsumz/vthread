@@ -1,10 +1,7 @@
 use crate::{
-    CarrierId, RuntimeConfig, TaskFailure,
-    control::Shared,
-    kernel::{Kernel, Task},
-    options::TaskOptions,
-    task_context::TaskContext,
-    task_fiber::TaskFiber,
+    CarrierId, RuntimeConfig, TaskFailure, control::Shared, kernel::Kernel,
+    kernel_tasks::BorrowedTask, options::TaskOptions, task_context::TaskContext,
+    task_fiber::BorrowedFiber,
 };
 use std::{rc::Rc, sync::Arc, time::Duration};
 
@@ -61,24 +58,22 @@ fn selective_abort_retains_borrowed_scan_tracking() {
             let record = record.lock();
             (record.id, record.scope)
         };
-        let execution = Rc::new(crate::context::Execution {
+        let execution = Rc::new(crate::context::Execution::new(
             id,
             scope,
-            hub: Arc::clone(&kernel.inbox.hub),
+            Arc::clone(&kernel.inbox.hub),
             record,
-            shared: Arc::clone(&shared),
-            local: Rc::clone(&kernel.local),
+            Arc::clone(&shared),
+            Rc::clone(&kernel.local),
             data,
-            progress: crate::task_progress::TaskProgressWriter::new(),
-        });
+        ));
         #[cfg(feature = "runtime-evidence")]
-        let fiber = TaskFiber::borrowed(lease, identity);
+        let fiber = BorrowedFiber::new(lease, identity);
         #[cfg(not(feature = "runtime-evidence"))]
-        let fiber = TaskFiber::borrowed(lease);
-        kernel.local.push_start(Task {
+        let fiber = BorrowedFiber::new(lease);
+        kernel.local.push_start(BorrowedTask {
             fiber: Some(fiber),
-            execution,
-            checkpoint_on_resume: false,
+            execution: Some(execution),
         });
 
         kernel.abort(Some(aborted), crate::TaskFailure::ScopeStalled);
@@ -115,24 +110,22 @@ fn revoked_parked_stacks_release_registrations_before_timer_processing() {
             let record = record.lock();
             (record.id, record.scope)
         };
-        let execution = Rc::new(crate::context::Execution {
+        let execution = Rc::new(crate::context::Execution::new(
             id,
-            scope: root,
-            hub: Arc::clone(&kernel.inbox.hub),
-            record: Arc::clone(&record),
-            shared: Arc::clone(&shared),
-            local: Rc::clone(&kernel.local),
+            root,
+            Arc::clone(&kernel.inbox.hub),
+            Arc::clone(&record),
+            Arc::clone(&shared),
+            Rc::clone(&kernel.local),
             data,
-            progress: crate::task_progress::TaskProgressWriter::new(),
-        });
+        ));
         #[cfg(feature = "runtime-evidence")]
-        let task_fiber = TaskFiber::borrowed(lease, identity);
+        let task_fiber = BorrowedFiber::new(lease, identity);
         #[cfg(not(feature = "runtime-evidence"))]
-        let task_fiber = TaskFiber::borrowed(lease);
-        let task = kernel.tasks.insert(Task {
-            execution,
+        let task_fiber = BorrowedFiber::new(lease);
+        let task = kernel.tasks.insert_borrowed(BorrowedTask {
+            execution: Some(execution),
             fiber: Some(task_fiber),
-            checkpoint_on_resume: false,
         });
         kernel.ready.push_back(task);
         kernel.has_borrowed = true;

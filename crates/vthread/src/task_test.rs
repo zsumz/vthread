@@ -30,7 +30,7 @@ fn snapshots_copy_operator_visible_state() {
     let carrier = CarrierProgress::new();
     let writer = TaskProgressWriter::new();
     assert!(writer.mount(&carrier, TaskId::new(3)));
-    writer.yield_now(task.progress(), &carrier);
+    writer.yield_now(&carrier, |update| task.progress().apply(update));
     assert!(!writer.mount(&carrier, TaskId::new(3)));
     writer.park(task.progress(), &carrier);
     let snapshot = task.snapshot(&[carrier.mounted()]);

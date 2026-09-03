@@ -64,12 +64,12 @@ impl Spawner {
         let parent = if let Some(mounted) = context::current() {
             let execution = mounted.execution()?;
             execution.data.check()?;
-            Arc::ptr_eq(&shared, &execution.shared).then(|| {
-                let record = execution.record.lock();
+            Arc::ptr_eq(&shared, execution.shared()).then(|| {
+                let record = execution.record().lock();
                 SpawnParent {
                     id: record.id,
                     scope: record.scope,
-                    options: execution.data.options.clone(),
+                    options: execution.data.options().clone(),
                 }
             })
         } else {

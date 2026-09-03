@@ -8,16 +8,30 @@ use std::{
     rc::Rc,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 
+const POLICY_CLOSING: u8 = 1 << 0;
+const POLICY_CANCELLED: u8 = 1 << 1;
+const POLICY_DEADLINE: u8 = 1 << 2;
+
 pub(crate) struct TaskContext {
-    pub(crate) options: TaskOptions,
+    policy: TaskPolicy,
+    cold: Box<TaskCold>,
+}
+
+pub(crate) struct TaskPolicy {
     cancellation: Arc<AtomicBool>,
-    pub(crate) reason: Cell<SuspensionReason>,
-    pub(crate) masked: Cell<usize>,
-    pub(crate) closing: Cell<bool>,
+    cancellation_epoch: Arc<AtomicU64>,
+    observed_epoch: Cell<u64>,
+    masked: Cell<usize>,
+    state: Cell<u8>,
+}
+
+struct TaskCold {
+    options: TaskOptions,
+    reason: Cell<SuspensionReason>,
     capacity: usize,
     values: RefCell<BTreeMap<usize, Value>>,
 }
@@ -28,6 +42,7 @@ enum CheckpointDecision {
     RuntimeStopped,
     Cancelled,
     DeadlineExceeded,
+    CheckDeadline,
 }
 
 #[derive(Clone)]
@@ -44,31 +59,32 @@ struct Initializing<'a> {
 impl Drop for Initializing<'_> {
     fn drop(&mut self) {
         if self.pending {
-            self.context.values.borrow_mut().remove(&self.key);
+            self.context.cold.values.borrow_mut().remove(&self.key);
         }
     }
 }
 
 impl TaskContext {
     pub(crate) fn new(options: TaskOptions, capacity: usize) -> Self {
-        let cancellation = options.cancellation.cancellation_flag();
         Self {
-            options,
-            cancellation,
-            capacity,
-            reason: Cell::new(SuspensionReason::Park),
-            masked: Cell::new(0),
-            closing: Cell::new(false),
-            values: RefCell::new(BTreeMap::new()),
+            policy: TaskPolicy::new(&options),
+            cold: Box::new(TaskCold {
+                options,
+                capacity,
+                reason: Cell::new(SuspensionReason::Park),
+                values: RefCell::new(BTreeMap::new()),
+            }),
         }
     }
 
+    #[inline]
     pub(crate) fn check(&self) -> Result<()> {
         match self.checkpoint_decision() {
             CheckpointDecision::Continue => Ok(()),
             CheckpointDecision::RuntimeStopped => Err(Error::RuntimeStopped),
             CheckpointDecision::Cancelled => Err(Error::Cancelled),
             CheckpointDecision::DeadlineExceeded => Err(Error::DeadlineExceeded),
+            CheckpointDecision::CheckDeadline => unreachable!("resolved deadline decision"),
         }
     }
 
@@ -77,29 +93,42 @@ impl TaskContext {
         self.checkpoint_decision() != CheckpointDecision::Continue
     }
 
-    #[inline]
-    fn checkpoint_decision(&self) -> CheckpointDecision {
-        if self.closing.get() {
-            return CheckpointDecision::RuntimeStopped;
-        }
-        if self.masked.get() != 0 {
-            return CheckpointDecision::Continue;
-        }
-        if self.cancellation.load(Ordering::Acquire) {
-            return CheckpointDecision::Cancelled;
-        }
-        if self
-            .options
-            .deadline
-            .is_some_and(|deadline| deadline <= std::time::Instant::now())
-        {
-            return CheckpointDecision::DeadlineExceeded;
-        }
-        CheckpointDecision::Continue
+    pub(crate) fn options(&self) -> &TaskOptions {
+        &self.cold.options
+    }
+
+    pub(crate) fn deadline(&self) -> Option<std::time::Instant> {
+        self.cold.options.deadline
+    }
+
+    pub(crate) fn reason(&self) -> SuspensionReason {
+        self.cold.reason.get()
+    }
+
+    pub(crate) fn replace_reason(&self, reason: SuspensionReason) -> SuspensionReason {
+        self.cold.reason.replace(reason)
+    }
+
+    pub(crate) fn masked(&self) -> usize {
+        self.policy.masked.get()
+    }
+
+    pub(crate) fn set_masked(&self, masked: usize) {
+        self.policy.masked.set(masked);
+    }
+
+    pub(crate) fn close(&self) {
+        self.policy
+            .state
+            .set(self.policy.state.get() | POLICY_CLOSING);
+    }
+
+    pub(crate) fn closing(&self) -> bool {
+        self.policy.state.get() & POLICY_CLOSING != 0
     }
 
     fn clear(&self) -> Option<crate::PanicReport> {
-        let values = self.values.take();
+        let values = self.cold.values.take();
         let mut panic = None;
         for value in values.into_values() {
             if let Err(payload) =
@@ -111,6 +140,68 @@ impl TaskContext {
         }
         panic
     }
+
+    #[inline]
+    fn checkpoint_decision(&self) -> CheckpointDecision {
+        match self.policy.checkpoint_decision() {
+            CheckpointDecision::CheckDeadline => {
+                if self
+                    .cold
+                    .options
+                    .deadline
+                    .is_some_and(|deadline| deadline <= std::time::Instant::now())
+                {
+                    CheckpointDecision::DeadlineExceeded
+                } else {
+                    CheckpointDecision::Continue
+                }
+            }
+            decision => decision,
+        }
+    }
+}
+
+impl TaskPolicy {
+    fn new(options: &TaskOptions) -> Self {
+        let (cancellation, cancellation_epoch) = options.cancellation.cancellation_probe();
+        Self {
+            cancellation,
+            cancellation_epoch,
+            observed_epoch: Cell::new(0),
+            masked: Cell::new(0),
+            state: Cell::new(if options.deadline.is_some() {
+                POLICY_DEADLINE
+            } else {
+                0
+            }),
+        }
+    }
+
+    #[inline]
+    fn checkpoint_decision(&self) -> CheckpointDecision {
+        let state = self.state.get();
+        if state & POLICY_CLOSING != 0 {
+            return CheckpointDecision::RuntimeStopped;
+        }
+        if self.masked.get() != 0 {
+            return CheckpointDecision::Continue;
+        }
+        if state & POLICY_CANCELLED != 0 {
+            return CheckpointDecision::Cancelled;
+        }
+        let epoch = self.cancellation_epoch.load(Ordering::Acquire);
+        if epoch != self.observed_epoch.get() {
+            self.observed_epoch.set(epoch);
+            if self.cancellation.load(Ordering::Acquire) {
+                self.state.set(state | POLICY_CANCELLED);
+                return CheckpointDecision::Cancelled;
+            }
+        }
+        if state & POLICY_DEADLINE != 0 {
+            return CheckpointDecision::CheckDeadline;
+        }
+        CheckpointDecision::Continue
+    }
 }
 
 pub(crate) struct TaskCleanup {
@@ -120,7 +211,7 @@ pub(crate) struct TaskCleanup {
 
 impl TaskCleanup {
     pub(crate) fn new(execution: Rc<context::Execution>) -> Self {
-        execution.data.closing.set(true);
+        execution.data.close();
         let mounted = context::mount_execution(Rc::clone(&execution));
         Self {
             execution,
@@ -132,7 +223,7 @@ impl TaskCleanup {
 impl Drop for TaskCleanup {
     fn drop(&mut self) {
         if let Some(panic) = self.execution.data.clear() {
-            self.execution.record.lock().panic.get_or_insert(panic);
+            self.execution.record().lock().panic.get_or_insert(panic);
         }
     }
 }
@@ -154,23 +245,24 @@ impl<T> TaskLocal<T> {
     pub fn with<R>(&'static self, body: impl FnOnce(&T) -> R) -> Result<R> {
         let current = context::current().ok_or(Error::OutsideVThread)?;
         let execution = current.execution()?;
-        if execution.data.closing.get() {
+        if execution.data.closing() {
             return Err(Error::RuntimeStopped);
         }
         let key = std::ptr::from_ref(self) as usize;
-        let existing = execution.data.values.borrow().get(&key).cloned();
+        let existing = execution.data.cold.values.borrow().get(&key).cloned();
         let value = match existing {
             Some(Value::Ready(value)) => value,
             Some(Value::Initializing) => return Err(Error::RecursiveTaskLocal),
             None => {
-                if execution.data.values.borrow().len() >= execution.data.capacity {
+                if execution.data.cold.values.borrow().len() >= execution.data.cold.capacity {
                     return Err(Error::Capacity {
                         resource: crate::error::CapacityResource::TaskLocals,
-                        limit: execution.data.capacity,
+                        limit: execution.data.cold.capacity,
                     });
                 }
                 execution
                     .data
+                    .cold
                     .values
                     .borrow_mut()
                     .insert(key, Value::Initializing);
@@ -182,6 +274,7 @@ impl<T> TaskLocal<T> {
                 let value: Rc<dyn Any> = Rc::new((self.initialize)());
                 let replaced = execution
                     .data
+                    .cold
                     .values
                     .borrow_mut()
                     .insert(key, Value::Ready(Rc::clone(&value)));

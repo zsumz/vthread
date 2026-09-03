@@ -10,13 +10,62 @@ use crate::{TaskId, wait::WaitHub};
 
 pub(crate) struct Execution {
     pub(crate) id: TaskId,
-    pub(crate) scope: u64,
-    pub(crate) hub: Arc<WaitHub>,
-    pub(crate) record: SharedTaskRecord,
-    pub(crate) shared: Arc<Shared>,
-    pub(crate) local: Rc<LocalCarrier>,
     pub(crate) data: Rc<TaskContext>,
     pub(crate) progress: crate::task_progress::TaskProgressWriter,
+    cold: Box<ExecutionCold>,
+}
+
+struct ExecutionCold {
+    scope: u64,
+    hub: Arc<WaitHub>,
+    record: SharedTaskRecord,
+    shared: Arc<Shared>,
+    local: Rc<LocalCarrier>,
+}
+
+impl Execution {
+    pub(crate) fn new(
+        id: TaskId,
+        scope: u64,
+        hub: Arc<WaitHub>,
+        record: SharedTaskRecord,
+        shared: Arc<Shared>,
+        local: Rc<LocalCarrier>,
+        data: Rc<TaskContext>,
+    ) -> Self {
+        Self {
+            id,
+            data,
+            progress: crate::task_progress::TaskProgressWriter::new(),
+            cold: Box::new(ExecutionCold {
+                scope,
+                hub,
+                record,
+                shared,
+                local,
+            }),
+        }
+    }
+
+    pub(crate) fn scope(&self) -> u64 {
+        self.cold.scope
+    }
+
+    pub(crate) fn hub(&self) -> &Arc<WaitHub> {
+        &self.cold.hub
+    }
+
+    pub(crate) fn record(&self) -> &SharedTaskRecord {
+        &self.cold.record
+    }
+
+    pub(crate) fn shared(&self) -> &Arc<Shared> {
+        &self.cold.shared
+    }
+
+    pub(crate) fn local(&self) -> &Rc<LocalCarrier> {
+        &self.cold.local
+    }
 }
 
 #[derive(Clone)]
@@ -41,7 +90,7 @@ impl MountedTask {
 
     pub(crate) fn hub(&self) -> Arc<WaitHub> {
         match self {
-            Self::Execution(execution) => Arc::clone(&execution.hub),
+            Self::Execution(execution) => Arc::clone(execution.hub()),
             Self::Cleanup { hub, .. } => Arc::clone(hub),
         }
     }
@@ -61,6 +110,22 @@ pub(crate) fn mount(task: TaskId, hub: Arc<WaitHub>) -> MountGuard {
 
 pub(crate) fn mount_execution(execution: Rc<Execution>) -> MountGuard {
     install(MountedTask::Execution(execution))
+}
+
+pub(crate) fn with_execution_slot<R>(
+    slot: &mut Option<Rc<Execution>>,
+    body: impl FnOnce(&Rc<Execution>) -> R,
+) -> R {
+    CURRENT.with(|current| {
+        let execution = slot.take().expect("unmounted task execution");
+        let previous = current.replace(Some(MountedTask::Execution(execution)));
+        let mounted = ExecutionSlotMount {
+            current,
+            slot,
+            previous,
+        };
+        mounted.with_execution(body)
+    })
 }
 
 fn install(mounted: MountedTask) -> MountGuard {
@@ -88,7 +153,7 @@ pub fn cancellation_token() -> Result<crate::CancellationToken> {
         .ok_or(Error::OutsideVThread)?
         .execution()?
         .data
-        .options
+        .options()
         .cancellation
         .clone())
 }
@@ -99,12 +164,30 @@ pub fn deadline() -> Result<Option<std::time::Instant>> {
         .ok_or(Error::OutsideVThread)?
         .execution()?
         .data
-        .options
+        .options()
         .deadline)
 }
 
 pub(crate) struct MountGuard {
     previous: Option<MountedTask>,
+}
+
+pub(crate) struct ExecutionSlotMount<'a> {
+    current: &'a RefCell<Option<MountedTask>>,
+    slot: &'a mut Option<Rc<Execution>>,
+    previous: Option<MountedTask>,
+}
+
+impl ExecutionSlotMount<'_> {
+    pub(crate) fn with_execution<R>(&self, body: impl FnOnce(&Rc<Execution>) -> R) -> R {
+        let mounted = self.current.borrow();
+        let execution = mounted
+            .as_ref()
+            .expect("mounted task execution")
+            .execution()
+            .expect("mounted execution context");
+        body(execution)
+    }
 }
 
 impl Drop for MountGuard {
@@ -113,6 +196,21 @@ impl Drop for MountGuard {
         CURRENT.with(|current| {
             drop(current.replace(previous));
         });
+    }
+}
+
+impl Drop for ExecutionSlotMount<'_> {
+    fn drop(&mut self) {
+        let previous = self.previous.take();
+        let mounted = self.current.replace(previous);
+        let execution = match mounted {
+            Some(MountedTask::Execution(execution)) => execution,
+            _ => panic!("task execution mount was replaced"),
+        };
+        assert!(
+            self.slot.replace(execution).is_none(),
+            "occupied execution slot"
+        );
     }
 }
 

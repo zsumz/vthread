@@ -1,104 +1,132 @@
-//! Uniform carrier-local ownership for static and lexically borrowed fibers.
+//! Typed carrier-local ownership for static fibers and borrowed fiber leases.
 
-use vthread_stack::{Fiber, FiberLease, FiberState, Resume};
+use vthread_stack::{Fiber, FiberLease, FiberState, Resume, StackPool};
 
-pub(crate) enum TaskFiber {
-    Owned {
-        fiber: Option<Fiber>,
-        #[cfg(feature = "runtime-evidence")]
-        stack: u64,
-    },
-    Borrowed {
-        fiber: FiberLease,
-        #[cfg(feature = "runtime-evidence")]
-        stack: u64,
-    },
+pub(crate) struct OwnedFiber {
+    fiber: Fiber,
+    #[cfg(feature = "runtime-evidence")]
+    stack: u64,
 }
 
-impl TaskFiber {
+impl OwnedFiber {
     #[cfg(feature = "runtime-evidence")]
-    pub(crate) fn owned(fiber: Fiber, stack: u64) -> Self {
-        Self::Owned {
+    pub(crate) fn new(fiber: Fiber, stack: u64) -> Self {
+        Self { fiber, stack }
+    }
+
+    #[cfg(not(feature = "runtime-evidence"))]
+    pub(crate) fn new(fiber: Fiber) -> Self {
+        Self { fiber }
+    }
+
+    pub(crate) fn resume_with(&mut self, resume: Resume) -> Option<FiberState> {
+        Some(self.fiber.resume_with(resume))
+    }
+
+    #[cfg(feature = "runtime-evidence")]
+    fn reclaim_stack(self, pool: &mut StackPool) -> (u64, bool) {
+        let retained = pool.release_identified(self.stack, self.fiber.into_stack());
+        (self.stack, retained)
+    }
+
+    #[cfg(not(feature = "runtime-evidence"))]
+    fn reclaim_stack(self, pool: &mut StackPool) {
+        pool.release(self.fiber.into_stack());
+    }
+
+    #[cfg(feature = "runtime-evidence")]
+    fn stack_identity(&self) -> u64 {
+        self.stack
+    }
+}
+
+pub(crate) struct BorrowedFiber {
+    fiber: Option<FiberLease>,
+    #[cfg(feature = "runtime-evidence")]
+    stack: u64,
+}
+
+impl BorrowedFiber {
+    #[cfg(feature = "runtime-evidence")]
+    pub(crate) fn new(fiber: FiberLease, stack: u64) -> Self {
+        Self {
             fiber: Some(fiber),
             stack,
         }
     }
 
     #[cfg(not(feature = "runtime-evidence"))]
-    pub(crate) fn owned(fiber: Fiber) -> Self {
-        Self::Owned { fiber: Some(fiber) }
-    }
-
-    #[cfg(feature = "runtime-evidence")]
-    pub(crate) fn borrowed(fiber: FiberLease, stack: u64) -> Self {
-        Self::Borrowed { fiber, stack }
-    }
-
-    #[cfg(not(feature = "runtime-evidence"))]
-    pub(crate) fn borrowed(fiber: FiberLease) -> Self {
-        Self::Borrowed { fiber }
-    }
-
-    #[cfg(feature = "runtime-evidence")]
-    pub(crate) fn stack_identity(&self) -> u64 {
-        match self {
-            Self::Owned { stack, .. } | Self::Borrowed { stack, .. } => *stack,
-        }
+    pub(crate) fn new(fiber: FiberLease) -> Self {
+        Self { fiber: Some(fiber) }
     }
 
     pub(crate) fn revoked(&self) -> bool {
-        matches!(self, Self::Borrowed { fiber, .. } if !fiber.live())
-    }
-
-    pub(crate) fn is_borrowed(&self) -> bool {
-        matches!(self, Self::Borrowed { .. })
-    }
-
-    #[cfg(test)]
-    pub(crate) fn resume(&mut self) -> Option<FiberState> {
-        self.resume_with(Resume::Continue)
+        self.fiber.as_ref().is_none_or(|fiber| !fiber.live())
     }
 
     pub(crate) fn resume_with(&mut self, resume: Resume) -> Option<FiberState> {
-        match self {
-            Self::Owned { fiber, .. } => {
-                Some(fiber.as_mut().expect("owned fiber").resume_with(resume))
-            }
-            Self::Borrowed { fiber, .. } => fiber.resume_with(resume),
-        }
+        self.fiber.as_ref()?.resume_with(resume)
     }
 
     #[cfg(feature = "runtime-evidence")]
-    pub(crate) fn reclaim_stack(&mut self, pool: &mut vthread_stack::StackPool) -> (u64, bool) {
-        let identity = self.stack_identity();
-        let stack = match self {
-            Self::Owned { fiber, .. } => fiber.take().map(Fiber::into_stack),
-            Self::Borrowed { fiber, .. } => fiber.take_stack(),
-        };
+    fn reclaim_stack(mut self, pool: &mut StackPool) -> (u64, bool) {
+        let stack = self.fiber.take().and_then(|fiber| fiber.take_stack());
         if let Some(stack) = stack {
-            (identity, pool.release_identified(identity, stack))
+            (self.stack, pool.release_identified(self.stack, stack))
         } else {
-            pool.retire(identity);
-            (identity, false)
+            pool.retire(self.stack);
+            (self.stack, false)
         }
     }
 
     #[cfg(not(feature = "runtime-evidence"))]
-    pub(crate) fn reclaim_stack(&mut self, pool: &mut vthread_stack::StackPool) {
-        let stack = match self {
-            Self::Owned { fiber, .. } => fiber.take().map(Fiber::into_stack),
-            Self::Borrowed { fiber, .. } => fiber.take_stack(),
-        };
-        if let Some(stack) = stack {
+    fn reclaim_stack(mut self, pool: &mut StackPool) {
+        if let Some(stack) = self.fiber.take().and_then(|fiber| fiber.take_stack()) {
             pool.release(stack);
+        }
+    }
+
+    #[cfg(feature = "runtime-evidence")]
+    fn stack_identity(&self) -> u64 {
+        self.stack
+    }
+}
+
+impl Drop for BorrowedFiber {
+    fn drop(&mut self) {
+        if let Some(fiber) = self.fiber.take() {
+            fiber.reclaim();
         }
     }
 }
 
-impl Drop for TaskFiber {
-    fn drop(&mut self) {
-        if let Self::Borrowed { fiber, .. } = self {
-            fiber.reclaim();
+pub(crate) enum TakenFiber {
+    Owned(OwnedFiber),
+    Borrowed(BorrowedFiber),
+}
+
+impl TakenFiber {
+    #[cfg(feature = "runtime-evidence")]
+    pub(crate) fn stack_identity(&self) -> u64 {
+        match self {
+            Self::Owned(fiber) => fiber.stack_identity(),
+            Self::Borrowed(fiber) => fiber.stack_identity(),
+        }
+    }
+
+    #[cfg(feature = "runtime-evidence")]
+    pub(crate) fn reclaim_stack(self, pool: &mut StackPool) -> (u64, bool) {
+        match self {
+            Self::Owned(fiber) => fiber.reclaim_stack(pool),
+            Self::Borrowed(fiber) => fiber.reclaim_stack(pool),
+        }
+    }
+
+    #[cfg(not(feature = "runtime-evidence"))]
+    pub(crate) fn reclaim_stack(self, pool: &mut StackPool) {
+        match self {
+            Self::Owned(fiber) => fiber.reclaim_stack(pool),
+            Self::Borrowed(fiber) => fiber.reclaim_stack(pool),
         }
     }
 }

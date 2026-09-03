@@ -47,7 +47,7 @@ pub(crate) fn run_for<T: Send + 'static>(
     let mounted = context::current().ok_or(Error::OutsideVThread)?;
     let execution = mounted.execution()?;
     let services = execution
-        .shared
+        .shared()
         .services
         .get()
         .ok_or(Error::RuntimeStopped)?;
