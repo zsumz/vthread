@@ -27,6 +27,8 @@ pub struct LifecycleProfile {
     reclaim_operations: u64,
     completion_ns: u64,
     completion_operations: u64,
+    record_retirement_ns: u64,
+    record_retirement_operations: u64,
 }
 
 impl LifecycleProfile {
@@ -80,6 +82,16 @@ impl LifecycleProfile {
         self.completion_operations
     }
 
+    /// Nanoseconds spent retiring task diagnostics after their owner scope drains.
+    pub fn record_retirement_nanoseconds(self) -> u64 {
+        self.record_retirement_ns
+    }
+
+    /// Task records included in scope-side diagnostic retirement.
+    pub fn record_retirement_operations(self) -> u64 {
+        self.record_retirement_operations
+    }
+
     /// Returns the component-wise increase since an earlier cumulative snapshot.
     pub fn checked_delta(self, earlier: Self) -> Option<Self> {
         Some(Self {
@@ -101,6 +113,12 @@ impl LifecycleProfile {
             completion_operations: self
                 .completion_operations
                 .checked_sub(earlier.completion_operations)?,
+            record_retirement_ns: self
+                .record_retirement_ns
+                .checked_sub(earlier.record_retirement_ns)?,
+            record_retirement_operations: self
+                .record_retirement_operations
+                .checked_sub(earlier.record_retirement_operations)?,
         })
     }
 }
@@ -116,6 +134,8 @@ pub(crate) struct Recorder {
     reclaim_operations: AtomicU64,
     completion_ns: AtomicU64,
     completion_operations: AtomicU64,
+    record_retirement_ns: AtomicU64,
+    record_retirement_operations: AtomicU64,
 }
 
 impl Recorder {
@@ -131,6 +151,8 @@ impl Recorder {
             reclaim_operations: AtomicU64::new(0),
             completion_ns: AtomicU64::new(0),
             completion_operations: AtomicU64::new(0),
+            record_retirement_ns: AtomicU64::new(0),
+            record_retirement_operations: AtomicU64::new(0),
         }
     }
 
@@ -166,6 +188,16 @@ impl Recorder {
         }
     }
 
+    pub(crate) fn record_retirement(&self, elapsed: Duration, operations: usize) {
+        add_duration(&self.record_retirement_ns, elapsed);
+        if operations != 0 {
+            add(
+                &self.record_retirement_operations,
+                u64::try_from(operations).unwrap_or(u64::MAX),
+            );
+        }
+    }
+
     pub(crate) fn snapshot(&self) -> LifecycleProfile {
         LifecycleProfile {
             reservation_ns: self.reservation_ns.load(Ordering::Relaxed),
@@ -178,6 +210,8 @@ impl Recorder {
             reclaim_operations: self.reclaim_operations.load(Ordering::Relaxed),
             completion_ns: self.completion_ns.load(Ordering::Relaxed),
             completion_operations: self.completion_operations.load(Ordering::Relaxed),
+            record_retirement_ns: self.record_retirement_ns.load(Ordering::Relaxed),
+            record_retirement_operations: self.record_retirement_operations.load(Ordering::Relaxed),
         }
     }
 }

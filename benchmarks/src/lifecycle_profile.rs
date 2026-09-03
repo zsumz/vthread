@@ -7,6 +7,7 @@ pub(crate) struct Sample {
     stack_fiber_ns: u64,
     reclaim_ns: u64,
     completion_ns: u64,
+    record_retirement_ns: u64,
     residual_ns: u128,
 }
 
@@ -23,6 +24,7 @@ impl Sample {
             ("stack/fiber", profile.stack_fiber_operations()),
             ("reclaim", profile.reclaim_operations()),
             ("completion", profile.completion_operations()),
+            ("record retirement", profile.record_retirement_operations()),
         ];
         for (phase, actual) in operations {
             if actual != expected {
@@ -34,10 +36,12 @@ impl Sample {
         let stack_fiber_ns = profile.stack_fiber_nanoseconds();
         let reclaim_ns = profile.reclaim_nanoseconds();
         let completion_ns = profile.completion_nanoseconds();
+        let record_retirement_ns = profile.record_retirement_nanoseconds();
         let attributed_ns = admission_ns
             .saturating_add(u128::from(stack_fiber_ns))
             .saturating_add(u128::from(reclaim_ns))
-            .saturating_add(u128::from(completion_ns));
+            .saturating_add(u128::from(completion_ns))
+            .saturating_add(u128::from(record_retirement_ns));
         Ok(Self {
             reservation_ns: profile.reservation_nanoseconds(),
             envelope_ns: profile.envelope_nanoseconds(),
@@ -45,6 +49,7 @@ impl Sample {
             stack_fiber_ns,
             reclaim_ns,
             completion_ns,
+            record_retirement_ns,
             residual_ns: total_ns.saturating_sub(attributed_ns),
         })
     }
@@ -60,6 +65,9 @@ pub(crate) fn print_medians(config: &super::Config, samples: &[Sample]) {
     let inbox = median(samples, |sample| u128::from(sample.inbox_ns));
     let reclaim = median(samples, |sample| u128::from(sample.reclaim_ns));
     let completion = median(samples, |sample| u128::from(sample.completion_ns));
+    let record_retirement = median(samples, |sample| {
+        u128::from(sample.record_retirement_ns)
+    });
     let residual = median(samples, |sample| sample.residual_ns);
     println!(
         "engine={} phase=admission-detail workers={} tasks={} reservation_median_ns={} reservation_ns_per_task={:.2} envelope_median_ns={} envelope_ns_per_task={:.2} inbox_median_ns={} inbox_ns_per_task={:.2}",
@@ -86,6 +94,14 @@ pub(crate) fn print_medians(config: &super::Config, samples: &[Sample]) {
         per_task(completion, config.tasks),
         residual,
         per_task(residual, config.tasks),
+    );
+    println!(
+        "engine={} phase=scope-retirement workers={} tasks={} record_retirement_median_ns={} record_retirement_ns_per_task={:.2}",
+        config.engine_name(),
+        config.workers,
+        config.tasks,
+        record_retirement,
+        per_task(record_retirement, config.tasks),
     );
 }
 
