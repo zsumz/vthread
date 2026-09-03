@@ -9,9 +9,10 @@ trait TaskEntry: Send + Sync {
     fn discard(self: Arc<Self>);
 }
 
-struct EnvelopeState<T, F> {
-    entry: Option<F>,
-    outcome: Option<std::result::Result<T, PanicReport>>,
+enum EnvelopeState<T, F> {
+    Pending(F),
+    Complete(std::result::Result<T, PanicReport>),
+    Empty,
 }
 
 struct Envelope<T, F> {
@@ -26,10 +27,7 @@ where
     F: FnOnce() -> T + Send + 'static,
 {
     let envelope = Arc::new(Envelope {
-        state: Mutex::new(EnvelopeState {
-            entry: Some(entry),
-            outcome: None,
-        }),
+        state: Mutex::new(EnvelopeState::Pending(entry)),
     });
     let start: Arc<dyn TaskEntry> = envelope.clone();
     let outcome: Arc<dyn JoinOutcome<T>> = envelope;
@@ -65,31 +63,33 @@ where
                     .state
                     .into_inner()
                     .unwrap_or_else(|error| error.into_inner());
-                let entry = state.entry.expect("unstarted task entry");
+                let EnvelopeState::Pending(entry) = state else {
+                    panic!("unstarted task entry");
+                };
                 run(record, entry, drop);
                 return;
             }
             Err(envelope) => envelope,
         };
-        let entry = lock(&envelope.state)
-            .entry
-            .take()
-            .expect("unstarted task entry");
+        let entry = take_entry(&envelope.state);
         run(record, entry, |outcome| {
-            lock(&envelope.state).outcome = Some(outcome);
+            *lock(&envelope.state) = EnvelopeState::Complete(outcome);
         });
     }
 
     fn discard(self: Arc<Self>) {
         let entry = match Arc::try_unwrap(self) {
             Ok(envelope) => {
-                envelope
+                let state = envelope
                     .state
                     .into_inner()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .entry
+                    .unwrap_or_else(|error| error.into_inner());
+                match state {
+                    EnvelopeState::Pending(entry) => Some(entry),
+                    EnvelopeState::Complete(_) | EnvelopeState::Empty => None,
+                }
             }
-            Err(envelope) => lock(&envelope.state).entry.take(),
+            Err(envelope) => Some(take_entry(&envelope.state)),
         };
         drop(entry);
     }
@@ -97,7 +97,27 @@ where
 
 impl<T: Send, F: Send> JoinOutcome<T> for Envelope<T, F> {
     fn take(&self) -> Option<std::result::Result<T, PanicReport>> {
-        lock(&self.state).outcome.take()
+        let mut state = lock(&self.state);
+        let previous = std::mem::replace(&mut *state, EnvelopeState::Empty);
+        match previous {
+            EnvelopeState::Complete(outcome) => Some(outcome),
+            previous => {
+                *state = previous;
+                None
+            }
+        }
+    }
+}
+
+fn take_entry<T, F>(state: &Mutex<EnvelopeState<T, F>>) -> F {
+    let mut state = lock(state);
+    let previous = std::mem::replace(&mut *state, EnvelopeState::Empty);
+    match previous {
+        EnvelopeState::Pending(entry) => entry,
+        previous => {
+            *state = previous;
+            panic!("unstarted task entry");
+        }
     }
 }
 

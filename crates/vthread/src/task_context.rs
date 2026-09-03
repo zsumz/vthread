@@ -2,6 +2,7 @@
 
 #[path = "task_context_reuse.rs"]
 mod task_context_reuse;
+pub(crate) use task_context_reuse::TaskCleanup;
 
 use crate::{Error, Result, SuspensionReason, context, options::TaskOptions};
 use std::{
@@ -207,30 +208,6 @@ impl TaskPolicy {
             return CheckpointDecision::CheckDeadline;
         }
         CheckpointDecision::Continue
-    }
-}
-
-pub(crate) struct TaskCleanup {
-    execution: Rc<context::Execution>,
-    _mounted: context::MountGuard,
-}
-
-impl TaskCleanup {
-    pub(crate) fn new(execution: Rc<context::Execution>) -> Self {
-        execution.data.close();
-        let mounted = context::mount_execution(Rc::clone(&execution));
-        Self {
-            execution,
-            _mounted: mounted,
-        }
-    }
-}
-
-impl Drop for TaskCleanup {
-    fn drop(&mut self) {
-        if let Some(panic) = self.execution.data.clear() {
-            self.execution.record().lock().panic.get_or_insert(panic);
-        }
     }
 }
 

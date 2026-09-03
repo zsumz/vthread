@@ -52,6 +52,39 @@ fn queued_starts_coalesce_notifications_until_the_inbox_is_drained() {
 }
 
 #[test]
+fn concurrent_push_and_batch_drain_publish_exact_pending_depth() {
+    use std::{sync::Arc, thread, time::Instant};
+
+    const TASKS: usize = 256;
+    let config = Runtime::builder()
+        .max_vthreads(TASKS)
+        .carrier_queue_capacity(TASKS)
+        .build()
+        .expect("config")
+        .config();
+    let shared = Arc::new(Shared::new(config));
+    let scope = shared.begin_scope().expect("scope");
+    let producer = Arc::clone(&shared);
+    let submitted = thread::spawn(move || {
+        for index in 0..TASKS {
+            producer
+                .submit(scope, format!("task-{index}"), || ())
+                .expect("submit");
+        }
+    });
+
+    let deadline = Instant::now() + std::time::Duration::from_secs(2);
+    let mut drained = VecDeque::new();
+    while drained.len() != TASKS {
+        shared.inboxes[0].drain_into(&mut drained, 7);
+        assert!(Instant::now() < deadline, "timed out draining starts");
+        thread::yield_now();
+    }
+    submitted.join().expect("producer");
+    assert_eq!(shared.inboxes[0].pending(), 0);
+}
+
+#[test]
 fn capacity_probe_does_not_acquire_the_queue_lock() {
     use std::{sync::Arc, sync::mpsc, thread, time::Duration};
 
