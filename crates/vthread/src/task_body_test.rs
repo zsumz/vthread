@@ -1,6 +1,27 @@
 use crate::{Error, Runtime, local_scope};
 
 #[test]
+fn unstarted_transferable_entry_drops_with_its_start_lease() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    struct Count(Arc<AtomicUsize>);
+    impl Drop for Count {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    let drops = Arc::new(AtomicUsize::new(0));
+    let capture = Count(Arc::clone(&drops));
+    let (start, _outcome) = super::transferable(move || drop(capture));
+    drop(start);
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+}
+
+#[test]
 fn unjoined_local_result_destructor_panics_are_owned_by_the_local_scope() {
     struct BadDrop;
     impl Drop for BadDrop {

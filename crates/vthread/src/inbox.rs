@@ -22,7 +22,7 @@ type EvidenceEmitter = ();
 
 pub(crate) struct SpawnPacket {
     pub(crate) record: SharedTaskRecord,
-    pub(crate) entry: Option<Box<dyn FnOnce() + Send>>,
+    pub(crate) entry: Option<crate::task_body::TaskStart>,
 }
 
 #[derive(Default)]

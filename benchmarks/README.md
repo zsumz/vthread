@@ -28,11 +28,12 @@ benchmarks/target/release/vthread-benchmarks vthread spawn 1 1000 101
 benchmarks/target/release/vthread-benchmarks vthread spawn 1 10000 101
 ```
 
-The additional lifecycle line separates stack/fiber materialization, physical reclaim, terminal
-completion publication, and unattributed scheduler work. Admission remains the independently
-timed producer-side phase. The profiler verifies that every requested task appears exactly once in
-all three carrier phases. Clock reads and atomic accounting intentionally make profiled totals
-slower; use the default build above for engine-to-engine comparisons.
+The additional lifecycle lines split producer admission into reservation, typed envelope, and inbox
+transfer, then separate stack/fiber materialization, physical reclaim, terminal completion
+publication, and unattributed scheduler work. The profiler verifies that every requested task
+appears exactly once in admission and all three carrier phases. Clock reads and atomic accounting
+intentionally make profiled totals slower; use the default build above for engine-to-engine
+comparisons.
 
 Heap allocation counts are independently available with `--features allocation-probe`. They cover
 the measured process-wide interval and therefore should be collected with one worker on a quiet

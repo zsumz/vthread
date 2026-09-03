@@ -1,6 +1,9 @@
 use vthread::diagnostics::LifecycleProfile;
 
 pub(crate) struct Sample {
+    reservation_ns: u64,
+    envelope_ns: u64,
+    inbox_ns: u64,
     stack_fiber_ns: u64,
     reclaim_ns: u64,
     completion_ns: u64,
@@ -16,6 +19,7 @@ impl Sample {
     ) -> Result<Self, String> {
         let expected = u64::try_from(tasks).map_err(|_| "task count does not fit u64")?;
         let operations = [
+            ("admission", profile.admission_operations()),
             ("stack/fiber", profile.stack_fiber_operations()),
             ("reclaim", profile.reclaim_operations()),
             ("completion", profile.completion_operations()),
@@ -35,6 +39,9 @@ impl Sample {
             .saturating_add(u128::from(reclaim_ns))
             .saturating_add(u128::from(completion_ns));
         Ok(Self {
+            reservation_ns: profile.reservation_nanoseconds(),
+            envelope_ns: profile.envelope_nanoseconds(),
+            inbox_ns: profile.inbox_nanoseconds(),
             stack_fiber_ns,
             reclaim_ns,
             completion_ns,
@@ -48,9 +55,24 @@ pub(crate) fn print_medians(config: &super::Config, samples: &[Sample]) {
         return;
     }
     let stack_fiber = median(samples, |sample| u128::from(sample.stack_fiber_ns));
+    let reservation = median(samples, |sample| u128::from(sample.reservation_ns));
+    let envelope = median(samples, |sample| u128::from(sample.envelope_ns));
+    let inbox = median(samples, |sample| u128::from(sample.inbox_ns));
     let reclaim = median(samples, |sample| u128::from(sample.reclaim_ns));
     let completion = median(samples, |sample| u128::from(sample.completion_ns));
     let residual = median(samples, |sample| sample.residual_ns);
+    println!(
+        "engine={} phase=admission-detail workers={} tasks={} reservation_median_ns={} reservation_ns_per_task={:.2} envelope_median_ns={} envelope_ns_per_task={:.2} inbox_median_ns={} inbox_ns_per_task={:.2}",
+        config.engine_name(),
+        config.workers,
+        config.tasks,
+        reservation,
+        per_task(reservation, config.tasks),
+        envelope,
+        per_task(envelope, config.tasks),
+        inbox,
+        per_task(inbox, config.tasks),
+    );
     println!(
         "engine={} phase=lifecycle workers={} tasks={} stack_fiber_median_ns={} stack_fiber_ns_per_task={:.2} reclaim_median_ns={} reclaim_ns_per_task={:.2} completion_median_ns={} completion_ns_per_task={:.2} residual_median_ns={} residual_ns_per_task={:.2}",
         config.engine_name(),

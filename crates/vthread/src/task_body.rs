@@ -1,7 +1,87 @@
-//! Task panic isolation includes storing and dropping an unjoined result.
+//! One allocation owns a transferable entry and its typed join result.
 
-use crate::{PanicReport, task::SharedTaskRecord};
+use crate::{PanicReport, join::JoinOutcome, signal::lock, task::SharedTaskRecord};
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::{Arc, Mutex};
+
+trait TaskEntry: Send + Sync {
+    fn run(&self, record: &SharedTaskRecord);
+    fn discard(&self);
+}
+
+struct EnvelopeState<T, F> {
+    entry: Option<F>,
+    outcome: Option<std::result::Result<T, PanicReport>>,
+}
+
+struct Envelope<T, F> {
+    state: Mutex<EnvelopeState<T, F>>,
+}
+
+pub(crate) struct TaskStart(Option<Arc<dyn TaskEntry>>);
+
+pub(crate) fn transferable<T, F>(entry: F) -> (TaskStart, Arc<dyn JoinOutcome<T>>)
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    let envelope = Arc::new(Envelope {
+        state: Mutex::new(EnvelopeState {
+            entry: Some(entry),
+            outcome: None,
+        }),
+    });
+    let start: Arc<dyn TaskEntry> = envelope.clone();
+    let outcome: Arc<dyn JoinOutcome<T>> = envelope;
+    (TaskStart(Some(start)), outcome)
+}
+
+impl TaskStart {
+    pub(crate) fn run(mut self, record: &SharedTaskRecord) {
+        let entry = self.0.take().expect("unstarted task entry");
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
+            entry.run(record);
+            drop(entry);
+        })) {
+            record.lock().panic = Some(PanicReport::capture(payload));
+        }
+    }
+}
+
+impl Drop for TaskStart {
+    fn drop(&mut self) {
+        if let Some(entry) = self.0.take() {
+            entry.discard();
+        }
+    }
+}
+
+impl<T, F> TaskEntry for Envelope<T, F>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    fn run(&self, record: &SharedTaskRecord) {
+        let entry = lock(&self.state)
+            .entry
+            .take()
+            .expect("unstarted task entry");
+        run(record, entry, |outcome| {
+            lock(&self.state).outcome = Some(outcome);
+        });
+    }
+
+    fn discard(&self) {
+        let entry = lock(&self.state).entry.take();
+        drop(entry);
+    }
+}
+
+impl<T: Send, F: Send> JoinOutcome<T> for Envelope<T, F> {
+    fn take(&self) -> Option<std::result::Result<T, PanicReport>> {
+        lock(&self.state).outcome.take()
+    }
+}
 
 pub(crate) fn run<T>(
     record: &SharedTaskRecord,

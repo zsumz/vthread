@@ -97,7 +97,8 @@ impl Kernel {
             let packet = self.pending.as_mut().expect("pending packet");
             received = true;
             let entry = packet.entry.take().expect("unstarted packet entry");
-            let fiber = Fiber::new(stack, entry);
+            let body_record = Arc::clone(&packet.record);
+            let fiber = Fiber::new(stack, move || entry.run(&body_record));
             #[cfg(feature = "runtime-evidence")]
             let task_fiber = crate::task_fiber::OwnedFiber::new(fiber, stack_identity);
             #[cfg(not(feature = "runtime-evidence"))]

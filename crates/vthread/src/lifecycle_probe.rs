@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-/// Cumulative carrier lifecycle work observed by one runtime.
+/// Cumulative task lifecycle work observed by one runtime.
 ///
 /// A snapshot taken while tasks are active is weakly consistent across phases. Take snapshots
 /// between drained scopes when using [`Self::checked_delta`] for benchmark attribution.
@@ -17,6 +17,10 @@ use std::{
     ::core::cmp::Eq,
 )]
 pub struct LifecycleProfile {
+    reservation_ns: u64,
+    envelope_ns: u64,
+    inbox_ns: u64,
+    admission_operations: u64,
     stack_fiber_ns: u64,
     stack_fiber_operations: u64,
     reclaim_ns: u64,
@@ -26,6 +30,26 @@ pub struct LifecycleProfile {
 }
 
 impl LifecycleProfile {
+    /// Nanoseconds spent reserving task identity, policy, capacity, and diagnostics.
+    pub fn reservation_nanoseconds(self) -> u64 {
+        self.reservation_ns
+    }
+
+    /// Nanoseconds spent allocating the typed result cell and executable envelope.
+    pub fn envelope_nanoseconds(self) -> u64 {
+        self.envelope_ns
+    }
+
+    /// Nanoseconds spent transferring accepted envelopes into carrier inboxes.
+    pub fn inbox_nanoseconds(self) -> u64 {
+        self.inbox_ns
+    }
+
+    /// Accepted tasks included in each producer-side admission duration.
+    pub fn admission_operations(self) -> u64 {
+        self.admission_operations
+    }
+
     /// Nanoseconds spent acquiring stacks and materializing owned fibers and task contexts.
     pub fn stack_fiber_nanoseconds(self) -> u64 {
         self.stack_fiber_ns
@@ -59,6 +83,12 @@ impl LifecycleProfile {
     /// Returns the component-wise increase since an earlier cumulative snapshot.
     pub fn checked_delta(self, earlier: Self) -> Option<Self> {
         Some(Self {
+            reservation_ns: self.reservation_ns.checked_sub(earlier.reservation_ns)?,
+            envelope_ns: self.envelope_ns.checked_sub(earlier.envelope_ns)?,
+            inbox_ns: self.inbox_ns.checked_sub(earlier.inbox_ns)?,
+            admission_operations: self
+                .admission_operations
+                .checked_sub(earlier.admission_operations)?,
             stack_fiber_ns: self.stack_fiber_ns.checked_sub(earlier.stack_fiber_ns)?,
             stack_fiber_operations: self
                 .stack_fiber_operations
@@ -76,6 +106,10 @@ impl LifecycleProfile {
 }
 
 pub(crate) struct Recorder {
+    reservation_ns: AtomicU64,
+    envelope_ns: AtomicU64,
+    inbox_ns: AtomicU64,
+    admission_operations: AtomicU64,
     stack_fiber_ns: AtomicU64,
     stack_fiber_operations: AtomicU64,
     reclaim_ns: AtomicU64,
@@ -87,6 +121,10 @@ pub(crate) struct Recorder {
 impl Recorder {
     pub(crate) fn new() -> Self {
         Self {
+            reservation_ns: AtomicU64::new(0),
+            envelope_ns: AtomicU64::new(0),
+            inbox_ns: AtomicU64::new(0),
+            admission_operations: AtomicU64::new(0),
             stack_fiber_ns: AtomicU64::new(0),
             stack_fiber_operations: AtomicU64::new(0),
             reclaim_ns: AtomicU64::new(0),
@@ -94,6 +132,18 @@ impl Recorder {
             completion_ns: AtomicU64::new(0),
             completion_operations: AtomicU64::new(0),
         }
+    }
+
+    pub(crate) fn record_admission(
+        &self,
+        reservation: Duration,
+        envelope: Duration,
+        inbox: Duration,
+    ) {
+        add_duration(&self.reservation_ns, reservation);
+        add_duration(&self.envelope_ns, envelope);
+        add_duration(&self.inbox_ns, inbox);
+        add(&self.admission_operations, 1);
     }
 
     pub(crate) fn record_stack_fiber(&self, elapsed: Duration) {
@@ -118,6 +168,10 @@ impl Recorder {
 
     pub(crate) fn snapshot(&self) -> LifecycleProfile {
         LifecycleProfile {
+            reservation_ns: self.reservation_ns.load(Ordering::Relaxed),
+            envelope_ns: self.envelope_ns.load(Ordering::Relaxed),
+            inbox_ns: self.inbox_ns.load(Ordering::Relaxed),
+            admission_operations: self.admission_operations.load(Ordering::Relaxed),
             stack_fiber_ns: self.stack_fiber_ns.load(Ordering::Relaxed),
             stack_fiber_operations: self.stack_fiber_operations.load(Ordering::Relaxed),
             reclaim_ns: self.reclaim_ns.load(Ordering::Relaxed),

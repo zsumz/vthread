@@ -5,16 +5,16 @@ use crate::{
     CarrierId, Error, Result, TaskId, TaskStatus,
     id_map::IdHashSet,
     inbox::SpawnPacket,
-    join::JoinCell,
+    join::JoinOutcome,
     options::{SpawnOptions, SpawnParent, TaskOptions},
     signal::lock,
     task::{SharedTaskRecord, TaskCell, TaskRecord},
 };
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 pub(crate) struct Spawned<T> {
     pub(crate) id: TaskId,
-    pub(crate) cell: Arc<Mutex<JoinCell<T>>>,
+    pub(crate) cell: Arc<dyn JoinOutcome<T>>,
     pub(crate) record: SharedTaskRecord,
 }
 
@@ -200,22 +200,26 @@ impl Shared {
         entry: F,
         parent: Option<SpawnParent>,
     ) -> Result<Spawned<T>> {
+        #[cfg(feature = "lifecycle-profiling")]
+        let reservation_started = std::time::Instant::now();
         let record = self.reserve_with(scope, name, None, options, parent)?;
         let (id, owner) = {
             let record = record.lock();
             (record.id, record.carrier.0)
         };
-        let cell = Arc::new(Mutex::new(JoinCell { outcome: None }));
-        let body_cell = Arc::clone(&cell);
-        let body_record = Arc::clone(&record);
+        #[cfg(feature = "lifecycle-profiling")]
+        let reservation_elapsed = reservation_started.elapsed();
+        #[cfg(feature = "lifecycle-profiling")]
+        let envelope_started = std::time::Instant::now();
+        let (entry, cell) = crate::task_body::transferable(entry);
         let packet = SpawnPacket {
             record: Arc::clone(&record),
-            entry: Some(Box::new(move || {
-                crate::task_body::run(&body_record, entry, move |outcome| {
-                    lock(&body_cell).outcome = Some(outcome);
-                });
-            })),
+            entry: Some(entry),
         };
+        #[cfg(feature = "lifecycle-profiling")]
+        let envelope_elapsed = envelope_started.elapsed();
+        #[cfg(feature = "lifecycle-profiling")]
+        let inbox_started = std::time::Instant::now();
         if let Err(packet) = self.inboxes[owner].push(packet) {
             self.release_reservation(&record);
             drop(packet);
@@ -234,6 +238,12 @@ impl Shared {
             };
             return Err(error);
         }
+        #[cfg(feature = "lifecycle-profiling")]
+        self.lifecycle_probe.record_admission(
+            reservation_elapsed,
+            envelope_elapsed,
+            inbox_started.elapsed(),
+        );
         Ok(Spawned { id, cell, record })
     }
 }
