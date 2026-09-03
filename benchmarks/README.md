@@ -30,10 +30,11 @@ benchmarks/target/release/vthread-benchmarks vthread spawn 1 10000 101
 
 The additional lifecycle lines split producer admission into reservation, typed envelope, and inbox
 transfer, then separate stack/fiber materialization, physical reclaim, terminal completion
-publication, and unattributed scheduler work. The profiler verifies that every requested task
-appears exactly once in admission and all three carrier phases. Clock reads and atomic accounting
-intentionally make profiled totals slower; use the default build above for engine-to-engine
-comparisons.
+publication, post-drain diagnostic-record retirement, and unattributed scheduler work. The profiler
+verifies that every requested task appears exactly once in admission, all three carrier phases, and
+scope retirement. Producer and carrier phases overlap, so they are not additive and the saturating
+residual is only a lower bound. Clock reads and atomic accounting intentionally make profiled totals
+slower; use the default build above for engine-to-engine comparisons.
 
 Heap allocation counts are independently available with `--features allocation-probe`. They cover
 the measured process-wide interval and therefore should be collected with one worker on a quiet

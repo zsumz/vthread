@@ -5,8 +5,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Mutex};
 
 trait TaskEntry: Send + Sync {
-    fn run(&self, record: &SharedTaskRecord);
-    fn discard(&self);
+    fn run(self: Arc<Self>, record: &SharedTaskRecord);
+    fn discard(self: Arc<Self>);
 }
 
 struct EnvelopeState<T, F> {
@@ -39,10 +39,7 @@ where
 impl TaskStart {
     pub(crate) fn run(mut self, record: &SharedTaskRecord) {
         let entry = self.0.take().expect("unstarted task entry");
-        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
-            entry.run(record);
-            drop(entry);
-        })) {
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| entry.run(record))) {
             record.lock().panic = Some(PanicReport::capture(payload));
         }
     }
@@ -61,18 +58,39 @@ where
     T: Send + 'static,
     F: FnOnce() -> T + Send + 'static,
 {
-    fn run(&self, record: &SharedTaskRecord) {
-        let entry = lock(&self.state)
+    fn run(self: Arc<Self>, record: &SharedTaskRecord) {
+        let envelope = match Arc::try_unwrap(self) {
+            Ok(envelope) => {
+                let state = envelope
+                    .state
+                    .into_inner()
+                    .unwrap_or_else(|error| error.into_inner());
+                let entry = state.entry.expect("unstarted task entry");
+                run(record, entry, drop);
+                return;
+            }
+            Err(envelope) => envelope,
+        };
+        let entry = lock(&envelope.state)
             .entry
             .take()
             .expect("unstarted task entry");
         run(record, entry, |outcome| {
-            lock(&self.state).outcome = Some(outcome);
+            lock(&envelope.state).outcome = Some(outcome);
         });
     }
 
-    fn discard(&self) {
-        let entry = lock(&self.state).entry.take();
+    fn discard(self: Arc<Self>) {
+        let entry = match Arc::try_unwrap(self) {
+            Ok(envelope) => {
+                envelope
+                    .state
+                    .into_inner()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .entry
+            }
+            Err(envelope) => lock(&envelope.state).entry.take(),
+        };
         drop(entry);
     }
 }

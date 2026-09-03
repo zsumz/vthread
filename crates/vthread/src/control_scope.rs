@@ -150,6 +150,10 @@ impl Shared {
     }
 
     pub(crate) fn finish_scope(&self, scope: u64) {
+        #[cfg(feature = "lifecycle-profiling")]
+        let retirement_started = std::time::Instant::now();
+        #[cfg(feature = "lifecycle-profiling")]
+        let mut retired = 0;
         let mut state = lock(&self.state);
         if let Some(scope_state) = state.scopes.remove(&scope) {
             let mut cache = std::mem::take(&mut state.record_cache);
@@ -157,6 +161,10 @@ impl Shared {
                 let Some(mut record) = state.records.remove(&task) else {
                     continue;
                 };
+                #[cfg(feature = "lifecycle-profiling")]
+                {
+                    retired += 1;
+                }
                 if cache.len() < self.config.stack_cache_capacity()
                     && let Some(cell) = Arc::get_mut(&mut record)
                 {
@@ -180,6 +188,9 @@ impl Shared {
             },
         );
         drop(state);
+        #[cfg(feature = "lifecycle-profiling")]
+        self.lifecycle_probe
+            .record_retirement(retirement_started.elapsed(), retired);
         for inbox in &self.inboxes {
             inbox.clear_abort(scope);
         }

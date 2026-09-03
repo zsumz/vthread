@@ -1,7 +1,7 @@
 use crate::{Error, Runtime, local_scope};
 
 #[test]
-fn unstarted_transferable_entry_drops_with_its_start_lease() {
+fn unstarted_transferable_entry_drops_with_shared_or_unique_start_ownership() {
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -15,10 +15,18 @@ fn unstarted_transferable_entry_drops_with_its_start_lease() {
     }
 
     let drops = Arc::new(AtomicUsize::new(0));
-    let capture = Count(Arc::clone(&drops));
-    let (start, _outcome) = super::transferable(move || drop(capture));
-    drop(start);
-    assert_eq!(drops.load(Ordering::SeqCst), 1);
+    for unique in [false, true] {
+        let capture = Count(Arc::clone(&drops));
+        let (start, outcome) = super::transferable(move || drop(capture));
+        if unique {
+            drop(outcome);
+            drop(start);
+        } else {
+            drop(start);
+            drop(outcome);
+        }
+    }
+    assert_eq!(drops.load(Ordering::SeqCst), 2);
 }
 
 #[test]

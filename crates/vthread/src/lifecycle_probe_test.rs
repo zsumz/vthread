@@ -13,6 +13,7 @@ fn cumulative_profile_returns_checked_phase_deltas() {
     recorder.record_stack_fiber(Duration::from_nanos(11));
     recorder.record_reclaim(Duration::from_nanos(7));
     recorder.record_completion(Duration::from_nanos(5), 1);
+    recorder.record_retirement(Duration::from_nanos(17), 1);
 
     let delta = recorder.snapshot().checked_delta(before).unwrap();
     core::assert_eq!(delta.reservation_nanoseconds(), 13);
@@ -25,6 +26,8 @@ fn cumulative_profile_returns_checked_phase_deltas() {
     core::assert_eq!(delta.reclaim_operations(), 1);
     core::assert_eq!(delta.completion_nanoseconds(), 5);
     core::assert_eq!(delta.completion_operations(), 1);
+    core::assert_eq!(delta.record_retirement_nanoseconds(), 17);
+    core::assert_eq!(delta.record_retirement_operations(), 1);
     core::assert_eq!(
         before
             .checked_delta(before)
@@ -50,4 +53,5 @@ fn runtime_profile_covers_one_owned_task_lifecycle() {
     core::assert_eq!(delta.stack_fiber_operations(), 1);
     core::assert_eq!(delta.reclaim_operations(), 1);
     core::assert_eq!(delta.completion_operations(), 1);
+    core::assert_eq!(delta.record_retirement_operations(), 1);
 }
