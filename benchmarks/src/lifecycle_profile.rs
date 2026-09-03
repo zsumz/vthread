@@ -55,7 +55,7 @@ impl Sample {
     }
 }
 
-pub(crate) fn print_medians(config: &super::Config, samples: &[Sample]) {
+pub(crate) fn print_medians(config: &crate::config::Config, samples: &[Sample]) {
     if samples.is_empty() {
         return;
     }
@@ -65,9 +65,7 @@ pub(crate) fn print_medians(config: &super::Config, samples: &[Sample]) {
     let inbox = median(samples, |sample| u128::from(sample.inbox_ns));
     let reclaim = median(samples, |sample| u128::from(sample.reclaim_ns));
     let completion = median(samples, |sample| u128::from(sample.completion_ns));
-    let record_retirement = median(samples, |sample| {
-        u128::from(sample.record_retirement_ns)
-    });
+    let record_retirement = median(samples, |sample| u128::from(sample.record_retirement_ns));
     let residual = median(samples, |sample| sample.residual_ns);
     println!(
         "engine={} phase=admission-detail workers={} tasks={} reservation_median_ns={} reservation_ns_per_task={:.2} envelope_median_ns={} envelope_ns_per_task={:.2} inbox_median_ns={} inbox_ns_per_task={:.2}",
