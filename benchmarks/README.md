@@ -1,9 +1,9 @@
 # Scheduler benchmarks
 
 This standalone harness compares the default `vthread` scheduler with May 0.3.51. It uses
-structured scopes, 64 KiB stacks, the same worker and task counts, one untimed warm-up, and the
-median of an odd number of samples. Runtime construction is outside the measurements; scope,
-task, yield, completion, and join work is inside them.
+structured scopes, 64 KiB stacks, the same worker and task counts, one untimed warm-up, and an odd
+number of measured rounds. Runtime construction is outside the measurements; scope, task,
+operation, completion, and join work is inside them.
 
 Build once, then run each engine in a fresh process. Pin single-worker measurements to one CPU
 when `taskset` is available:
@@ -14,11 +14,46 @@ taskset -c 0 benchmarks/target/release/vthread-benchmarks vthread yield 100000 1
 taskset -c 0 benchmarks/target/release/vthread-benchmarks may yield 100000 1 1 11
 taskset -c 0 benchmarks/target/release/vthread-benchmarks vthread spawn 1 1000 11
 taskset -c 0 benchmarks/target/release/vthread-benchmarks may spawn 1 1000 11
+taskset -c 0 benchmarks/target/release/vthread-benchmarks vthread park 100000 1 2 11
+taskset -c 0 benchmarks/target/release/vthread-benchmarks may park 100000 1 2 11
+taskset -c 0 benchmarks/target/release/vthread-benchmarks vthread mutex 100000 1 2 11
+taskset -c 0 benchmarks/target/release/vthread-benchmarks may mutex 100000 1 2 11
+taskset -c 0 benchmarks/target/release/vthread-benchmarks vthread channel 100000 1 2 11
+taskset -c 0 benchmarks/target/release/vthread-benchmarks may channel 100000 1 2 11
+taskset -c 0 benchmarks/target/release/vthread-benchmarks vthread wake-tail 10000 1 2 11
+taskset -c 0 benchmarks/target/release/vthread-benchmarks may wake-tail 10000 1 2 11
 ```
 
-The yield scenario reports nanoseconds per cooperative yield. The spawn scenario reports
-nanoseconds per task. Use a quiet machine and compare distributions as well as medians; carrier
-placement and host scheduling make short multi-worker samples noisy.
+The scenarios have deliberately narrow operation contracts:
+
+| Scenario | Reported operation |
+| --- | --- |
+| `yield` | One cooperative yield |
+| `spawn` | One admitted, completed, reclaimed, and drained task |
+| `park` | One half of a paired park/unpark handoff |
+| `mutex` | One contended lock acquisition and release |
+| `channel` | One message handoff in a paired bounded-channel exchange |
+| `tcp` | One write/read echo round trip on a task-owned connection |
+| `wake-tail` | One forced single-carrier wake-to-resume handoff |
+
+`park`, `channel`, and `wake-tail` require an even task count of at least two. `wake-tail` requires
+one worker. With one worker, the mutex benchmark yields while holding the lock to force FIFO
+handoffs. With multiple workers, it performs the same 32 black-box operations in each engine's
+critical section so native contention is exercised without an all-task startup deadlock.
+
+The round report includes median, p95, p99, maximum, and every whole-round sample. `tcp` and
+`wake-tail` additionally aggregate individual operation latencies across measured rounds and print
+their median, p95, p99, and maximum. The TCP case uses a native loopback echo peer for both engines;
+its per-operation distribution is more useful than its whole-round total, which also includes peer
+startup and shutdown. Use a quiet machine and compare distributions as well as medians. Carrier
+placement, frequency scaling, and host scheduling make short and multi-worker samples noisy.
+
+For a readiness comparison, local socket creation must be permitted:
+
+```sh
+taskset -c 0 benchmarks/target/release/vthread-benchmarks vthread tcp 1000 1 1 11
+taskset -c 0 benchmarks/target/release/vthread-benchmarks may tcp 1000 1 1 11
+```
 
 For attributed vthread lifecycle timings, rebuild with the opt-in profiling feature:
 
@@ -38,4 +73,5 @@ slower; use the default build above for engine-to-engine comparisons.
 
 Heap allocation counts are independently available with `--features allocation-probe`. They cover
 the measured process-wide interval and therefore should be collected with one worker on a quiet
-machine. Rebuild without either feature before recording headline latency results.
+machine. The TCP count also includes its native peer, so use the scheduler-only scenarios for clean
+engine attribution. Rebuild without either feature before recording headline latency results.

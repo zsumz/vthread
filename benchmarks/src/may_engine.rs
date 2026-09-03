@@ -1,0 +1,272 @@
+use crate::{
+    config::{Config, Scenario},
+    report::{Round, measure},
+};
+use std::{
+    hint::black_box,
+    io::{Read, Write},
+    sync::{
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+    time::Instant,
+};
+
+const STACK_SIZE: usize = 64 * 1024;
+
+pub(crate) fn run(config: &Config) -> Result<(), String> {
+    may::config()
+        .set_workers(config.workers)
+        .set_stack_size(STACK_SIZE / std::mem::size_of::<usize>())
+        .set_pool_capacity(config.tasks);
+    measure(config, || run_round(config))
+}
+
+fn run_yields(iterations: usize) {
+    for index in 0..iterations {
+        black_box(index);
+        may::coroutine::yield_now();
+    }
+}
+
+macro_rules! spawn_park_pairs {
+    ($scope:expr, $tasks:expr, $iterations:expr) => {
+        for _ in 0..$tasks / 2 {
+            let a = Arc::new(OnceLock::<may::coroutine::Coroutine>::new());
+            let b = Arc::new(OnceLock::<may::coroutine::Coroutine>::new());
+            let own = Arc::clone(&a);
+            let peer = Arc::clone(&b);
+            may::go!($scope, move || {
+                assert!(own.set(may::coroutine::current()).is_ok());
+                while peer.get().is_none() {
+                    may::coroutine::yield_now();
+                }
+                for _ in 0..$iterations {
+                    may::coroutine::park();
+                    peer.get().expect("peer handle published").unpark();
+                }
+            });
+            may::go!($scope, move || {
+                assert!(b.set(may::coroutine::current()).is_ok());
+                while a.get().is_none() {
+                    may::coroutine::yield_now();
+                }
+                for _ in 0..$iterations {
+                    a.get().expect("peer handle published").unpark();
+                    may::coroutine::park();
+                }
+            });
+        }
+    };
+}
+
+macro_rules! spawn_mutex_tasks {
+    ($scope:expr, $tasks:expr, $iterations:expr, $workers:expr) => {{
+        let mutex = Arc::new(may::sync::Mutex::new(0usize));
+        let ready = Arc::new(AtomicUsize::new(0));
+        for _ in 0..$tasks {
+            let mutex = Arc::clone(&mutex);
+            let ready = Arc::clone(&ready);
+            may::go!($scope, move || {
+                ready.fetch_add(1, Ordering::Release);
+                if $workers == 1 {
+                    while ready.load(Ordering::Acquire) != $tasks {
+                        may::coroutine::yield_now();
+                    }
+                }
+                for _ in 0..$iterations {
+                    let mut value = mutex.lock().expect("mutex must not be poisoned");
+                    *value += 1;
+                    if $workers == 1 {
+                        may::coroutine::yield_now();
+                    } else {
+                        for _ in 0..32 {
+                            black_box(*value);
+                        }
+                    }
+                }
+            });
+        }
+    }};
+}
+
+macro_rules! spawn_channel_pairs {
+    ($scope:expr, $tasks:expr, $iterations:expr) => {
+        for _ in 0..$tasks / 2 {
+            let (to_b, from_a) = may::sync::mpsc::channel();
+            let (to_a, from_b) = may::sync::mpsc::channel();
+            may::go!($scope, move || {
+                to_b.send(0).expect("peer must remain connected");
+                for index in 0..$iterations {
+                    let value = from_b.recv().expect("peer must send a value");
+                    black_box(value);
+                    if index + 1 != $iterations {
+                        to_b.send(value + 1).expect("peer must remain connected");
+                    }
+                }
+            });
+            may::go!($scope, move || {
+                for _ in 0..$iterations {
+                    let value = from_a.recv().expect("peer must send a value");
+                    black_box(value);
+                    to_a.send(value + 1).expect("peer must remain connected");
+                }
+            });
+        }
+    };
+}
+
+macro_rules! spawn_wake_tail_pairs {
+    ($scope:expr, $tasks:expr, $iterations:expr) => {{
+        let mut handles = Vec::with_capacity($tasks);
+        for _ in 0..$tasks / 2 {
+            let a = Arc::new(OnceLock::<may::coroutine::Coroutine>::new());
+            let b = Arc::new(OnceLock::<may::coroutine::Coroutine>::new());
+            let stamp_a = Arc::new(Mutex::new(None));
+            let stamp_b = Arc::new(Mutex::new(None));
+            let started = Arc::new(AtomicBool::new(false));
+            let own = Arc::clone(&a);
+            let peer = Arc::clone(&b);
+            let own_stamp = Arc::clone(&stamp_a);
+            let peer_stamp = Arc::clone(&stamp_b);
+            let own_started = Arc::clone(&started);
+            handles.push(may::go!($scope, move || {
+                let mut samples = Vec::with_capacity($iterations);
+                assert!(own.set(may::coroutine::current()).is_ok());
+                own_started.store(true, Ordering::Release);
+                while peer.get().is_none() {
+                    may::coroutine::yield_now();
+                }
+                for _ in 0..$iterations {
+                    may::coroutine::park();
+                    samples.push(take_elapsed(&own_stamp));
+                    set_stamp(&peer_stamp);
+                    peer.get().expect("peer handle published").unpark();
+                }
+                samples
+            }));
+            handles.push(may::go!($scope, move || {
+                let mut samples = Vec::with_capacity($iterations);
+                assert!(b.set(may::coroutine::current()).is_ok());
+                while !started.load(Ordering::Acquire) || a.get().is_none() {
+                    may::coroutine::yield_now();
+                }
+                for _ in 0..$iterations {
+                    set_stamp(&stamp_a);
+                    a.get().expect("peer handle published").unpark();
+                    may::coroutine::park();
+                    samples.push(take_elapsed(&stamp_b));
+                }
+                samples
+            }));
+        }
+        handles
+    }};
+}
+
+fn run_round(config: &Config) -> Result<Round, String> {
+    let peer = match config.scenario {
+        Scenario::Tcp { per_task } => Some(crate::tcp_peer::EchoServer::start(
+            config.tasks,
+            per_task,
+        )?),
+        _ => None,
+    };
+    let address = peer.as_ref().map(crate::tcp_peer::EchoServer::address);
+    let mut admission_ns = 0;
+    let mut operation_latencies_ns = Vec::new();
+    may::coroutine::scope(|scope| {
+        let started = Instant::now();
+        match config.scenario {
+            Scenario::Yield { per_task } => {
+                for _ in 0..config.tasks {
+                    may::go!(scope, move || run_yields(per_task));
+                }
+            }
+            Scenario::Spawn => {
+                for _ in 0..config.tasks {
+                    may::go!(scope, || ());
+                }
+            }
+            Scenario::Park { per_task } => spawn_park_pairs!(scope, config.tasks, per_task),
+            Scenario::Mutex { per_task } => {
+                spawn_mutex_tasks!(scope, config.tasks, per_task, config.workers)
+            }
+            Scenario::Channel { per_task } => {
+                spawn_channel_pairs!(scope, config.tasks, per_task)
+            }
+            Scenario::Tcp { per_task } => {
+                let address = address.expect("TCP peer address");
+                let mut clients = Vec::with_capacity(config.tasks);
+                for _ in 0..config.tasks {
+                    clients.push(may::go!(scope, move || {
+                        run_tcp_round_trips(address, per_task)
+                    }));
+                }
+                admission_ns = started.elapsed().as_nanos();
+                for client in clients {
+                    operation_latencies_ns.extend(client.join()?);
+                }
+                return Ok::<(), String>(());
+            }
+            Scenario::WakeTail { per_task } => {
+                let tasks = spawn_wake_tail_pairs!(scope, config.tasks, per_task);
+                admission_ns = started.elapsed().as_nanos();
+                for task in tasks {
+                    operation_latencies_ns.extend(task.join());
+                }
+                return Ok::<(), String>(());
+            }
+        }
+        admission_ns = started.elapsed().as_nanos();
+        Ok(())
+    })?;
+    if let Some(peer) = peer {
+        peer.finish()?;
+    }
+    Ok(Round {
+        admission_ns,
+        operation_latencies_ns,
+        #[cfg(feature = "lifecycle-profiling")]
+        lifecycle: None,
+    })
+}
+
+fn set_stamp(stamp: &Mutex<Option<Instant>>) {
+    *stamp.lock().expect("wake timestamp") = Some(Instant::now());
+}
+
+fn take_elapsed(stamp: &Mutex<Option<Instant>>) -> u64 {
+    stamp
+        .lock()
+        .expect("wake timestamp")
+        .take()
+        .expect("published wake timestamp")
+        .elapsed()
+        .as_nanos() as u64
+}
+
+fn run_tcp_round_trips(
+    address: std::net::SocketAddr,
+    iterations: usize,
+) -> Result<Vec<u64>, String> {
+    let mut stream = may::net::TcpStream::connect(address)
+        .map_err(|error| format!("connect TCP benchmark client: {error}"))?;
+    stream
+        .set_nodelay(true)
+        .map_err(|error| format!("configure TCP benchmark client: {error}"))?;
+    let mut latencies = Vec::with_capacity(iterations);
+    let mut byte = [0_u8; 1];
+    for _ in 0..iterations {
+        let started = Instant::now();
+        stream
+            .write_all(&byte)
+            .map_err(|error| format!("write TCP benchmark byte: {error}"))?;
+        stream
+            .read_exact(&mut byte)
+            .map_err(|error| format!("read TCP benchmark byte: {error}"))?;
+        latencies.push(started.elapsed().as_nanos() as u64);
+        black_box(byte);
+    }
+    Ok(latencies)
+}

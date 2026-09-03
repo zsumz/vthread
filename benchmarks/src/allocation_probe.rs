@@ -66,7 +66,7 @@ pub(crate) fn finish() -> Counts {
     }
 }
 
-pub(crate) fn print_medians(config: &super::Config, samples: &mut [Counts]) {
+pub(crate) fn print_medians(config: &crate::config::Config, samples: &mut [Counts]) {
     let middle = samples.len() / 2;
     samples.sort_unstable_by_key(|sample| sample.allocations);
     let allocations = samples[middle].allocations;
@@ -74,8 +74,9 @@ pub(crate) fn print_medians(config: &super::Config, samples: &mut [Counts]) {
     let deallocations = samples[middle].deallocations;
     samples.sort_unstable_by_key(|sample| sample.allocated_bytes);
     let allocated_bytes = samples[middle].allocated_bytes;
+    let operations = config.operations() as f64;
     println!(
-        "engine={} phase=allocation workers={} tasks={} allocations={} deallocations={} allocated_bytes={} allocations_per_task={:.2} bytes_per_task={:.2}",
+        "engine={} phase=allocation workers={} tasks={} allocations={} deallocations={} allocated_bytes={} allocations_per_task={:.2} bytes_per_task={:.2} allocations_per_operation={:.6} bytes_per_operation={:.6}",
         config.engine_name(),
         config.workers,
         config.tasks,
@@ -84,5 +85,7 @@ pub(crate) fn print_medians(config: &super::Config, samples: &mut [Counts]) {
         allocated_bytes,
         allocations as f64 / config.tasks as f64,
         allocated_bytes as f64 / config.tasks as f64,
+        allocations as f64 / operations,
+        allocated_bytes as f64 / operations,
     );
 }

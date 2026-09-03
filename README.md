@@ -90,7 +90,9 @@ controlled shutdown.
 ## Performance
 
 The standalone [scheduler harness](benchmarks/README.md) provides matched `vthread` and May
-yield and spawn measurements with explicit worker, task, stack, warm-up, and sample settings.
+measurements for yield, spawn/reclaim, park/wake, contended synchronization, bounded channels,
+readiness-driven TCP, and wake-to-resume tails. Worker, task, stack, warm-up, and sample settings
+are explicit.
 
 ## Check
 
