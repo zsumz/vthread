@@ -61,6 +61,16 @@ impl Spawner {
         entry: impl FnOnce() -> T + Send + 'static,
     ) -> Result<JoinHandle<T>> {
         let shared = self.shared.upgrade().ok_or(Error::ScopeClosed)?;
+        Self::spawn_on(shared, self.scope, options, name, entry)
+    }
+
+    pub(crate) fn spawn_on<T: Send + 'static>(
+        shared: Arc<Shared>,
+        scope: u64,
+        options: SpawnOptions,
+        name: impl Into<String>,
+        entry: impl FnOnce() -> T + Send + 'static,
+    ) -> Result<JoinHandle<T>> {
         let parent = if let Some(mounted) = context::current() {
             let execution = mounted.execution()?;
             execution.data.check()?;
@@ -75,7 +85,7 @@ impl Spawner {
         } else {
             None
         };
-        let spawned = shared.submit_with(self.scope, options, name.into(), entry, parent)?;
+        let spawned = shared.submit_with(scope, options, name.into(), entry, parent)?;
         Ok(JoinHandle::new(
             shared,
             spawned.id,
