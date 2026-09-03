@@ -15,7 +15,15 @@ impl Kernel {
         if received {
             self.publish(CarrierStatus::Running);
         }
-        self.inbox.pending() != 0
+        self.remote_pending = self.inbox.pending() != 0;
+        if !self.remote_pending {
+            self.yield_pressure = 0;
+        }
+        self.remote_pending
+    }
+
+    pub(crate) fn remote_pending(&self) -> bool {
+        self.remote_pending
     }
 
     pub(crate) fn receive_local(&mut self) {

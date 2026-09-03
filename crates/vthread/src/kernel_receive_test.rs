@@ -82,3 +82,38 @@ fn yielding_window_cannot_starve_later_admissions() {
     kernel.abort(None, TaskFailure::RuntimeStopped);
     shared.finish_scope(scope);
 }
+
+#[test]
+fn an_empty_remote_queue_does_not_precharge_admission_pressure() {
+    let config = Runtime::builder()
+        .max_vthreads(65)
+        .carrier_queue_capacity(65)
+        .stack_cache_capacity(65)
+        .build()
+        .unwrap()
+        .config();
+    let shared = Arc::new(Shared::new(config));
+    let scope = shared.begin_scope().unwrap();
+    for _ in 0..64 {
+        shared
+            .submit(scope, "yielding".into(), || {
+                loop {
+                    crate::yield_now().unwrap();
+                }
+            })
+            .unwrap();
+    }
+    let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
+    assert!(!kernel.receive());
+
+    for _ in 0..64 {
+        assert!(kernel.tick(true).unwrap());
+    }
+    assert_eq!(kernel.yield_pressure, 0);
+
+    shared.submit(scope, "later".into(), || ()).unwrap();
+    assert!(kernel.receive());
+    assert_eq!(kernel.inbox.pending(), 1);
+    kernel.abort(None, TaskFailure::RuntimeStopped);
+    shared.finish_scope(scope);
+}
