@@ -68,19 +68,14 @@ impl Graph {
         id
     }
 
-    pub(super) fn insert(&mut self, id: usize, parents: &[usize], flag: Weak<Node>) {
+    pub(super) fn insert(&mut self, id: usize, parents: &[usize], flag: Weak<Node>) -> bool {
         assert_eq!(id + 1, self.next, "cancellation identity not reserved");
         let parents = parents.iter().copied().collect::<IdSet>();
-        let cancelled = parents.iter().any(|parent| self.nodes[parent].cancelled);
-        if let Some(node) = flag.upgrade() {
-            node.cancelled.store(cancelled, Ordering::Release);
-        }
+        let mut cancelled = false;
         for parent in &parents {
-            self.nodes
-                .get_mut(parent)
-                .expect("live parent")
-                .children
-                .insert(id);
+            let parent = self.nodes.get_mut(parent).expect("live parent");
+            cancelled |= parent.cancelled;
+            parent.children.insert(id);
         }
         self.nodes.insert(
             id,
@@ -93,12 +88,13 @@ impl Graph {
                 signature: Signature::singleton(id),
             },
         );
+        cancelled
     }
 
     #[cfg(test)]
     fn insert_inert(&mut self, parents: &[usize]) -> usize {
         let id = self.reserve();
-        self.insert(id, parents, Weak::new());
+        let _ = self.insert(id, parents, Weak::new());
         id
     }
 

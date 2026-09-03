@@ -26,6 +26,17 @@ fn leaf_retirement_is_batched_with_a_fixed_residual_bound() {
 }
 
 #[test]
+fn residual_retirements_are_destroyed_with_the_domain() {
+    let parent = CancellationToken::root(64);
+    let domain = std::sync::Arc::downgrade(&parent.0.domain);
+    drop(parent.child_token());
+    assert_eq!(parent.pending_retirements(), 1);
+
+    drop(parent);
+    assert!(domain.upgrade().is_none());
+}
+
+#[test]
 fn inherited_cancellation_wakes_children_and_drains_borrowed_stacks() {
     use crate::{Error, Runtime, local_scope, park_pair, support_test::until};
     use std::sync::{

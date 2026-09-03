@@ -47,10 +47,12 @@ impl Domain {
     fn retire(self: &Arc<Self>, id: usize) {
         // Dead entries remain valid ancestry relays. Retiring in fixed batches
         // leaves at most 63 inert graph entries while avoiding one graph lock
-        // and topology rewrite per completed task.
+        // and topology rewrite per completed task. The final bounded residual
+        // is destroyed with the domain, so retirement does not probe the
+        // domain's strong count or rewrite a graph that is about to be freed.
         let mut retired = lock(&self.retired);
         retired.push(id);
-        if retired.len() < RETIREMENT_BATCH && Arc::strong_count(self) != 1 {
+        if retired.len() < RETIREMENT_BATCH {
             return;
         }
         let mut state = lock(&self.state);
@@ -80,38 +82,37 @@ pub struct CancellationToken(Arc<Node>);
 
 impl CancellationToken {
     pub(crate) fn root(capacity: usize) -> Self {
-        Self::insert(
-            Arc::new(Domain {
-                capacity,
-                epoch: Arc::new(AtomicU64::new(1)),
-                retired: Mutex::new(Vec::with_capacity(RETIREMENT_BATCH)),
-                state: Mutex::default(),
-            }),
-            &[],
-        )
+        let domain = Arc::new(Domain {
+            capacity,
+            epoch: Arc::new(AtomicU64::new(1)),
+            retired: Mutex::new(Vec::with_capacity(RETIREMENT_BATCH)),
+            state: Mutex::default(),
+        });
+        Self::insert(&domain, &[])
     }
 
-    fn insert(domain: Arc<Domain>, parents: &[usize]) -> Self {
+    fn insert(domain: &Arc<Domain>, parents: &[usize]) -> Self {
         let mut state = lock(&domain.state);
         let id = state.graph.reserve();
         let node = Arc::new(Node {
             id,
             cancelled: AtomicBool::new(false),
-            domain: Arc::clone(&domain),
+            domain: Arc::clone(domain),
         });
-        state.graph.insert(id, parents, Arc::downgrade(&node));
+        let cancelled = state.graph.insert(id, parents, Arc::downgrade(&node));
+        node.cancelled.store(cancelled, Ordering::Release);
         drop(state);
         Self(node)
     }
 
     /// Creates a child token; cancelling a child never cancels its parent.
     pub fn child_token(&self) -> Self {
-        Self::insert(Arc::clone(&self.0.domain), &[self.0.id])
+        Self::insert(&self.0.domain, &[self.0.id])
     }
 
     pub(crate) fn child_for_scope(&self, scope: &Self) -> Self {
         assert!(Arc::ptr_eq(&self.0.domain, &scope.0.domain));
-        Self::insert(Arc::clone(&self.0.domain), &[self.0.id, scope.0.id])
+        Self::insert(&self.0.domain, &[self.0.id, scope.0.id])
     }
 
     /// Requests cancellation and wakes subscribed generations without preempting code.
