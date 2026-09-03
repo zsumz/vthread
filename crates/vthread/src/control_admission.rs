@@ -18,6 +18,12 @@ pub(crate) struct Spawned<T> {
     pub(crate) record: SharedTaskRecord,
 }
 
+struct Reservation {
+    record: SharedTaskRecord,
+    id: TaskId,
+    owner: usize,
+}
+
 impl Shared {
     pub(crate) fn reserve(
         &self,
@@ -26,6 +32,7 @@ impl Shared {
         local: Option<(CarrierId, TaskId, TaskOptions)>,
     ) -> Result<SharedTaskRecord> {
         self.reserve_with(scope, name, local, SpawnOptions::default(), None)
+            .map(|reservation| reservation.record)
     }
 
     fn reserve_with(
@@ -35,7 +42,7 @@ impl Shared {
         local: Option<(CarrierId, TaskId, TaskOptions)>,
         options: SpawnOptions,
         parent: Option<SpawnParent>,
-    ) -> Result<SharedTaskRecord> {
+    ) -> Result<Reservation> {
         if name.trim().is_empty() {
             return Err(Error::invalid_configuration(
                 crate::error::ConfigurationField::TaskName,
@@ -156,7 +163,7 @@ impl Shared {
         if self.config.stall_policy().timeout().is_some() {
             self.changed.notify();
         }
-        Ok(record)
+        Ok(Reservation { record, id, owner })
     }
 
     pub(crate) fn release_reservation(&self, record: &SharedTaskRecord) {
@@ -202,11 +209,8 @@ impl Shared {
     ) -> Result<Spawned<T>> {
         #[cfg(feature = "lifecycle-profiling")]
         let reservation_started = std::time::Instant::now();
-        let record = self.reserve_with(scope, name, None, options, parent)?;
-        let (id, owner) = {
-            let record = record.lock();
-            (record.id, record.carrier.0)
-        };
+        let Reservation { record, id, owner } =
+            self.reserve_with(scope, name, None, options, parent)?;
         #[cfg(feature = "lifecycle-profiling")]
         let reservation_elapsed = reservation_started.elapsed();
         #[cfg(feature = "lifecycle-profiling")]

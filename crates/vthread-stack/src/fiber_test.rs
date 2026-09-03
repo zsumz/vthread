@@ -48,6 +48,21 @@ fn resume_decision_returns_to_the_suspension_point() {
 }
 
 #[test]
+fn suspended_fiber_can_move_before_resuming() {
+    let stack = DefaultStack::new(128 * 1024).expect("allocate stack");
+    let mut fiber = Fiber::new(stack, || {
+        nested_yield();
+        nested_yield();
+    });
+
+    assert_eq!(fiber.resume(), FiberState::Suspended(Suspension::YieldNow));
+    let mut moved = fiber;
+    assert_eq!(moved.resume(), FiberState::Suspended(Suspension::YieldNow));
+    assert_eq!(moved.resume(), FiberState::Complete);
+    drop(moved.into_stack());
+}
+
+#[test]
 fn parking_requests_preserve_token_and_deadline() {
     let deadline = Instant::now() + Duration::from_secs(1);
     let request = ParkRequest::new(ParkToken::new(7, 3), Some(deadline));

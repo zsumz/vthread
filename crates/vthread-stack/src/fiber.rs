@@ -1,6 +1,6 @@
 //! Carrier-local stackful fiber wrapper.
 
-use std::{cell::Cell, error::Error, fmt, ptr, rc::Rc, time::Instant};
+use std::{cell::Cell, error::Error, fmt, ptr, time::Instant};
 
 use corosensei::{Coroutine, CoroutineResult, Yielder, stack::DefaultStack};
 
@@ -106,7 +106,7 @@ thread_local! {
 /// ```
 pub struct Fiber {
     coroutine: Option<Coroutine<Resume, Suspension, ()>>,
-    yielder: Rc<Cell<*const RawYielder>>,
+    yielder: *const RawYielder,
 }
 
 impl Fiber {
@@ -121,20 +121,17 @@ impl Fiber {
 
     /// The caller must reclaim this fiber before the entry's borrows expire.
     pub(crate) unsafe fn borrowed<F: FnOnce()>(stack: DefaultStack, entry: F) -> Self {
-        let yielder = Rc::new(Cell::new(ptr::null()));
-        let body_yielder = Rc::clone(&yielder);
         // SAFETY: the caller owns the entry's lifetime and guarantees reclamation.
         let coroutine = unsafe {
             Coroutine::with_stack_unchecked(stack, move |current, _resume| {
                 let pointer = current as *const RawYielder;
-                body_yielder.set(pointer);
                 let _mount = MountGuard::install(pointer);
                 entry();
             })
         };
         Self {
             coroutine: Some(coroutine),
-            yielder,
+            yielder: ptr::null(),
         }
     }
 
@@ -149,15 +146,26 @@ impl Fiber {
     pub fn resume_with(&mut self, resume: Resume) -> FiberState {
         // Reject the transition before a panic hook can observe a stale mount.
         assert!(!self.is_complete(), "a completed fiber cannot be resumed");
-        let _mount = MountGuard::install(self.yielder.get());
+        let _mount = MountGuard::install(self.yielder);
         let coroutine = self
             .coroutine
             .as_mut()
             .expect("a completed fiber cannot be resumed");
-        match coroutine.resume(resume) {
+        let state = match coroutine.resume(resume) {
             CoroutineResult::Yield(reason) => FiberState::Suspended(reason),
             CoroutineResult::Return(()) => FiberState::Complete,
+        };
+        match &state {
+            FiberState::Suspended(_) if self.yielder.is_null() => {
+                // The yielder lives on this coroutine's owned stack. Its entry
+                // installed the pointer before the first possible suspension.
+                self.yielder = CURRENT_YIELDER.with(Cell::get);
+                assert!(!self.yielder.is_null(), "suspended fiber has no yielder");
+            }
+            FiberState::Suspended(_) => {}
+            FiberState::Complete => self.yielder = ptr::null(),
         }
+        state
     }
 
     /// Returns whether the entry function has completed.
@@ -185,7 +193,7 @@ impl Fiber {
 
 impl Drop for Fiber {
     fn drop(&mut self) {
-        let _mount = MountGuard::install(self.yielder.get());
+        let _mount = MountGuard::install(self.yielder);
         drop(self.coroutine.take());
     }
 }

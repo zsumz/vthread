@@ -39,7 +39,13 @@ impl<'runtime> Scope<'runtime> {
         F: FnOnce() -> T + Send + 'static,
         T: Send + 'static,
     {
-        self.spawner().spawn(name, entry)
+        crate::Spawner::spawn_on(
+            std::sync::Arc::clone(&self.runtime.shared),
+            self.id,
+            crate::SpawnOptions::default(),
+            name,
+            entry,
+        )
     }
 
     /// Spawns a child with a deadline bounded by its owner and same-runtime caller.
@@ -49,7 +55,13 @@ impl<'runtime> Scope<'runtime> {
         name: impl Into<String>,
         entry: impl FnOnce() -> T + Send + 'static,
     ) -> Result<JoinHandle<T>> {
-        self.spawner().spawn_with(options, name, entry)
+        crate::Spawner::spawn_on(
+            std::sync::Arc::clone(&self.runtime.shared),
+            self.id,
+            options,
+            name,
+            entry,
+        )
     }
 
     /// Returns a transferable admission capability; it cannot extend this scope's lifetime.
