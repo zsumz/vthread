@@ -94,7 +94,8 @@ impl Kernel {
                         });
                 }
                 self.stats.yields += 1;
-                self.yield_pressure = self.yield_pressure.saturating_add(1);
+                // Receive clears this at the fixed backlog-drain bound, preventing overflow.
+                self.yield_pressure += u32::from(self.remote_pending);
                 #[cfg(feature = "runtime-evidence")]
                 self.shared
                     .record(crate::diagnostics::evidence::RuntimeEventKind::Yielded {
