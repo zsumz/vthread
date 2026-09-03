@@ -1,8 +1,115 @@
-use crate::{Error, Runtime, ScopeOptions, net::unix::UnixStream};
+use crate::{Error, Runtime, ScopeOptions, SuspensionReason, context, net::unix::UnixStream};
 use std::{
-    sync::Arc,
+    os::fd::AsFd,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
     time::{Duration, Instant},
 };
+
+#[test]
+fn blocked_io_yields_to_runnable_work_before_registering_readiness() {
+    let runtime = Runtime::new().unwrap();
+    let (reader, writer) = UnixStream::pair().unwrap();
+    let admitted = Arc::new(AtomicBool::new(false));
+    let observed = Arc::new(AtomicUsize::new(usize::MAX));
+    runtime
+        .run_scope(|scope| {
+            let start = Arc::clone(&admitted);
+            let mut read = scope.spawn("read", move || {
+                while !start.load(Ordering::Acquire) {
+                    crate::yield_now()?;
+                }
+                reader.read_exact(&mut [0; 1])
+            })?;
+            let start = Arc::clone(&admitted);
+            let sampled = Arc::clone(&observed);
+            let mut write = scope.spawn("write", move || {
+                while !start.load(Ordering::Acquire) {
+                    crate::yield_now()?;
+                }
+                sampled.store(context_readiness_waits(), Ordering::Release);
+                writer.write_all(b"x")
+            })?;
+            admitted.store(true, Ordering::Release);
+            write.join()??;
+            read.join()??;
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(observed.load(Ordering::Acquire), 0);
+}
+
+#[test]
+fn blocked_io_eventually_registers_readiness_under_runnable_load() {
+    let runtime = Runtime::new().unwrap();
+    let (reader, writer) = UnixStream::pair().unwrap();
+    runtime
+        .run_scope(|scope| {
+            let mut read = scope.spawn("read", move || reader.read_exact(&mut [0; 1]))?;
+            let mut write = scope.spawn("write", move || {
+                let mut registered = false;
+                for _ in 0..=super::RUNNABLE_YIELD_LIMIT {
+                    if context_readiness_waits() != 0 {
+                        registered = true;
+                        break;
+                    }
+                    crate::yield_now()?;
+                }
+                assert!(
+                    registered,
+                    "blocked I/O did not reach the readiness reactor"
+                );
+                writer.write_all(b"x")
+            })?;
+            write.join()??;
+            read.join()??;
+            Ok(())
+        })
+        .unwrap();
+}
+
+fn context_readiness_waits() -> usize {
+    let mounted = context::current().unwrap();
+    mounted
+        .execution()
+        .unwrap()
+        .shared()
+        .services
+        .get()
+        .unwrap()
+        .snapshot()
+        .readiness_waits()
+}
+
+#[test]
+fn immediately_ready_operation_does_not_enter_a_suspension_reason() {
+    let runtime = Runtime::new().unwrap();
+    let (socket, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
+    runtime
+        .run_scope(|scope| {
+            scope
+                .spawn("ready", move || {
+                    super::operation(
+                        socket.as_fd(),
+                        zio::Interest::READABLE,
+                        SuspensionReason::IoRead,
+                        || {
+                            let mounted = context::current().unwrap();
+                            assert_eq!(
+                                mounted.execution().unwrap().data.reason(),
+                                SuspensionReason::Park
+                            );
+                            Ok::<_, std::io::Error>(())
+                        },
+                    )
+                })?
+                .join()??;
+            Ok(())
+        })
+        .unwrap();
+}
 
 #[test]
 fn socket_deadline_cleans_registration_and_preserves_unread_data() {

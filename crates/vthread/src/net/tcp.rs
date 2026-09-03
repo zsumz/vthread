@@ -68,6 +68,13 @@ impl TcpStream {
             || (&self.inner).read(buffer),
         )
     }
+    /// Attempts one receive without parking, returning `WouldBlock` when no data is ready.
+    /// The attempt remains a cooperative cancellation checkpoint and requires a virtual caller.
+    pub fn try_read(&self, buffer: &mut [u8]) -> Result<usize> {
+        io::attempt(self.inner.as_fd(), SuspensionReason::IoRead, || {
+            (&self.inner).read(buffer)
+        })
+    }
     /// Sends bytes; readiness does not imply the whole input fits.
     pub fn write(&self, buffer: &[u8]) -> Result<usize> {
         io::operation(
@@ -76,6 +83,13 @@ impl TcpStream {
             SuspensionReason::IoWrite,
             || (&self.inner).write(buffer),
         )
+    }
+    /// Attempts one send without parking, returning `WouldBlock` when no space is ready.
+    /// The attempt remains a cooperative cancellation checkpoint and requires a virtual caller.
+    pub fn try_write(&self, buffer: &[u8]) -> Result<usize> {
+        io::attempt(self.inner.as_fd(), SuspensionReason::IoWrite, || {
+            (&self.inner).write(buffer)
+        })
     }
     /// Fills the buffer or fails. Bytes read before cancellation/error are not rolled back.
     pub fn read_exact(&self, buffer: &mut [u8]) -> Result<()> {

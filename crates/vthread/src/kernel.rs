@@ -101,6 +101,16 @@ impl Kernel {
         self.tasks.get_mut(key).expect("live task key")
     }
 
+    pub(super) fn select_ready(&mut self) {
+        self.in_flight = self.ready.pop_front();
+        crate::context::set_carrier_runnable(
+            !self.ready.is_empty()
+                || self.remote_pending
+                || self.inbox.pending() != 0
+                || self.local.pending_starts() != 0,
+        );
+    }
+
     pub(super) fn remove_in_flight(&mut self) {
         let key = self.in_flight.take().expect("in-flight task key");
         assert!(self.tasks.remove(key), "live in-flight task");

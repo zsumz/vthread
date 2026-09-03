@@ -1,6 +1,10 @@
 //! Carrier-local identity installed while one virtual thread is mounted.
 
-use std::{cell::RefCell, rc::Rc, sync::Arc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+    sync::Arc,
+};
 
 use crate::{
     Error, Result, control::Shared, local_carrier::LocalCarrier, task::SharedTaskRecord,
@@ -129,6 +133,7 @@ impl MountedTask {
 
 thread_local! {
     static CURRENT: RefCell<Option<MountedTask>> = const { RefCell::new(None) };
+    static CARRIER_RUNNABLE: Cell<bool> = const { Cell::new(false) };
 }
 
 pub(crate) fn current() -> Option<MountedTask> {
@@ -176,6 +181,15 @@ pub fn checkpoint() -> Result<()> {
             .data
             .check()
     })
+}
+
+pub(crate) fn set_carrier_runnable(runnable: bool) {
+    CARRIER_RUNNABLE.set(runnable);
+}
+
+#[inline]
+pub(crate) fn carrier_has_runnable() -> bool {
+    CARRIER_RUNNABLE.get()
 }
 
 /// Returns the current task's inherited cancellation token.
