@@ -89,8 +89,9 @@ controlled shutdown.
 
 ## Performance
 
-The standalone [scheduler harness](benchmarks/README.md) provides matched `vthread` and May
-yield and spawn measurements with explicit worker, task, stack, warm-up, and sample settings.
+The standalone [benchmark harnesses](benchmarks/README.md) provide matched `vthread` and May
+scheduler measurements plus an end-to-end HTTP comparison with `may_minihttp`. Worker, task,
+connection, warm-up, sample, and CPU-placement settings are explicit.
 
 ## Check
 

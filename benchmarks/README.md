@@ -39,3 +39,10 @@ slower; use the default build above for engine-to-engine comparisons.
 Heap allocation counts are independently available with `--features allocation-probe`. They cover
 the measured process-wide interval and therefore should be collected with one worker on a quiet
 machine. Rebuild without either feature before recording headline latency results.
+
+## HTTP benchmark
+
+The [HTTP harness](http/README.md) compares a bounded vthread server with
+`may_minihttp`'s no-database TechEmpower example. It includes response validation, ordinary
+keep-alive and depth-16 pipeline loads, alternating process order, disjoint server/client CPU
+sets, and median reporting.
