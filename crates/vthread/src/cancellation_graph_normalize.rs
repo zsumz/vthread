@@ -1,6 +1,6 @@
 //! Incremental relay compaction and exact ancestry indexing.
 
-use super::{Graph, Kind, Signature, id_set::IdSet};
+use super::{Graph, Kind, Signature, parent_set::ParentSet};
 use std::collections::BTreeMap;
 
 #[cfg(test)]
@@ -97,7 +97,7 @@ impl Graph {
         }
     }
 
-    pub(super) fn signature_for(&mut self, parents: &IdSet) -> Signature {
+    pub(super) fn signature_for(&mut self, parents: &ParentSet) -> Signature {
         let mut signature = Signature::default();
         for parent in parents {
             let next = self.nodes[parent].signature.clone();
