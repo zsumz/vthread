@@ -1,6 +1,6 @@
 //! Topology rewrites after token pruning and relay equivalence.
 
-use super::{Graph, Kind, id_set::IdSet, normalize::RelayWork};
+use super::{Graph, Kind, id_set::IdSet, normalize::RelayWork, parent_set::ParentSet};
 
 impl Graph {
     pub(super) fn erase(
@@ -48,7 +48,7 @@ impl Graph {
             .collect()
     }
 
-    fn splice(&mut self, parents: &IdSet, children: &IdSet) {
+    fn splice(&mut self, parents: &ParentSet, children: &IdSet) {
         for parent in parents {
             for child in children {
                 if self

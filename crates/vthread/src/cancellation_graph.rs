@@ -12,6 +12,10 @@ use crate::id_map::IdMap;
 mod id_set;
 use id_set::IdSet;
 
+#[path = "cancellation_parent_set.rs"]
+mod parent_set;
+use parent_set::ParentSet;
+
 #[path = "cancellation_signature.rs"]
 mod signature;
 use signature::{Candidate, Signature};
@@ -32,7 +36,7 @@ struct Entry {
     kind: Kind,
     flag: Option<Weak<Node>>,
     cancelled: bool,
-    parents: IdSet,
+    parents: ParentSet,
     children: IdSet,
     signature: Signature,
 }
@@ -70,7 +74,7 @@ impl Graph {
 
     pub(super) fn insert(&mut self, id: usize, parents: &[usize], flag: Weak<Node>) -> bool {
         assert_eq!(id + 1, self.next, "cancellation identity not reserved");
-        let parents = parents.iter().copied().collect::<IdSet>();
+        let parents = parents.iter().copied().collect::<ParentSet>();
         let mut cancelled = false;
         for parent in &parents {
             let parent = self.nodes.get_mut(parent).expect("live parent");
