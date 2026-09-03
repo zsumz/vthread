@@ -1,5 +1,8 @@
 use std::{env, hint::black_box, process::ExitCode, time::Instant};
 
+#[cfg(feature = "allocation-probe")]
+mod allocation_probe;
+
 const STACK_SIZE: usize = 64 * 1024;
 
 #[derive(Clone, Copy)]
@@ -109,11 +112,12 @@ fn run_vthread(config: &Config) -> Result<(), String> {
     measure(config, || {
         runtime
             .run_scope(|scope| {
+                let started = Instant::now();
                 for _ in 0..config.tasks {
                     let scenario = config.scenario;
                     drop(scope.spawn("benchmark", move || run_vthread_task(scenario))?);
                 }
-                Ok(())
+                Ok(started.elapsed().as_nanos())
             })
             .map_err(|error| error.to_string())
     })?;
@@ -139,13 +143,16 @@ fn run_may(config: &Config) -> Result<(), String> {
         .set_stack_size(STACK_SIZE / std::mem::size_of::<usize>())
         .set_pool_capacity(config.tasks);
     measure(config, || {
+        let mut admission_ns = 0;
         may::coroutine::scope(|scope| {
+            let started = Instant::now();
             for _ in 0..config.tasks {
                 let scenario = config.scenario;
                 may::go!(scope, move || run_may_task(scenario));
             }
+            admission_ns = started.elapsed().as_nanos();
         });
-        Ok(())
+        Ok(admission_ns)
     })
 }
 
@@ -158,15 +165,28 @@ fn run_may_task(scenario: Scenario) {
     }
 }
 
-fn measure(config: &Config, mut round: impl FnMut() -> Result<(), String>) -> Result<(), String> {
+fn measure(config: &Config, mut round: impl FnMut() -> Result<u128, String>) -> Result<(), String> {
     round()?;
     let mut samples = Vec::with_capacity(config.samples);
+    let mut admission_samples = Vec::with_capacity(config.samples);
+    let mut drain_samples = Vec::with_capacity(config.samples);
+    #[cfg(feature = "allocation-probe")]
+    let mut allocation_samples = Vec::with_capacity(config.samples);
     for _ in 0..config.samples {
+        #[cfg(feature = "allocation-probe")]
+        allocation_probe::begin();
         let started = Instant::now();
-        round()?;
-        samples.push(started.elapsed().as_nanos());
+        let admission = round()?;
+        let total = started.elapsed().as_nanos();
+        #[cfg(feature = "allocation-probe")]
+        allocation_samples.push(allocation_probe::finish());
+        samples.push(total);
+        admission_samples.push(admission);
+        drain_samples.push(total.saturating_sub(admission));
     }
     samples.sort_unstable();
+    admission_samples.sort_unstable();
+    drain_samples.sort_unstable();
     let median = samples[samples.len() / 2];
     let per_operation = median as f64 / config.operations() as f64;
     println!(
@@ -179,7 +199,43 @@ fn measure(config: &Config, mut round: impl FnMut() -> Result<(), String>) -> Re
         per_operation,
         samples
     );
+    if matches!(config.scenario, Scenario::Spawn) {
+        println!(
+            "engine={} phase=spawn workers={} tasks={} admission_median_ns={} drain_median_ns={} admission_samples={:?} drain_samples={:?}",
+            config.engine_name(),
+            config.workers,
+            config.tasks,
+            admission_samples[admission_samples.len() / 2],
+            drain_samples[drain_samples.len() / 2],
+            admission_samples,
+            drain_samples,
+        );
+    }
+    #[cfg(feature = "allocation-probe")]
+    print_allocation_medians(config, &mut allocation_samples);
     Ok(())
+}
+
+#[cfg(feature = "allocation-probe")]
+fn print_allocation_medians(config: &Config, samples: &mut [allocation_probe::Counts]) {
+    let middle = samples.len() / 2;
+    samples.sort_unstable_by_key(|sample| sample.allocations);
+    let allocations = samples[middle].allocations;
+    samples.sort_unstable_by_key(|sample| sample.deallocations);
+    let deallocations = samples[middle].deallocations;
+    samples.sort_unstable_by_key(|sample| sample.allocated_bytes);
+    let allocated_bytes = samples[middle].allocated_bytes;
+    println!(
+        "engine={} phase=allocation workers={} tasks={} allocations={} deallocations={} allocated_bytes={} allocations_per_task={:.2} bytes_per_task={:.2}",
+        config.engine_name(),
+        config.workers,
+        config.tasks,
+        allocations,
+        deallocations,
+        allocated_bytes,
+        allocations as f64 / config.tasks as f64,
+        allocated_bytes as f64 / config.tasks as f64,
+    );
 }
 
 fn positive(args: &mut impl Iterator<Item = String>, name: &str) -> Result<usize, String> {
