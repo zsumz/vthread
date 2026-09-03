@@ -176,6 +176,13 @@ impl TaskProgressWriter {
         // Every finished mount either yields or takes one non-yield transition.
         self.yields.get().wrapping_add(self.non_yield_mounts.get())
     }
+
+    pub(crate) fn reset(&mut self) {
+        *self.non_yield_mounts.get_mut() = 0;
+        *self.yields.get_mut() = 0;
+        *self.yielded.get_mut() = false;
+        *self.started.get_mut() = false;
+    }
 }
 
 impl TaskProgress {
@@ -186,6 +193,12 @@ impl TaskProgress {
         if update.first_yield {
             self.yield_now();
         }
+    }
+
+    pub(crate) fn reset(&mut self) {
+        *self.yielded.get_mut() = false;
+        *self.mounts.get_mut() = 0;
+        *self.yields.get_mut() = 0;
     }
 }
 

@@ -3,6 +3,7 @@
 use super::Shared;
 use crate::{
     CarrierId, Error, Result, TaskId, TaskStatus,
+    id_map::IdHashSet,
     inbox::SpawnPacket,
     join::JoinCell,
     options::{SpawnOptions, SpawnParent, TaskOptions},
@@ -13,7 +14,6 @@ use std::sync::{Arc, Mutex};
 
 pub(crate) struct Spawned<T> {
     pub(crate) id: TaskId,
-    pub(crate) name: Arc<str>,
     pub(crate) cell: Arc<Mutex<JoinCell<T>>>,
     pub(crate) record: SharedTaskRecord,
 }
@@ -62,10 +62,19 @@ impl Shared {
         );
         options.check()?;
         if state.records.len() >= self.config.max_vthreads() {
-            state.records.retain(|_, record| {
+            let mut reclaimed = IdHashSet::default();
+            state.records.retain(|id, record| {
                 let record = record.lock();
-                !(record.status.is_terminal() && record.outcome_observed)
+                let remove = record.status.is_terminal() && record.outcome_observed;
+                if remove {
+                    reclaimed.insert(*id);
+                }
+                !remove
             });
+            for scope in state.scopes.values_mut() {
+                scope.records.retain(|task| !reclaimed.contains(task));
+                scope.failed_tasks.retain(|task| !reclaimed.contains(task));
+            }
         }
         if state.records.len() >= self.config.max_vthreads() {
             state.rejected += 1;
@@ -107,37 +116,46 @@ impl Shared {
             crate::error::FaultComponent::Scheduler,
             "task id space exhausted",
         ))?;
-        let record = Arc::new(TaskCell::new(
-            TaskRecord {
-                id,
-                scope,
-                parent: local
-                    .map(|local| local.1)
-                    .or_else(|| parent.map(|parent| parent.id)),
-                options,
-                name: Arc::from(name),
-                carrier: CarrierId(owner),
-                deadline: None,
-                failure: None,
-                status: TaskStatus::Queued,
-                parks: 0,
-                last_suspension: None,
-                last_wake: None,
-                outcome_observed: false,
-                panic: None,
-            },
-            self.config.max_vthreads(),
-        ));
+        let task = TaskRecord {
+            id,
+            scope,
+            parent: local
+                .map(|local| local.1)
+                .or_else(|| parent.map(|parent| parent.id)),
+            options: Some(options),
+            name,
+            carrier: CarrierId(owner),
+            deadline: None,
+            failure: None,
+            status: TaskStatus::Queued,
+            parks: 0,
+            last_suspension: None,
+            last_wake: None,
+            outcome_observed: false,
+            panic: None,
+        };
+        let record = if let Some(mut record) = state.record_cache.pop() {
+            Arc::get_mut(&mut record)
+                .expect("cached task cell must be unique")
+                .reuse(task);
+            record
+        } else {
+            Arc::new(TaskCell::new(task, self.config.max_vthreads()))
+        };
         state.records.insert(id, Arc::clone(&record));
         state.active += 1;
         state.loads[owner] += 1;
         state.admitted += 1;
         if let Some(scope) = state.scopes.get_mut(&scope) {
+            scope.records.push(id);
+            scope.active += 1;
             scope.activity = scope.activity.wrapping_add(1);
         }
         state.cursor = (owner + 1) % self.inboxes.len();
         drop(state);
-        self.changed.notify();
+        if self.config.stall_policy().timeout().is_some() {
+            self.changed.notify();
+        }
         Ok(record)
     }
 
@@ -150,6 +168,13 @@ impl Shared {
         state.admitted -= 1;
         state.rejected += 1;
         if let Some(scope) = state.scopes.get_mut(&record.scope) {
+            let index = scope
+                .records
+                .iter()
+                .position(|task| *task == record.id)
+                .expect("reserved task belongs to its scope");
+            scope.records.swap_remove(index);
+            scope.active -= 1;
             scope.activity = scope.activity.wrapping_add(1);
         }
         drop(record);
@@ -176,9 +201,9 @@ impl Shared {
         parent: Option<SpawnParent>,
     ) -> Result<Spawned<T>> {
         let record = self.reserve_with(scope, name, None, options, parent)?;
-        let (id, name, owner) = {
+        let (id, owner) = {
             let record = record.lock();
-            (record.id, Arc::clone(&record.name), record.carrier.0)
+            (record.id, record.carrier.0)
         };
         let cell = Arc::new(Mutex::new(JoinCell { outcome: None }));
         let body_cell = Arc::clone(&cell);
@@ -209,12 +234,7 @@ impl Shared {
             };
             return Err(error);
         }
-        Ok(Spawned {
-            id,
-            name,
-            cell,
-            record,
-        })
+        Ok(Spawned { id, cell, record })
     }
 }
 

@@ -80,7 +80,6 @@ impl Runtime {
         Ok(crate::JoinHandle::new(
             Arc::clone(&self.shared),
             spawned.id,
-            spawned.name,
             spawned.cell,
             spawned.record,
         ))

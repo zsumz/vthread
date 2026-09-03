@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::{SuspensionReason, TaskId, TaskStatus, WakeReason};
 use crate::{
     task::{TaskCell, TaskRecord},
@@ -13,11 +11,14 @@ fn snapshots_copy_operator_visible_state() {
             id: TaskId::new(3),
             scope: 1,
             parent: None,
-            options: crate::options::TaskOptions::root(crate::ScopeOptions::default(), 4),
+            options: Some(crate::options::TaskOptions::root(
+                crate::ScopeOptions::default(),
+                4,
+            )),
             carrier: crate::CarrierId(0),
             deadline: None,
             failure: None,
-            name: Arc::from("query"),
+            name: "query".into(),
             status: TaskStatus::Suspended(SuspensionReason::Park),
             parks: 1,
             last_suspension: Some(SuspensionReason::Park),

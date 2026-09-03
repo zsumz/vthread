@@ -1,4 +1,5 @@
-use crate::{CarrierId, Error, Runtime, control::Shared};
+use crate::{CarrierId, Error, Runtime, StallPolicy, control::Shared};
+use std::time::Duration;
 
 #[test]
 fn placement_rotates_between_equal_loads_and_respects_queue_capacity() {
@@ -70,4 +71,39 @@ fn names_are_bounded_and_whitespace_is_preserved() {
             Ok(())
         })
         .unwrap();
+}
+
+#[test]
+fn admission_without_stall_detection_does_not_publish_a_control_change() {
+    let shared = Shared::new(Runtime::builder().build().unwrap().config());
+    let scope = shared.begin_scope().unwrap();
+    let observed = shared.changed.version();
+
+    let record = shared
+        .reserve(scope, "quiet admission".into(), None)
+        .unwrap();
+    assert_eq!(shared.changed.version(), observed);
+
+    shared.complete(&record, None);
+    shared.finish_scope(scope);
+}
+
+#[test]
+fn admission_notifies_enabled_stall_detection() {
+    let config = Runtime::builder()
+        .stall_policy(StallPolicy::ReportAfter(Duration::from_secs(1)))
+        .build()
+        .unwrap()
+        .config();
+    let shared = Shared::new(config);
+    let scope = shared.begin_scope().unwrap();
+    let observed = shared.changed.version();
+
+    let record = shared
+        .reserve(scope, "observed admission".into(), None)
+        .unwrap();
+    assert!(shared.changed.version() > observed);
+
+    shared.complete(&record, None);
+    shared.finish_scope(scope);
 }

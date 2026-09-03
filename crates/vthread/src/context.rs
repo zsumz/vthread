@@ -18,7 +18,7 @@ pub(crate) struct Execution {
 struct ExecutionCold {
     scope: u64,
     hub: Arc<WaitHub>,
-    record: SharedTaskRecord,
+    record: Option<SharedTaskRecord>,
     shared: Arc<Shared>,
     local: Rc<LocalCarrier>,
 }
@@ -40,7 +40,7 @@ impl Execution {
             cold: Box::new(ExecutionCold {
                 scope,
                 hub,
-                record,
+                record: Some(record),
                 shared,
                 local,
             }),
@@ -56,7 +56,7 @@ impl Execution {
     }
 
     pub(crate) fn record(&self) -> &SharedTaskRecord {
-        &self.cold.record
+        self.cold.record.as_ref().expect("live task record")
     }
 
     pub(crate) fn shared(&self) -> &Arc<Shared> {
@@ -65,6 +65,37 @@ impl Execution {
 
     pub(crate) fn local(&self) -> &Rc<LocalCarrier> {
         &self.cold.local
+    }
+
+    pub(crate) fn recycle(&mut self) -> bool {
+        let Some(data) = Rc::get_mut(&mut self.data) else {
+            return false;
+        };
+        let cancellation = self.cold.shared.cancellation.clone();
+        data.recycle(cancellation);
+        drop(self.cold.record.take().expect("live task record"));
+        true
+    }
+
+    pub(crate) fn reuse(
+        &mut self,
+        id: TaskId,
+        scope: u64,
+        record: SharedTaskRecord,
+        options: crate::options::TaskOptions,
+        task_local_capacity: usize,
+    ) {
+        assert!(
+            self.cold.record.is_none(),
+            "execution reused before recycling"
+        );
+        self.id = id;
+        Rc::get_mut(&mut self.data)
+            .expect("cached task context must be unique")
+            .reuse(options, task_local_capacity);
+        self.progress.reset();
+        self.cold.scope = scope;
+        self.cold.record = Some(record);
     }
 }
 
@@ -153,8 +184,7 @@ pub fn cancellation_token() -> Result<crate::CancellationToken> {
         .ok_or(Error::OutsideVThread)?
         .execution()?
         .data
-        .options()
-        .cancellation
+        .cancellation()
         .clone())
 }
 
@@ -164,8 +194,7 @@ pub fn deadline() -> Result<Option<std::time::Instant>> {
         .ok_or(Error::OutsideVThread)?
         .execution()?
         .data
-        .options()
-        .deadline)
+        .deadline())
 }
 
 pub(crate) struct MountGuard {

@@ -53,7 +53,7 @@ fn selective_abort_retains_borrowed_scan_tracking() {
                 )),
             )
             .unwrap();
-        let data = Rc::new(TaskContext::new(record.lock().options.clone(), 1));
+        let data = Rc::new(TaskContext::new(record.lock().options().clone(), 1));
         let (id, scope) = {
             let record = record.lock();
             (record.id, record.scope)
@@ -65,7 +65,7 @@ fn selective_abort_retains_borrowed_scan_tracking() {
             record,
             Arc::clone(&shared),
             Rc::clone(&kernel.local),
-            data,
+            Rc::clone(&data),
         ));
         #[cfg(feature = "runtime-evidence")]
         let fiber = BorrowedFiber::new(lease, identity);
@@ -105,7 +105,7 @@ fn revoked_parked_stacks_release_registrations_before_timer_processing() {
                 parker.park_timeout(Duration::from_secs(5)).unwrap();
             })
             .unwrap();
-        let data = Rc::new(TaskContext::new(record.lock().options.clone(), 1));
+        let data = Rc::new(TaskContext::new(record.lock().options().clone(), 1));
         let (id, root) = {
             let record = record.lock();
             (record.id, record.scope)
@@ -117,7 +117,7 @@ fn revoked_parked_stacks_release_registrations_before_timer_processing() {
             Arc::clone(&record),
             Arc::clone(&shared),
             Rc::clone(&kernel.local),
-            data,
+            Rc::clone(&data),
         ));
         #[cfg(feature = "runtime-evidence")]
         let task_fiber = BorrowedFiber::new(lease, identity);

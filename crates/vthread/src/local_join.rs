@@ -24,7 +24,7 @@ impl<T> LocalJoinHandle<'_, T> {
     }
     /// Returns this child's token; its parent and siblings are unaffected by cancellation.
     pub fn cancellation_token(&self) -> crate::CancellationToken {
-        self.record.lock().options.cancellation.clone()
+        self.record.lock().options().cancellation.clone()
     }
     /// Requests cooperative cancellation while preserving child ownership and its result.
     pub fn cancel(&self) {

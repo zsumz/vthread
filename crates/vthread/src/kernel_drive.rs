@@ -31,8 +31,17 @@ impl Kernel {
         }
         self.in_flight = self.ready.pop_front();
         let Some(task_key) = self.in_flight else {
+            self.flush_completions();
             return Ok(false);
         };
+        let scope = self.task(task_key).execution().scope();
+        if self
+            .completions
+            .first()
+            .is_some_and(|completion| completion.scope != scope)
+        {
+            self.flush_completions();
+        }
         if self.shared.abort_requested() {
             let scope = self.task(task_key).execution().scope();
             if let Some(reason) = self.shared.abort_reason(scope) {
@@ -62,7 +71,13 @@ impl Kernel {
         let state = if let Some(state) = dispatched {
             state
         } else {
-            self.publish(CarrierStatus::Running);
+            if self.ready.is_empty() {
+                // A lone first mount may remain in user code indefinitely, so
+                // there may be no later transition at which to flush it.
+                self.publish(CarrierStatus::Running);
+            } else {
+                self.publish_transition();
+            }
             let mut task = self.tasks.get_mut(task_key).expect("mounted task key");
             task.dispatch(shared, carrier_progress)
         };
@@ -79,6 +94,7 @@ impl Kernel {
                         });
                 }
                 self.stats.yields += 1;
+                self.yield_pressure = self.yield_pressure.saturating_add(1);
                 #[cfg(feature = "runtime-evidence")]
                 self.shared
                     .record(crate::diagnostics::evidence::RuntimeEventKind::Yielded {
@@ -161,6 +177,7 @@ impl Kernel {
     }
 
     fn park_task(&mut self, request: ParkRequest) -> Result<()> {
+        self.yield_pressure = 0;
         let token = request.token();
         if self.parked.contains_key(&token) {
             return Err(Error::fault(
@@ -211,6 +228,7 @@ impl Kernel {
     }
 
     fn complete_task(&mut self) {
+        self.yield_pressure = 0;
         let task_key = self.in_flight.expect("completed task key");
         let execution = self.execution(task_key);
         let record = Arc::clone(execution.record());
@@ -246,24 +264,27 @@ impl Kernel {
                 },
             );
         }
-        if record.lock().panic.is_some() {
+        self.recycle_execution(task_key);
+        self.remove_in_flight();
+        let completion = self
+            .shared
+            .prepare_completion(&record, None)
+            .expect("live completed task");
+        if completion.status == crate::TaskStatus::Panicked {
             self.stats.panicked += 1;
         } else {
             self.stats.completed += 1;
         }
-        self.remove_in_flight();
-        self.publish(CarrierStatus::Running);
-        // Completion and admission release become visible only after reclaiming the stack.
-        self.shared.complete(&record, None);
-    }
-
-    pub(crate) fn wait_for_work(&mut self, observed: u64) {
-        let deadline = self.timers.next_deadline();
-        if deadline.is_some() {
-            self.stats.timer_sleeps += 1;
+        if self.ready.is_empty() {
+            self.publish(CarrierStatus::Running);
+        } else {
+            self.publish_transition();
         }
-        self.publish(CarrierStatus::Idle);
-        self.inbox.signal.wait(observed, deadline);
+        // Completion and admission release become visible only after reclaiming the stack.
+        self.queue_completion(completion);
+        if self.ready.is_empty() {
+            self.flush_completions();
+        }
     }
 }
 

@@ -121,8 +121,7 @@ impl Parker {
                 let _generation = self.wait.guard(token);
                 let _subscription = if unmasked {
                     match policy
-                        .options()
-                        .cancellation
+                        .cancellation()
                         .register(token, self.wait.registration())
                     {
                         Ok(subscription) => Some(subscription),

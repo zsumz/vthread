@@ -37,6 +37,27 @@ fn fault_cleanup_keeps_both_the_pending_packet_and_queued_packets_owned() {
 }
 
 #[test]
+fn fault_cleanup_reclaims_every_batch_drained_packet() {
+    let shared = Arc::new(Shared::new(RuntimeConfig::default()));
+    let scope = shared.begin_scope().expect("scope");
+    let drops = Arc::new(AtomicUsize::new(0));
+    for _ in 0..3 {
+        let guard = DropCount(Arc::clone(&drops));
+        shared
+            .submit(scope, "drained".into(), move || drop(guard))
+            .expect("submit");
+    }
+    let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
+    assert_eq!(kernel.inbox.drain_into(&mut kernel.incoming, 3), 3);
+
+    kernel.abort(None, TaskFailure::CarrierFailed);
+
+    assert!(kernel.incoming.is_empty());
+    assert_eq!(drops.load(Ordering::SeqCst), 3);
+    assert_eq!(shared.snapshot().active, 0);
+}
+
+#[test]
 fn delayed_abort_for_an_old_scope_preserves_every_new_scope_queue() {
     let shared = Arc::new(Shared::new(RuntimeConfig::default()));
     let old = shared.begin_scope().expect("old scope");

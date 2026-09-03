@@ -8,6 +8,10 @@ mod compare;
 mod work;
 use work::Counter;
 
+#[path = "cancellation_signature_iter.rs"]
+mod iter;
+use iter::Iter;
+
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct Work {
@@ -24,7 +28,15 @@ pub(super) struct Candidate {
 }
 
 #[derive(Clone, Default)]
-pub(super) struct Signature(Option<Arc<Node>>);
+pub(super) struct Signature(Root);
+
+#[derive(Clone, Default)]
+enum Root {
+    #[default]
+    Empty,
+    Singleton(usize),
+    Tree(Arc<Node>),
+}
 
 struct Node {
     kind: NodeKind,
@@ -45,26 +57,35 @@ enum NodeKind {
 
 impl Signature {
     pub(super) fn singleton(id: usize) -> Self {
-        Self(Some(Node::leaf(id, &mut Counter::new())))
+        Self(Root::Singleton(id))
     }
 
     pub(super) fn cardinality(&self) -> usize {
-        self.0.as_ref().map_or(0, |node| node.len)
+        match &self.0 {
+            Root::Empty => 0,
+            Root::Singleton(_) => 1,
+            Root::Tree(node) => node.len,
+        }
     }
 
     pub(super) fn candidate(&self) -> Candidate {
-        self.0.as_ref().map_or(
-            Candidate {
+        match &self.0 {
+            Root::Empty => Candidate {
                 len: 0,
                 xor: 0,
                 sum: 0,
             },
-            |node| Candidate {
+            Root::Singleton(id) => Candidate {
+                len: 1,
+                xor: atom(*id, 0x243f_6a88_85a3_08d3),
+                sum: atom(*id, 0x1319_8a2e_0370_7344),
+            },
+            Root::Tree(node) => Candidate {
                 len: node.len,
                 xor: node.xor,
                 sum: node.sum,
             },
-        )
+        }
     }
 
     pub(super) fn union(&self, other: &Self) -> Self {
@@ -79,10 +100,10 @@ impl Signature {
     }
 
     fn union_inner(&self, other: &Self, counter: &mut Counter) -> Self {
-        if self.0.is_none() {
+        if matches!(self.0, Root::Empty) {
             return other.clone();
         }
-        if other.0.is_none() || self.ptr_eq(other) {
+        if matches!(other.0, Root::Empty) || self.ptr_eq(other) {
             return self.clone();
         }
         if self.candidate() == other.candidate() && self.same_set_inner(other, counter) {
@@ -112,45 +133,54 @@ impl Signature {
     }
 
     fn same_set_inner(&self, other: &Self, counter: &mut Counter) -> bool {
-        self.ptr_eq(other)
-            || (self.candidate() == other.candidate()
-                && compare::same(self.0.as_ref(), other.0.as_ref(), counter))
+        if self.ptr_eq(other) {
+            return true;
+        }
+        if self.candidate() != other.candidate() {
+            return false;
+        }
+        match (&self.0, &other.0) {
+            (Root::Tree(left), Root::Tree(right)) => {
+                compare::same(Some(left), Some(right), counter)
+            }
+            _ => false,
+        }
     }
 
     fn ptr_eq(&self, other: &Self) -> bool {
         match (&self.0, &other.0) {
-            (Some(left), Some(right)) => Arc::ptr_eq(left, right),
-            (None, None) => true,
+            (Root::Empty, Root::Empty) => true,
+            (Root::Singleton(left), Root::Singleton(right)) => left == right,
+            (Root::Tree(left), Root::Tree(right)) => Arc::ptr_eq(left, right),
             _ => false,
         }
     }
 
     fn insert(&self, id: usize, counter: &mut Counter) -> Self {
-        let Some(root) = &self.0 else {
-            return Self(Some(Node::leaf(id, counter)));
+        let root = match &self.0 {
+            Root::Empty => return Self(Root::Singleton(id)),
+            Root::Singleton(existing) => {
+                if *existing == id {
+                    return self.clone();
+                }
+                Node::leaf(*existing, counter)
+            }
+            Root::Tree(root) => Arc::clone(root),
         };
         let routed = route(id);
-        let existing = find_leaf(root, routed);
+        let existing = find_leaf(&root, routed);
         if existing == id {
             return self.clone();
         }
         let differing = highest_bit(routed ^ route(existing));
         let leaf = Node::leaf(id, counter);
-        Self(Some(insert_at(
-            Arc::clone(root),
-            leaf,
-            routed,
-            differing,
-            counter,
+        Self(Root::Tree(insert_at(
+            root, leaf, routed, differing, counter,
         )))
     }
 
     fn iter(&self) -> Iter<'_> {
-        let mut iter = Iter { stack: Vec::new() };
-        if let Some(root) = &self.0 {
-            iter.stack.push(root);
-        }
-        iter
+        Iter::new(&self.0)
     }
 }
 
@@ -230,27 +260,6 @@ fn insert_at(
         Node::branch(bit, root, leaf, counter)
     } else {
         Node::branch(bit, leaf, root, counter)
-    }
-}
-
-struct Iter<'a> {
-    stack: Vec<&'a Arc<Node>>,
-}
-
-impl Iterator for Iter<'_> {
-    type Item = usize;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        while let Some(node) = self.stack.pop() {
-            match &node.kind {
-                NodeKind::Leaf(id) => return Some(*id),
-                NodeKind::Branch { left, right, .. } => {
-                    self.stack.push(right);
-                    self.stack.push(left);
-                }
-            }
-        }
-        None
     }
 }
 

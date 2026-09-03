@@ -106,7 +106,7 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
             }
         };
         let data = Rc::new(TaskContext::new(
-            record.lock().options.clone(),
+            record.lock().options().clone(),
             self.execution.shared().config.task_local_capacity(),
         ));
         let (id, root) = {

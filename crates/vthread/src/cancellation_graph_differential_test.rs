@@ -1,8 +1,5 @@
 use super::{Graph, Kind, Signature};
-use std::{
-    collections::BTreeSet,
-    sync::{Arc, atomic::AtomicBool},
-};
+use std::collections::BTreeSet;
 
 #[derive(Default)]
 struct Reference {
@@ -42,7 +39,7 @@ impl Reference {
 
 fn insert(graph: &mut Graph, reference: &mut Reference, parents: &[usize]) -> usize {
     let expected = reference.insert(parents);
-    let actual = graph.insert(parents, Arc::new(AtomicBool::new(false)));
+    let actual = graph.insert_inert(parents);
     assert_eq!(actual, expected);
     actual
 }

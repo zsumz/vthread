@@ -4,7 +4,10 @@ use crate::{
     task::{SharedTaskRecord, TaskCell, TaskRecord},
     wait::WaitCell,
 };
-use std::sync::Arc;
+use std::{
+    sync::{Arc, mpsc},
+    time::Duration,
+};
 
 fn task(capacity: usize) -> SharedTaskRecord {
     Arc::new(TaskCell::new(
@@ -12,8 +15,8 @@ fn task(capacity: usize) -> SharedTaskRecord {
             id: crate::TaskId::new(1),
             scope: 1,
             parent: None,
-            options: TaskOptions::root(ScopeOptions::default(), capacity),
-            name: Arc::from("completion owner"),
+            options: Some(TaskOptions::root(ScopeOptions::default(), capacity)),
+            name: "completion owner".into(),
             carrier: crate::CarrierId(0),
             deadline: None,
             failure: None,
@@ -56,4 +59,22 @@ fn subscription_retains_its_embedded_completion_owner() {
     assert!(retained.upgrade().is_some());
     drop(subscription);
     assert!(retained.upgrade().is_none());
+}
+
+#[test]
+fn completion_without_subscribers_does_not_lock_the_waiter_map() {
+    let task = task(1);
+    let waiter_map = crate::signal::lock(&task.completion().state);
+    let completing = Arc::clone(&task);
+    let (sent, received) = mpsc::sync_channel(1);
+    let worker = std::thread::spawn(move || {
+        completing.completion().complete();
+        sent.send(()).unwrap();
+    });
+
+    received
+        .recv_timeout(Duration::from_secs(1))
+        .expect("uncontended completion locked the empty waiter map");
+    drop(waiter_map);
+    worker.join().unwrap();
 }

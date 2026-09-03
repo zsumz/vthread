@@ -4,6 +4,7 @@
 mod control_admission;
 #[path = "control_completion.rs"]
 mod control_completion;
+pub(crate) use control_completion::CompletionUpdate;
 #[cfg(feature = "runtime-evidence")]
 #[path = "control_evidence.rs"]
 mod control_evidence;
@@ -11,6 +12,8 @@ mod control_evidence;
 mod control_scope;
 #[path = "control_snapshot.rs"]
 mod control_snapshot;
+#[path = "control_transition.rs"]
+mod control_transition;
 #[path = "control_wait.rs"]
 mod control_wait;
 
@@ -18,15 +21,16 @@ use std::{
     collections::BTreeMap,
     sync::{
         Arc, Mutex, OnceLock,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
 use crate::{
     CarrierId, CarrierSnapshot, CarrierStatus, RuntimeConfig, TaskId,
+    id_map::IdMap,
     inbox::Inbox,
     signal::{Signal, lock},
-    task::{SharedTaskRecord, TaskRecord},
+    task::SharedTaskRecord,
     task_progress::CarrierProgress,
 };
 
@@ -55,6 +59,7 @@ pub(crate) struct Shared {
     pub(crate) carrier_progress: Vec<CarrierProgress>,
     pub(crate) inboxes: Vec<Arc<Inbox>>,
     pub(crate) changed: Signal,
+    target_waiters: AtomicUsize,
     pub(crate) failures: Mutex<crate::ThreadFailures>,
     pub(crate) last_scope_failure:
         Mutex<Option<Arc<crate::scope_failure_report::ScopeFailureReport>>>,
@@ -84,7 +89,8 @@ struct State {
     loads: Vec<usize>,
     rejected: u64,
     admitted: u64,
-    records: BTreeMap<TaskId, SharedTaskRecord>,
+    records: IdMap<TaskId, SharedTaskRecord>,
+    record_cache: Vec<SharedTaskRecord>,
     carriers: Vec<CarrierSnapshot>,
 }
 
@@ -155,6 +161,7 @@ impl Shared {
                 .map(|_| CarrierProgress::new())
                 .collect(),
             changed: Signal::default(),
+            target_waiters: AtomicUsize::new(0),
             failures: Mutex::new(crate::ThreadFailures::default()),
             last_scope_failure: Mutex::new(None),
             #[cfg(test)]
@@ -181,7 +188,8 @@ impl Shared {
                 loads: vec![0; config.carriers()],
                 rejected: 0,
                 admitted: 0,
-                records: BTreeMap::new(),
+                records: IdMap::default(),
+                record_cache: Vec::new(),
                 carriers: (0..config.carriers())
                     .map(|id| CarrierSnapshot::new(CarrierId(id)))
                     .collect(),
@@ -266,26 +274,6 @@ impl Shared {
     pub(crate) fn record_failure(&self, mut failure: crate::ThreadFailure) {
         failure.shutdown_phase = lock(&self.state).shutdown_phase;
         lock(&self.failures).push(failure);
-        self.changed.notify();
-    }
-
-    pub(crate) fn transition(
-        &self,
-        record: &SharedTaskRecord,
-        update: impl FnOnce(&mut TaskRecord),
-    ) {
-        if self.config.stall_policy().timeout().is_none() {
-            update(&mut record.lock());
-            return;
-        }
-        let mut state = lock(&self.state);
-        let mut record = record.lock();
-        update(&mut record);
-        if let Some(scope) = state.scopes.get_mut(&record.scope) {
-            scope.activity = scope.activity.wrapping_add(1);
-        }
-        drop(record);
-        drop(state);
         self.changed.notify();
     }
 }

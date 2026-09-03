@@ -19,7 +19,6 @@ pub(crate) struct JoinCell<T> {
 pub struct JoinHandle<T> {
     shared: Arc<Shared>,
     id: TaskId,
-    name: Arc<str>,
     cell: Arc<Mutex<JoinCell<T>>>,
     record: SharedTaskRecord,
     taken: bool,
@@ -29,14 +28,12 @@ impl<T> JoinHandle<T> {
     pub(crate) fn new(
         shared: Arc<Shared>,
         id: TaskId,
-        name: Arc<str>,
         cell: Arc<Mutex<JoinCell<T>>>,
         record: SharedTaskRecord,
     ) -> Self {
         Self {
             shared,
             id,
-            name,
             cell,
             record,
             taken: false,
@@ -50,7 +47,7 @@ impl<T> JoinHandle<T> {
 
     /// Returns this child's token; cancelling it affects descendants, not its siblings.
     pub fn cancellation_token(&self) -> crate::CancellationToken {
-        self.record.lock().options.cancellation.clone()
+        self.record.lock().options().cancellation.clone()
     }
 
     /// Requests cooperative child cancellation without consuming its result handle.
@@ -116,23 +113,28 @@ impl<T> JoinHandle<T> {
             });
         }
         if let Some(panic) = panic {
-            return Err(Error::task_panicked(self.id, self.name.to_string(), panic));
+            let name = self.record.lock().name.to_string();
+            return Err(Error::task_panicked(self.id, name, panic));
         }
         let outcome = lock(&self.cell).outcome.take().ok_or(Error::fault(
             crate::error::FaultComponent::Scheduler,
             "completed task has no join outcome",
         ))?;
-        outcome.map_err(|panic| Error::task_panicked(self.id, self.name.to_string(), panic))
+        outcome.map_err(|panic| {
+            let name = self.record.lock().name.to_string();
+            Error::task_panicked(self.id, name, panic)
+        })
     }
 }
 
 impl<T> fmt::Debug for JoinHandle<T> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let record = self.record.lock();
         formatter
             .debug_struct("JoinHandle")
             .field("id", &self.id)
-            .field("name", &self.name)
-            .field("status", &self.record.lock().status)
+            .field("name", &record.name)
+            .field("status", &record.status)
             .finish_non_exhaustive()
     }
 }

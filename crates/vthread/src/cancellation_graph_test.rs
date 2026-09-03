@@ -1,8 +1,20 @@
 use super::Graph;
-use std::sync::{Arc, atomic::AtomicBool};
 
 fn insert(graph: &mut Graph, parents: &[usize]) -> usize {
-    graph.insert(parents, Arc::new(AtomicBool::new(false)))
+    graph.insert_inert(parents)
+}
+
+#[test]
+fn removing_a_leaf_preserves_its_parent_and_siblings() {
+    let mut graph = Graph::default();
+    let root = insert(&mut graph, &[]);
+    let removed = insert(&mut graph, &[root]);
+    let sibling = insert(&mut graph, &[root]);
+
+    graph.remove(removed);
+    assert_eq!(graph.snapshot(), (2, 0, 1));
+    graph.cancel(root);
+    assert!(graph.is_cancelled(sibling));
 }
 
 #[test]

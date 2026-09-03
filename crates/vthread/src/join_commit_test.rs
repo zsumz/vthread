@@ -25,7 +25,7 @@ fn after_completion(record: &SharedTaskRecord, deadline: Option<Instant>) -> Arc
     let mounted = context::current().unwrap();
     let execution = mounted.execution().unwrap();
     let parent = Arc::clone(execution.record());
-    let cancellation = execution.data.options().cancellation.clone();
+    let cancellation = execution.data.cancellation().clone();
     let child = record.lock().id;
     let checked = Arc::new(AtomicBool::new(false));
     let observed = Arc::clone(&checked);
