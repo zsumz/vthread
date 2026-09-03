@@ -51,3 +51,26 @@ fn mismatched_release_does_not_retire_an_unrelated_mapping() {
     assert!(pool.release_identified(second, second_stack));
     assert!(!pool.retire(first));
 }
+
+#[test]
+#[cfg(feature = "runtime-evidence")]
+fn allocations_carry_pool_local_identities_in_order() {
+    let mut pool = StackPool::new(64 * 1024, 2);
+    let (first, first_stack) = pool.acquire_identified().unwrap();
+    let (second, second_stack) = pool.acquire_identified().unwrap();
+    assert_eq!((first, second), (1, 2));
+    assert_eq!(first_stack.identity(), first);
+    assert_eq!(second_stack.identity(), second);
+}
+
+#[test]
+#[cfg(feature = "runtime-evidence")]
+fn stacks_issued_by_another_pool_are_discarded() {
+    let mut owner = StackPool::new(64 * 1024, 1);
+    let mut other = StackPool::new(64 * 1024, 1);
+    let (identity, stack) = owner.acquire_identified().unwrap();
+    assert!(!other.release_identified(identity, stack));
+    assert_eq!(other.snapshot().discarded, 1);
+    assert_eq!(other.snapshot().cached, 0);
+    assert!(owner.retire(identity), "the owner still tracks its mapping");
+}
