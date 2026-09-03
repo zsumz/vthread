@@ -26,6 +26,8 @@ mod mount;
 pub mod panic_payload;
 mod pool;
 mod scoped;
+mod stack;
+mod stack_unix;
 
 pub use fiber::{Fiber, FiberState, ParkRequest, ParkToken, Resume, SuspendError, Suspension};
 pub use lease::FiberLease;
@@ -34,6 +36,7 @@ pub use mount::ContextKey;
 pub use mount::suspend;
 pub use pool::{StackPool, StackPoolSnapshot};
 pub use scoped::{FiberScope, fiber_scope};
+pub use stack::{MappedStack, STACK_ALIGNMENT};
 
 #[cfg(test)]
 #[path = "lib_test.rs"]

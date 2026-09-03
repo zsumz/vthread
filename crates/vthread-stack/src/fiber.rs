@@ -7,9 +7,12 @@ use std::{
     time::Instant,
 };
 
-use corosensei::{Coroutine, CoroutineResult, stack::DefaultStack};
+use corosensei::{Coroutine, CoroutineResult};
 
-use crate::mount::{ContextSlot, MountGuard, RawYielder, YielderMount, mounted_yielder};
+use crate::{
+    MappedStack,
+    mount::{ContextSlot, MountGuard, RawYielder, YielderMount, mounted_yielder},
+};
 
 /// Identity for one generation of a parking operation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -106,13 +109,13 @@ impl Error for SuspendError {}
 /// require_send::<vthread_stack::Fiber>();
 /// ```
 pub struct Fiber {
-    coroutine: Option<Coroutine<Resume, Suspension, ()>>,
+    coroutine: Option<Coroutine<Resume, Suspension, (), MappedStack>>,
     yielder: NonNull<RawYielder>,
 }
 
 impl Fiber {
     /// Creates a fiber on an already allocated stack.
-    pub fn new<F>(stack: DefaultStack, entry: F) -> Self
+    pub fn new<F>(stack: MappedStack, entry: F) -> Self
     where
         F: FnOnce() + 'static,
     {
@@ -121,7 +124,7 @@ impl Fiber {
     }
 
     /// The caller must reclaim this fiber before the entry's borrows expire.
-    pub(crate) unsafe fn borrowed<F: FnOnce()>(stack: DefaultStack, entry: F) -> Self {
+    pub(crate) unsafe fn borrowed<F: FnOnce()>(stack: MappedStack, entry: F) -> Self {
         // SAFETY: the caller owns the entry's lifetime and guarantees reclamation.
         let coroutine = unsafe {
             Coroutine::with_stack_unchecked(stack, move |current, _resume| {
@@ -206,7 +209,7 @@ impl Fiber {
     /// Reclaims the stack after completion so it can be reused.
     ///
     /// Panics if incomplete; the fiber is still reclaimed with its yielder mounted.
-    pub fn into_stack(mut self) -> DefaultStack {
+    pub fn into_stack(mut self) -> MappedStack {
         // Keep ownership here on failure so Drop mounts the fiber for unwinding.
         assert!(
             self.is_complete(),

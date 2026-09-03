@@ -106,6 +106,7 @@ name = "vthread-stack"
 version = "0.0.2-rc.1"
 dependencies = [
  "corosensei",
+ "libc",
 ]
 
 [[package]]

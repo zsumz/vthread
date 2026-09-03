@@ -1,10 +1,9 @@
 //! Borrowed fibers whose executable state is revoked before their lexical scope exits.
 
 use crate::{
-    Fiber, FiberLease,
+    Fiber, FiberLease, MappedStack,
     panic_payload::{self, CapturedPanic},
 };
-use corosensei::stack::DefaultStack;
 use std::{
     cell::{Cell, RefCell},
     io,
@@ -31,7 +30,7 @@ impl<'scope, 'env> FiberScope<'scope, 'env> {
     /// Creates a local stack. The scope retains ownership even if its lease is forgotten.
     pub fn spawn(
         &'scope self,
-        stack: DefaultStack,
+        stack: MappedStack,
         entry: impl FnOnce() + 'scope,
     ) -> io::Result<FiberLease> {
         let mut fibers = self.registry.fibers.borrow_mut();
