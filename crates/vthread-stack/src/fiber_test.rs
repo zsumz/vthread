@@ -7,7 +7,12 @@ use std::{
 
 use corosensei::stack::DefaultStack;
 
-use super::{Fiber, FiberState, ParkRequest, ParkToken, Resume, Suspension, suspend};
+use crate::ContextKey;
+
+use super::{Fiber, FiberState, ParkRequest, ParkToken, Resume, Suspension};
+use crate::suspend;
+
+static TEST_CONTEXT: ContextKey<u64> = ContextKey::new();
 
 fn nested_yield() {
     suspend(Suspension::YieldNow).expect("fiber must be mounted");
@@ -93,6 +98,61 @@ fn suspension_outside_a_fiber_is_rejected() {
 }
 
 #[test]
+fn typed_context_tracks_each_resume_and_restores_the_caller() {
+    let observed = Rc::new(RefCell::new(Vec::new()));
+    let body_observed = Rc::clone(&observed);
+    let stack = DefaultStack::new(128 * 1024).expect("allocate stack");
+    let mut fiber = Fiber::new(stack, move || {
+        body_observed
+            .borrow_mut()
+            .push(TEST_CONTEXT.with(|value| *value));
+        nested_yield();
+        body_observed
+            .borrow_mut()
+            .push(TEST_CONTEXT.with(|value| *value));
+    });
+
+    assert!(TEST_CONTEXT.with(|_| ()).is_none());
+    assert_eq!(
+        fiber.resume_with_context(Resume::Continue, &TEST_CONTEXT, &7),
+        FiberState::Suspended(Suspension::YieldNow)
+    );
+    assert!(TEST_CONTEXT.with(|_| ()).is_none());
+    assert_eq!(
+        fiber.resume_with_context(Resume::Continue, &TEST_CONTEXT, &11),
+        FiberState::Complete
+    );
+    assert_eq!(&*observed.borrow(), &[Some(7), Some(11)]);
+    assert!(TEST_CONTEXT.with(|_| ()).is_none());
+    drop(fiber.into_stack());
+}
+
+#[test]
+fn nested_fiber_context_restores_the_outer_value() {
+    let inner_stack = DefaultStack::new(128 * 1024).expect("allocate inner stack");
+    let outer_stack = DefaultStack::new(128 * 1024).expect("allocate outer stack");
+    let mut outer = Fiber::new(outer_stack, move || {
+        assert_eq!(TEST_CONTEXT.with(|value| *value), Some(7));
+        let mut inner = Fiber::new(inner_stack, || {
+            assert_eq!(TEST_CONTEXT.with(|value| *value), Some(11));
+        });
+        assert_eq!(
+            inner.resume_with_context(Resume::Continue, &TEST_CONTEXT, &11),
+            FiberState::Complete
+        );
+        assert_eq!(TEST_CONTEXT.with(|value| *value), Some(7));
+        drop(inner.into_stack());
+    });
+
+    assert_eq!(
+        outer.resume_with_context(Resume::Continue, &TEST_CONTEXT, &7),
+        FiberState::Complete
+    );
+    assert!(TEST_CONTEXT.with(|_| ()).is_none());
+    drop(outer.into_stack());
+}
+
+#[test]
 fn panic_unwinds_values_on_the_fiber_stack() {
     struct DropFlag(Rc<Cell<bool>>);
 
@@ -110,8 +170,11 @@ fn panic_unwinds_values_on_the_fiber_stack() {
         panic!("task panic");
     });
 
-    let result = catch_unwind(AssertUnwindSafe(|| fiber.resume()));
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        fiber.resume_with_context(Resume::Continue, &TEST_CONTEXT, &7)
+    }));
     assert!(result.is_err());
+    assert!(TEST_CONTEXT.with(|_| ()).is_none());
     assert!(dropped.get());
     assert!(fiber.is_complete());
     drop(fiber.into_stack());
@@ -164,8 +227,5 @@ fn incomplete_stack_extraction_reclaims_with_its_yielder_mounted() {
 }
 
 fn has_mounted_yielder() -> bool {
-    // The guard captures and then restores the current mount without dereferencing it.
-    !super::MountGuard::install(std::ptr::null())
-        .previous
-        .is_null()
+    !crate::mount::mounted_yielder().is_null()
 }

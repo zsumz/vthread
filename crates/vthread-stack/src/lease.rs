@@ -41,6 +41,21 @@ impl FiberLease {
 
     /// Resumes a ready stack and delivers a decision to its last suspension point.
     pub fn resume_with(&self, resume: Resume) -> Option<FiberState> {
+        self.resume_using(|fiber| fiber.resume_with(resume))
+    }
+
+    /// Resumes a ready stack with typed runtime context for this resume only.
+    #[doc(hidden)]
+    pub fn resume_with_context<T>(
+        &self,
+        resume: Resume,
+        key: &'static crate::ContextKey<T>,
+        value: &T,
+    ) -> Option<FiberState> {
+        self.resume_using(|fiber| fiber.resume_with_context(resume, key, value))
+    }
+
+    fn resume_using(&self, mount: impl FnOnce(&mut Fiber) -> FiberState) -> Option<FiberState> {
         let fiber = {
             let mut state = self.0.borrow_mut();
             if state.phase == Phase::Reclaimed {
@@ -54,13 +69,7 @@ impl FiberLease {
             lease: self,
             fiber: Some(fiber),
         };
-        Some(
-            running
-                .fiber
-                .as_mut()
-                .expect("running fiber")
-                .resume_with(resume),
-        )
+        Some(mount(running.fiber.as_mut().expect("running fiber")))
     }
 
     /// Takes a completed stack. Every other phase retains ownership and returns None.

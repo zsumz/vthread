@@ -19,18 +19,24 @@ impl TaskMut<'_> {
         match self {
             Self::Owned(task) => {
                 let fiber = &mut task.fiber;
-                context::with_execution_slot(&mut task.execution, |execution| {
-                    dispatch_task(execution, shared, carrier, |resume| {
-                        fiber.as_mut().expect("mounted stack").resume_with(resume)
-                    })
+                let execution = task.execution.as_ref().expect("task execution");
+                dispatch_task(execution, shared, carrier, |resume| {
+                    fiber.as_mut().expect("mounted stack").resume_with_context(
+                        resume,
+                        &context::MOUNTED_EXECUTION,
+                        execution,
+                    )
                 })
             }
             Self::Borrowed(task) => {
                 let fiber = &mut task.fiber;
-                context::with_execution_slot(&mut task.execution, |execution| {
-                    dispatch_task(execution, shared, carrier, |resume| {
-                        fiber.as_mut().expect("mounted stack").resume_with(resume)
-                    })
+                let execution = task.execution.as_ref().expect("task execution");
+                dispatch_task(execution, shared, carrier, |resume| {
+                    fiber.as_mut().expect("mounted stack").resume_with_context(
+                        resume,
+                        &context::MOUNTED_EXECUTION,
+                        execution,
+                    )
                 })
             }
         }
