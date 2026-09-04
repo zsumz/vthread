@@ -1,5 +1,6 @@
 use crate::{
     config::{Config, Scenario},
+    may_channel::spawn_channel_pairs,
     report::{Round, measure},
     wake_clock::{WakeClock, WakeStamp},
 };
@@ -113,32 +114,6 @@ macro_rules! spawn_mutex_tasks {
     }};
 }
 
-macro_rules! spawn_channel_pairs {
-    ($scope:expr, $tasks:expr, $iterations:expr, $channel:expr) => {
-        for _ in 0..$tasks / 2 {
-            let (to_b, from_a) = ($channel)();
-            let (to_a, from_b) = ($channel)();
-            may::go!($scope, move || {
-                to_b.send(0).expect("peer must remain connected");
-                for index in 0..$iterations {
-                    let value = from_b.recv().expect("peer must send a value");
-                    black_box(value);
-                    if index + 1 != $iterations {
-                        to_b.send(value + 1).expect("peer must remain connected");
-                    }
-                }
-            });
-            may::go!($scope, move || {
-                for _ in 0..$iterations {
-                    let value = from_a.recv().expect("peer must send a value");
-                    black_box(value);
-                    to_a.send(value + 1).expect("peer must remain connected");
-                }
-            });
-        }
-    };
-}
-
 macro_rules! spawn_wake_tail_pairs {
     ($scope:expr, $tasks:expr, $iterations:expr) => {{
         let mut handles = Vec::with_capacity($tasks);
@@ -212,27 +187,48 @@ fn run_round(config: &Config, observe_placement: bool) -> Result<Round, String> 
                     may::go!(scope, || ());
                 }
             }
-            Scenario::Park { per_task } => spawn_park_pairs!(
-                scope,
-                config.tasks,
-                per_task,
-                observe_placement,
-                placement_probes
-            ),
+            Scenario::Park { per_task } => {
+                if observe_placement {
+                    spawn_park_pairs!(scope, config.tasks, per_task, true, placement_probes);
+                } else {
+                    spawn_park_pairs!(scope, config.tasks, per_task, false, placement_probes);
+                }
+            }
             Scenario::Mutex {
                 per_task,
                 contended,
             } => {
                 spawn_mutex_tasks!(scope, config.tasks, per_task, config.workers, contended)
             }
-            Scenario::Channel { per_task, capacity } => match capacity {
-                None => spawn_channel_pairs!(scope, config.tasks, per_task, || {
-                    may::sync::mpsc::channel()
-                }),
-                Some(capacity) => spawn_channel_pairs!(scope, config.tasks, per_task, || {
-                    crate::may_bounded_channel::bounded(capacity)
-                }),
-            },
+            Scenario::Channel { per_task, capacity } => {
+                macro_rules! spawn {
+                    ($observe:expr) => {
+                        match capacity {
+                            None => spawn_channel_pairs!(
+                                scope,
+                                config.tasks,
+                                per_task,
+                                || may::sync::mpsc::channel(),
+                                $observe,
+                                placement_probes
+                            ),
+                            Some(capacity) => spawn_channel_pairs!(
+                                scope,
+                                config.tasks,
+                                per_task,
+                                || crate::may_bounded_channel::bounded(capacity),
+                                $observe,
+                                placement_probes
+                            ),
+                        }
+                    };
+                }
+                if observe_placement {
+                    spawn!(true);
+                } else {
+                    spawn!(false);
+                }
+            }
             Scenario::Tcp { per_task } => {
                 let address = address.expect("TCP peer address");
                 let mut clients = Vec::with_capacity(config.tasks);
