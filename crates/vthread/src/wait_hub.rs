@@ -1,19 +1,16 @@
-//! Bounded owner-carrier wake inbox: one reserved slot per active generation.
+//! Bounded owner-carrier wake inbox: one queue slot per admitted live task.
 
-use std::{
-    collections::VecDeque,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
-    },
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicU64, Ordering},
 };
 
 use vthread_stack::ParkToken;
 
 use crate::{
-    Error, Result,
     signal::{Signal, lock},
     wait::WakeNotice,
+    wake_queue::WakeQueue,
 };
 
 #[cfg(feature = "runtime-evidence")]
@@ -21,25 +18,27 @@ type EvidenceEmitter = crate::diagnostics::evidence::Emitter;
 #[cfg(not(feature = "runtime-evidence"))]
 type EvidenceEmitter = ();
 
-#[derive(Default)]
-struct HubState {
-    ready: VecDeque<WakeNotice>,
-}
-
 pub(crate) struct WaitHub {
+    #[cfg(feature = "runtime-evidence")]
     capacity: usize,
-    state: Mutex<HubState>,
-    reserved: AtomicUsize,
-    pending: AtomicUsize,
+    ready: WakeQueue,
+    maintenance: Mutex<()>,
     stale: AtomicU64,
     signal: Arc<Signal>,
+    tracked_tasks: Option<Mutex<Vec<crate::TaskId>>>,
+    #[cfg(test)]
+    push_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     #[cfg(feature = "runtime-evidence")]
     evidence: Option<crate::diagnostics::evidence::Emitter>,
 }
 
 impl WaitHub {
     pub(crate) fn new(capacity: usize, signal: Arc<Signal>) -> Self {
-        Self::construct(capacity, signal, None)
+        Self::construct(capacity, signal, None, false)
+    }
+
+    pub(crate) fn new_tracked(capacity: usize, signal: Arc<Signal>) -> Self {
+        Self::construct(capacity, signal, None, true)
     }
 
     #[cfg(feature = "runtime-evidence")]
@@ -47,123 +46,134 @@ impl WaitHub {
         capacity: usize,
         signal: Arc<Signal>,
         evidence: crate::diagnostics::evidence::Emitter,
+        track_tasks: bool,
     ) -> Self {
-        Self::construct(capacity, signal, Some(evidence))
+        Self::construct(capacity, signal, Some(evidence), track_tasks)
     }
 
-    fn construct(capacity: usize, signal: Arc<Signal>, evidence: Option<EvidenceEmitter>) -> Self {
+    fn construct(
+        capacity: usize,
+        signal: Arc<Signal>,
+        evidence: Option<EvidenceEmitter>,
+        track_tasks: bool,
+    ) -> Self {
         #[cfg(not(feature = "runtime-evidence"))]
         let _ = evidence;
         Self {
+            #[cfg(feature = "runtime-evidence")]
             capacity,
-            state: Mutex::default(),
-            reserved: AtomicUsize::new(0),
-            pending: AtomicUsize::new(0),
+            ready: WakeQueue::new(capacity),
+            maintenance: Mutex::default(),
             stale: AtomicU64::new(0),
             signal,
+            tracked_tasks: track_tasks.then(|| Mutex::new(Vec::with_capacity(capacity))),
+            #[cfg(test)]
+            push_hook: Mutex::new(None),
             #[cfg(feature = "runtime-evidence")]
             evidence,
         }
     }
 
-    pub(crate) fn reserve(&self) -> Result<()> {
-        if self
-            .reserved
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |reserved| {
-                (reserved < self.capacity).then_some(reserved + 1)
-            })
-            .is_err()
-        {
-            #[cfg(feature = "runtime-evidence")]
-            self.record(
-                crate::diagnostics::evidence::RuntimeEventKind::AdmissionRejected {
-                    resource: crate::error::CapacityResource::Waiters,
-                    limit: self.capacity,
-                },
-            );
-            return Err(Error::Capacity {
-                resource: crate::error::CapacityResource::Waiters,
-                limit: self.capacity,
-            });
-        }
-        Ok(())
-    }
-
     pub(crate) fn discard_notice(&self, token: ParkToken) {
-        let mut hub = lock(&self.state);
-        let _previous = hub.ready.len();
-        hub.ready.retain(|notice| notice.token != token);
-        let _depth = hub.ready.len();
-        self.pending.store(_depth, Ordering::SeqCst);
+        let _maintenance = lock(&self.maintenance);
+        let initial_depth = self.ready.pending();
+        let mut retained = Vec::with_capacity(initial_depth);
+        for _ in 0..initial_depth {
+            let Some(notice) = self.pop(false) else {
+                break;
+            };
+            if notice.token != token {
+                retained.push(notice);
+            }
+        }
+        for notice in retained {
+            self.push(notice, false)
+                .expect("bounded wake fits while discarding");
+        }
+        let _depth = self.pending();
         #[cfg(feature = "runtime-evidence")]
-        if _depth != _previous {
+        if _depth != initial_depth {
             self.record_depth(_depth);
         }
     }
 
     pub(crate) fn enqueue(&self, notice: WakeNotice) {
-        let mut hub = lock(&self.state);
-        if hub.ready.len() >= self.reserved.load(Ordering::Acquire) {
+        if self.push(notice, true).is_err() {
             self.stale.fetch_add(1, Ordering::Relaxed);
-            return;
-        }
-        let was_empty = hub.ready.is_empty();
-        // Selection is serialized by WaitState; each notice owns one reservation.
-        hub.ready.push_back(notice);
-        let _depth = hub.ready.len();
-        // Pairs with Signal's sequentially consistent waiter registration so
-        // a notifier may skip the condvar when the carrier has not armed yet.
-        self.pending.store(_depth, Ordering::SeqCst);
-        #[cfg(feature = "runtime-evidence")]
-        self.record_depth(_depth);
-        drop(hub);
-        if was_empty {
-            self.signal.notify_if_waiting();
         }
     }
 
     pub(crate) fn pop_wake(&self) -> Option<WakeNotice> {
-        if self.pending.load(Ordering::Acquire) == 0 {
-            return None;
-        }
-        let mut hub = lock(&self.state);
-        let notice = hub.ready.pop_front()?;
-        let _depth = hub.ready.len();
-        self.pending.store(_depth, Ordering::Release);
-        #[cfg(feature = "runtime-evidence")]
-        self.record_depth(_depth);
-        drop(hub);
-        Some(notice)
+        self.pop(true)
     }
 
     pub(crate) fn pending(&self) -> usize {
-        self.pending.load(Ordering::Acquire)
+        self.ready.pending()
     }
 
-    pub(crate) fn pending_for_wait(&self) -> usize {
-        self.pending.load(Ordering::SeqCst)
+    pub(crate) fn has_pending(&self) -> bool {
+        self.ready.has_pending()
+    }
+
+    pub(crate) fn wait(&self, observed: u64, deadline: Option<std::time::Instant>) {
+        self.signal
+            .wait_while(observed, deadline, || self.ready.arm_wait());
+        self.ready.disarm_wait();
     }
 
     pub(crate) fn pending_tasks(&self) -> Vec<crate::TaskId> {
-        lock(&self.state)
-            .ready
-            .iter()
-            .map(|notice| notice.task)
-            .collect()
+        self.tracked_tasks
+            .as_ref()
+            .map_or_else(Vec::new, |tasks| lock(tasks).clone())
     }
 
     pub(crate) fn stale(&self) -> u64 {
         self.stale.load(Ordering::Relaxed)
     }
 
-    pub(crate) fn release(&self) {
-        let previous = self.reserved.fetch_sub(1, Ordering::AcqRel);
-        assert!(previous != 0, "wait reservation released twice");
+    fn push(&self, notice: WakeNotice, record: bool) -> std::result::Result<(), WakeNotice> {
+        let task = notice.task;
+        let sleeping = self.ready.push(notice, || {
+            if let Some(tasks) = &self.tracked_tasks {
+                lock(tasks).push(task);
+            }
+            #[cfg(test)]
+            if let Some(hook) = lock(&self.push_hook).take() {
+                hook();
+            }
+        })?;
+        #[cfg(feature = "runtime-evidence")]
+        if record {
+            self.record_depth(self.pending());
+        }
+        #[cfg(not(feature = "runtime-evidence"))]
+        let _ = record;
+        if sleeping {
+            self.signal.notify_if_waiting();
+        }
+        Ok(())
     }
 
     #[cfg(test)]
-    pub(crate) fn reserved(&self) -> usize {
-        self.reserved.load(Ordering::Acquire)
+    pub(crate) fn before_pending_publication(&self, hook: impl FnOnce() + Send + 'static) {
+        *lock(&self.push_hook) = Some(Box::new(hook));
+    }
+
+    fn pop(&self, record: bool) -> Option<WakeNotice> {
+        let notice = self.ready.pop()?;
+        if let Some(tasks) = &self.tracked_tasks {
+            let mut tasks = lock(tasks);
+            if let Some(index) = tasks.iter().position(|task| *task == notice.task) {
+                tasks.swap_remove(index);
+            }
+        }
+        #[cfg(feature = "runtime-evidence")]
+        if record {
+            self.record_depth(self.pending());
+        }
+        #[cfg(not(feature = "runtime-evidence"))]
+        let _ = record;
+        Some(notice)
     }
 
     #[cfg(feature = "runtime-evidence")]

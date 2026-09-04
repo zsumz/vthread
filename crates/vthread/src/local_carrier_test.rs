@@ -1,5 +1,5 @@
 use super::LocalCarrier;
-use crate::{RuntimeConfig, TaskId, wait::WakeCause, wait::WakeNotice};
+use crate::{RuntimeConfig, TaskId, task_slab::TaskKey, wait::WakeCause, wait::WakeNotice};
 use vthread_stack::ParkToken;
 
 #[test]
@@ -15,11 +15,13 @@ fn local_wakes_are_fifo_and_can_be_unregistered_exactly() {
     let first = WakeNotice {
         token: ParkToken::new(1, 1),
         task: TaskId::new(1),
+        route: TaskKey::owned(0),
         cause: WakeCause::Ready,
     };
     let second = WakeNotice {
         token: ParkToken::new(2, 1),
         task: TaskId::new(2),
+        route: TaskKey::owned(1),
         cause: WakeCause::Ready,
     };
     carrier.push_wake(first);

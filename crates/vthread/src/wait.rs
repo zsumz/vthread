@@ -1,26 +1,26 @@
 //! Modeled wait generations and scheduler registration.
 
+#[path = "wait_begin.rs"]
+mod wait_begin;
 #[path = "wait_evidence.rs"]
 mod wait_evidence;
 #[path = "wait_select.rs"]
 mod wait_select;
+#[path = "wait_state.rs"]
+mod wait_state;
+#[path = "wait_target.rs"]
+mod wait_target;
 
-use crate::signal::lock;
-pub(crate) use crate::wait_hub::WaitHub;
-use wait_evidence::SelectionRejection;
-pub(crate) use wait_select::{NotifyResult, ResourceSelection};
-
-use std::{
-    sync::{
-        Arc, Mutex, Weak,
-        atomic::{AtomicU64, Ordering},
-    },
-    time::Instant,
-};
+use std::sync::{Arc, Weak, atomic::AtomicU64};
 
 use vthread_stack::{ParkRequest, ParkToken};
 
-use crate::{Error, Result, TaskId};
+pub(crate) use crate::wait_hub::WaitHub;
+use crate::{Error, Result, TaskId, task_slab::TaskKey};
+use wait_evidence::SelectionRejection;
+pub(crate) use wait_select::{NotifyResult, ResourceSelection};
+use wait_state::Phase;
+pub(crate) use wait_target::WaitInner;
 
 static NEXT_WAIT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -37,6 +37,7 @@ pub(crate) enum WakeCause {
 pub(crate) struct WakeNotice {
     pub(crate) token: ParkToken,
     pub(crate) task: TaskId,
+    pub(crate) route: TaskKey,
     pub(crate) cause: WakeCause,
 }
 
@@ -50,7 +51,7 @@ pub(crate) enum WaitBegin {
 
 #[derive(Clone)]
 pub(crate) struct WaitRegistration {
-    pub(crate) state: Weak<Mutex<WaitState>>,
+    pub(crate) state: Weak<WaitInner>,
     #[cfg(feature = "runtime-evidence")]
     pub(crate) task: Option<TaskId>,
     #[cfg(feature = "runtime-evidence")]
@@ -59,7 +60,7 @@ pub(crate) struct WaitRegistration {
 
 #[derive(Clone)]
 pub(crate) struct WaitCell {
-    state: Arc<Mutex<WaitState>>,
+    state: Arc<WaitInner>,
 }
 
 pub(crate) struct ParkGuard<'a> {
@@ -74,6 +75,7 @@ impl ParkGuard<'_> {
         self.armed = false;
     }
 }
+
 impl Drop for ParkGuard<'_> {
     fn drop(&mut self) {
         if self.armed {
@@ -88,31 +90,53 @@ impl Default for WaitCell {
     }
 }
 
-struct ActiveWait {
-    token: ParkToken,
-    task: TaskId,
-    hub: Arc<WaitHub>,
-    #[cfg(feature = "runtime-evidence")]
-    evidence: Option<crate::diagnostics::evidence::Emitter>,
-}
+impl WaitRegistration {
+    pub(crate) fn cached(state: &Arc<WaitInner>) -> Self {
+        #[cfg(feature = "runtime-evidence")]
+        let (task, evidence) = {
+            let word = state.load();
+            state.with_target(word, |task, _, hub| (Some(task), hub.evidence()))
+        };
+        Self {
+            state: Arc::downgrade(state),
+            #[cfg(feature = "runtime-evidence")]
+            task,
+            #[cfg(feature = "runtime-evidence")]
+            evidence,
+        }
+    }
 
-impl Drop for ActiveWait {
-    fn drop(&mut self) {
-        self.hub.release();
+    pub(crate) fn same_cell(&self, other: &Self) -> bool {
+        Weak::ptr_eq(&self.state, &other.state)
+    }
+
+    pub(crate) fn token(&self, generation: u64) -> Option<ParkToken> {
+        let state = self.state.upgrade()?;
+        Some(ParkToken::new(state.id, generation))
     }
 }
 
-pub(crate) struct WaitState {
-    id: u64,
-    generation: u64,
-    permit: bool,
-    closed: bool,
-    active: Option<ActiveWait>,
-    selected: Option<WakeCause>,
-    resource: Option<ResourceSelection>,
-}
-
 impl WaitCell {
+    #[cfg(test)]
+    pub(crate) fn registration(&self) -> WaitRegistration {
+        #[cfg(feature = "runtime-evidence")]
+        let word = self.state.load();
+        #[cfg(feature = "runtime-evidence")]
+        let (task, evidence) = if matches!(word.phase(), Phase::Idle | Phase::Binding) {
+            (None, None)
+        } else {
+            self.state
+                .with_target(word, |task, _, hub| (Some(task), hub.evidence()))
+        };
+        WaitRegistration {
+            state: Arc::downgrade(&self.state),
+            #[cfg(feature = "runtime-evidence")]
+            task,
+            #[cfg(feature = "runtime-evidence")]
+            evidence,
+        }
+    }
+
     pub(crate) fn guard(&self, token: ParkToken) -> ParkGuard<'_> {
         ParkGuard {
             wait: self,
@@ -122,7 +146,7 @@ impl WaitCell {
     }
 
     pub(crate) fn identity(&self) -> u64 {
-        lock(&self.state).id
+        self.state.id
     }
 
     #[inline]
@@ -131,158 +155,86 @@ impl WaitCell {
     }
 
     pub(crate) fn recycle(&self) -> bool {
-        let mut state = lock(&self.state);
-        if state.closed || state.active.is_some() {
-            return false;
-        }
-        state.permit = false;
-        state.selected = None;
-        state.resource = None;
-        true
-    }
-
-    #[cfg(test)]
-    pub(crate) fn registration(&self) -> WaitRegistration {
-        #[cfg(feature = "runtime-evidence")]
-        let state = lock(&self.state);
-        #[cfg(feature = "runtime-evidence")]
-        let active = state.active.as_ref();
-        WaitRegistration {
-            state: Arc::downgrade(&self.state),
-            #[cfg(feature = "runtime-evidence")]
-            task: active.map(|active| active.task),
-            #[cfg(feature = "runtime-evidence")]
-            evidence: active.and_then(|active| active.evidence.clone()),
+        let mut word = self.state.load();
+        loop {
+            if word.phase() != Phase::Idle || word.is_closed() {
+                return false;
+            }
+            let recycled = word.with_permit(false).with_resource(None);
+            match self.state.compare_exchange(word, recycled) {
+                Ok(()) => return true,
+                Err(observed) => word = observed,
+            }
         }
     }
 
     pub(crate) fn new() -> Self {
         let id = NEXT_WAIT_ID
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-                current.checked_add(1)
-            })
+            .fetch_update(
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+                |current| current.checked_add(1),
+            )
             .expect("parking identity space exhausted");
         Self {
-            state: Arc::new(Mutex::new(WaitState {
-                id,
-                generation: 0,
-                permit: false,
-                closed: false,
-                active: None,
-                selected: None,
-                resource: None,
-            })),
+            state: Arc::new(WaitInner::new(id)),
         }
-    }
-
-    pub(crate) fn begin(
-        &self,
-        task: TaskId,
-        hub: &Arc<WaitHub>,
-        deadline: Option<Instant>,
-    ) -> Result<WaitBegin> {
-        let mut state = lock(&self.state);
-        if state.active.is_some() {
-            return Err(Error::ParkerBusy);
-        }
-        if state.closed {
-            return Ok(WaitBegin::Immediate(WakeCause::Closed));
-        }
-        if state.permit {
-            state.permit = false;
-            return Ok(WaitBegin::Immediate(WakeCause::Ready));
-        }
-        if deadline.is_some_and(|deadline| deadline <= Instant::now()) {
-            return Ok(WaitBegin::Immediate(WakeCause::TimedOut));
-        }
-
-        let generation = state.generation.checked_add(1).ok_or(Error::fault(
-            crate::error::FaultComponent::Scheduler,
-            "wait generation space exhausted",
-        ))?;
-        state.generation = generation;
-        let token = ParkToken::new(state.id, generation);
-        hub.reserve()?;
-        state.active = Some(ActiveWait {
-            token,
-            task,
-            hub: Arc::clone(hub),
-            #[cfg(feature = "runtime-evidence")]
-            evidence: hub.evidence(),
-        });
-        state.selected = None;
-        #[cfg(feature = "runtime-evidence")]
-        hub.record(
-            crate::diagnostics::evidence::RuntimeEventKind::WaitPublished {
-                task,
-                wait: crate::diagnostics::evidence::WaitKey::from_token(token),
-                has_deadline: deadline.is_some(),
-            },
-        );
-        let registration = WaitRegistration {
-            state: Arc::downgrade(&self.state),
-            #[cfg(feature = "runtime-evidence")]
-            task: Some(task),
-            #[cfg(feature = "runtime-evidence")]
-            evidence: hub.evidence(),
-        };
-        drop(state);
-        Ok(WaitBegin::Park {
-            request: ParkRequest::new(token, deadline),
-            registration,
-        })
     }
 
     pub(crate) fn finish(&self, token: ParkToken) -> Result<WakeCause> {
-        let mut state = lock(&self.state);
-        let active = state.active.as_ref().ok_or(Error::fault(
-            crate::error::FaultComponent::Scheduler,
-            "resumed parker has no active wait",
-        ))?;
-        if active.token != token {
-            return Err(Error::fault(
-                crate::error::FaultComponent::Scheduler,
-                "resumed parker generation changed",
-            ));
+        if token.wait() != self.state.id {
+            return Err(resumed_generation_fault());
         }
-        #[cfg(feature = "runtime-evidence")]
-        let task = active.task;
-        #[cfg(feature = "runtime-evidence")]
-        let evidence = active.evidence.clone();
-        let cause = state.selected.take().ok_or(Error::fault(
-            crate::error::FaultComponent::Scheduler,
-            "resumed parker has no selected wake",
-        ))?;
-        state.active = None;
-        drop(state);
-        #[cfg(feature = "runtime-evidence")]
-        if let Some(evidence) = evidence {
-            evidence.record(crate::diagnostics::evidence::RuntimeEventKind::Resumed {
-                task,
-                wait: crate::diagnostics::evidence::WaitKey::from_token(token),
-                cause: cause.evidence(),
-            });
+        loop {
+            let word = self.state.load();
+            if word.generation() != token.generation() {
+                return Err(resumed_generation_fault());
+            }
+            if word.is_claimed()
+                || word.phase() == Phase::Binding
+                || (word.selected_cause().is_some() && !self.state.is_published(word.generation()))
+            {
+                std::hint::spin_loop();
+                continue;
+            }
+            let Some(cause) = word.selected_cause() else {
+                return Err(Error::fault(
+                    crate::error::FaultComponent::Scheduler,
+                    "resumed parker has no selected wake",
+                ));
+            };
+            #[cfg(feature = "runtime-evidence")]
+            let resumed = self
+                .state
+                .with_target(word, |task, _, hub| (task, hub.evidence()));
+            if self.state.compare_exchange(word, word.retire()).is_ok() {
+                #[cfg(feature = "runtime-evidence")]
+                if let (task, Some(evidence)) = resumed {
+                    evidence.record(crate::diagnostics::evidence::RuntimeEventKind::Resumed {
+                        task,
+                        wait: crate::diagnostics::evidence::WaitKey::from_token(token),
+                        cause: cause.evidence(),
+                    });
+                }
+                return Ok(cause);
+            }
         }
-        Ok(cause)
     }
 
     pub(crate) fn rollback(&self, token: ParkToken) {
-        let hub = {
-            let mut state = lock(&self.state);
-            let Some(active) = state.active.as_ref() else {
-                return;
-            };
-            if active.token != token {
-                return;
-            }
-            let hub = Arc::clone(&active.hub);
-            state.active = None;
-            state.selected = None;
-            hub
+        let Some(hub) = self.state.retire(token) else {
+            return;
         };
         crate::context::unregister_local_wake(&hub, token);
         hub.discard_notice(token);
     }
+}
+
+fn resumed_generation_fault() -> Error {
+    Error::fault(
+        crate::error::FaultComponent::Scheduler,
+        "resumed parker generation changed",
+    )
 }
 
 #[cfg(test)]

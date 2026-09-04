@@ -1,103 +1,9 @@
-//! Carrier-local stackful fiber wrapper.
+//! Carrier-local stackful fiber.
 
-use std::{
-    error::Error,
-    fmt,
-    ptr::{self, NonNull},
-    time::Instant,
+use crate::{
+    FiberState, MappedStack, Resume, engine,
+    mount::{ContextSlot, CoreMount, MountGuard},
 };
-
-use corosensei::{Coroutine, CoroutineResult, stack::DefaultStack};
-
-use crate::mount::{ContextSlot, MountGuard, RawYielder, YielderMount, mounted_yielder};
-
-/// Identity for one generation of a parking operation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ParkToken {
-    wait: u64,
-    generation: u64,
-}
-
-impl ParkToken {
-    /// Creates a scheduler-visible token.
-    pub fn new(wait: u64, generation: u64) -> Self {
-        Self { wait, generation }
-    }
-
-    /// Returns the stable parking-object identity.
-    pub fn wait(self) -> u64 {
-        self.wait
-    }
-
-    /// Returns the monotonically increasing wait generation.
-    pub fn generation(self) -> u64 {
-        self.generation
-    }
-}
-
-/// Scheduler data supplied when a task parks.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ParkRequest {
-    token: ParkToken,
-    deadline: Option<Instant>,
-}
-
-impl ParkRequest {
-    /// Creates a parking request with an optional monotonic deadline.
-    pub fn new(token: ParkToken, deadline: Option<Instant>) -> Self {
-        Self { token, deadline }
-    }
-
-    /// Returns the wait token.
-    pub fn token(&self) -> ParkToken {
-        self.token
-    }
-
-    /// Returns the monotonic deadline, if one exists.
-    pub fn deadline(&self) -> Option<Instant> {
-        self.deadline
-    }
-}
-
-/// A reason a mounted fiber returned control to its carrier.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Suspension {
-    /// The virtual thread cooperatively yielded its turn.
-    YieldNow,
-    /// The virtual thread parked on a modeled wait generation.
-    Park(ParkRequest),
-}
-
-/// The outcome of mounting a fiber once.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FiberState {
-    /// Execution suspended with the supplied reason.
-    Suspended(Suspension),
-    /// The fiber returned from its entry function.
-    Complete,
-}
-
-/// A carrier decision delivered to the operation that suspended the fiber.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Resume {
-    /// Continue the suspended operation normally.
-    #[default]
-    Continue,
-    /// Recheck runtime policy before the suspended operation returns.
-    Interrupt,
-}
-
-/// Suspension was requested without a mounted fiber.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SuspendError;
-
-impl fmt::Display for SuspendError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("no virtual-thread stack is mounted on this carrier")
-    }
-}
-
-impl Error for SuspendError {}
 
 /// One carrier-local stackful execution context.
 ///
@@ -106,13 +12,12 @@ impl Error for SuspendError {}
 /// require_send::<vthread_stack::Fiber>();
 /// ```
 pub struct Fiber {
-    coroutine: Option<Coroutine<Resume, Suspension, ()>>,
-    yielder: NonNull<RawYielder>,
+    execution: Option<engine::Execution>,
 }
 
 impl Fiber {
     /// Creates a fiber on an already allocated stack.
-    pub fn new<F>(stack: DefaultStack, entry: F) -> Self
+    pub fn new<F>(stack: MappedStack, entry: F) -> Self
     where
         F: FnOnce() + 'static,
     {
@@ -121,37 +26,24 @@ impl Fiber {
     }
 
     /// The caller must reclaim this fiber before the entry's borrows expire.
-    pub(crate) unsafe fn borrowed<F: FnOnce()>(stack: DefaultStack, entry: F) -> Self {
+    pub(crate) unsafe fn borrowed<F: FnOnce()>(stack: MappedStack, entry: F) -> Self {
         // SAFETY: the caller owns the entry's lifetime and guarantees reclamation.
-        let coroutine = unsafe {
-            Coroutine::with_stack_unchecked(stack, move |current, _resume| {
-                let pointer = current as *const RawYielder;
-                let _mount = YielderMount::install(pointer);
-                entry();
-            })
-        };
+        let execution = unsafe { engine::Execution::start(stack, entry) };
         Self {
-            coroutine: Some(coroutine),
-            yielder: NonNull::dangling(),
-        }
-    }
-
-    fn mounted_yielder(&self) -> *const RawYielder {
-        if self.yielder == NonNull::dangling() {
-            ptr::null()
-        } else {
-            self.yielder.as_ptr()
+            execution: Some(execution),
         }
     }
 
     /// Mounts the fiber until it suspends or completes.
     ///
-    /// Panics if the fiber has already completed, without mounting its old yielder.
+    /// Panics if the fiber has already completed, without mounting its old control block.
+    #[inline]
     pub fn resume(&mut self) -> FiberState {
         self.resume_with(Resume::Continue)
     }
 
     /// Mounts the fiber and delivers a decision to its last suspension point.
+    #[inline]
     pub fn resume_with(&mut self, resume: Resume) -> FiberState {
         self.resume_mounted(resume, None)
     }
@@ -173,46 +65,31 @@ impl Fiber {
     fn resume_mounted(&mut self, resume: Resume, context: Option<&ContextSlot<'_>>) -> FiberState {
         // Reject the transition before a panic hook can observe a stale mount.
         assert!(!self.is_complete(), "a completed fiber cannot be resumed");
-        let _mount = MountGuard::install(self.mounted_yielder(), context);
-        let coroutine = self
-            .coroutine
+        let execution = self
+            .execution
             .as_mut()
             .expect("a completed fiber cannot be resumed");
-        let state = match coroutine.resume(resume) {
-            CoroutineResult::Yield(reason) => FiberState::Suspended(reason),
-            CoroutineResult::Return(()) => FiberState::Complete,
-        };
-        match &state {
-            FiberState::Suspended(_) if self.yielder == NonNull::dangling() => {
-                // The yielder lives on this coroutine's owned stack. Its entry
-                // installed the pointer before the first possible suspension.
-                let yielder = mounted_yielder();
-                self.yielder =
-                    NonNull::new(yielder.cast_mut()).expect("suspended fiber has no yielder");
-            }
-            FiberState::Suspended(_) => {}
-            FiberState::Complete => self.yielder = NonNull::dangling(),
-        }
-        state
+        let _mount = MountGuard::install(execution.core_ptr(), context);
+        execution.resume(resume)
     }
 
     /// Returns whether the entry function has completed.
     pub fn is_complete(&self) -> bool {
-        self.coroutine
+        self.execution
             .as_ref()
-            .is_none_or(|coroutine| coroutine.done())
+            .is_none_or(|execution| execution.is_complete())
     }
 
     /// Reclaims the stack after completion so it can be reused.
     ///
-    /// Panics if incomplete; the fiber is still reclaimed with its yielder mounted.
-    pub fn into_stack(mut self) -> DefaultStack {
+    /// Panics if incomplete; the fiber is still reclaimed with its control block mounted.
+    pub fn into_stack(mut self) -> MappedStack {
         // Keep ownership here on failure so Drop mounts the fiber for unwinding.
         assert!(
             self.is_complete(),
             "an incomplete fiber cannot be extracted"
         );
-        self.coroutine
+        self.execution
             .take()
             .expect("fiber stack already extracted")
             .into_stack()
@@ -221,8 +98,10 @@ impl Fiber {
 
 impl Drop for Fiber {
     fn drop(&mut self) {
-        let _mount = YielderMount::install(self.mounted_yielder());
-        drop(self.coroutine.take());
+        if let Some(execution) = self.execution.take() {
+            let _mount = CoreMount::install(execution.core_ptr());
+            drop(execution);
+        }
     }
 }
 

@@ -1,22 +1,23 @@
 //! Inherited cancellation with live ancestry and bounded generation subscriptions.
 
-use crate::{Error, Result, signal::lock, wait::WaitRegistration};
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicU64, AtomicUsize, Ordering},
+use crate::signal::lock;
+use std::{
+    collections::BTreeMap,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+    },
 };
-use vthread_stack::ParkToken;
-
 #[path = "cancellation_graph.rs"]
 mod graph;
-#[path = "cancellation_wait_shard.rs"]
-mod wait_shard;
-use wait_shard::WaitShard;
+#[path = "cancellation_subscription.rs"]
+mod subscription;
+use subscription::{FallbackWait, WaitSlot};
 
 struct Domain {
-    // Admission bounds live task nodes, and each node may publish one wait.
-    waits: Box<[Mutex<WaitShard>]>,
     epoch: Arc<AtomicU64>,
+    fallback_epoch: AtomicU64,
+    fallback_waits: Mutex<BTreeMap<usize, FallbackWait>>,
     retired: Mutex<Vec<usize>>,
     state: Mutex<State>,
 }
@@ -31,6 +32,7 @@ struct State {
 struct Node {
     state: NodeState,
     domain: Arc<Domain>,
+    wait: WaitSlot,
 }
 
 struct NodeState(AtomicUsize);
@@ -50,12 +52,12 @@ impl NodeState {
 
     #[inline]
     fn cancel(&self) {
-        self.0.fetch_or(Self::CANCELLED, Ordering::Release);
+        self.0.fetch_or(Self::CANCELLED, Ordering::SeqCst);
     }
 
     #[inline]
     fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::Acquire) & Self::CANCELLED != 0
+        self.0.load(Ordering::SeqCst) & Self::CANCELLED != 0
     }
 }
 
@@ -66,19 +68,14 @@ impl Node {
     }
 }
 
-struct WaitSlot {
-    token: ParkToken,
-    registration: WaitRegistration,
-}
-
-const WAIT_SHARDS: usize = 64;
-
 impl Drop for Node {
     fn drop(&mut self) {
         // Graph entries contain only IDs, flags and inert ancestry signatures.
         // Narrow history splices away; high-degree history becomes a compressed
         // relay, so this drop never recursively destroys ancestor tokens.
-        self.domain.retire(self.id());
+        let id = self.id();
+        lock(&self.domain.fallback_waits).remove(&id);
+        self.domain.retire(id);
     }
 }
 
@@ -123,10 +120,9 @@ impl CancellationToken {
     pub(crate) fn root(capacity: usize) -> Self {
         assert!(capacity != 0, "cancellation capacity must be positive");
         let domain = Arc::new(Domain {
-            waits: (0..capacity.min(WAIT_SHARDS))
-                .map(|_| Mutex::new(WaitShard::default()))
-                .collect(),
             epoch: Arc::new(AtomicU64::new(1)),
+            fallback_epoch: AtomicU64::new(0),
+            fallback_waits: Mutex::default(),
             retired: Mutex::new(Vec::with_capacity(RETIREMENT_BATCH)),
             state: Mutex::default(),
         });
@@ -139,6 +135,7 @@ impl CancellationToken {
         let node = Arc::new(Node {
             state: NodeState::new(id),
             domain: Arc::clone(domain),
+            wait: WaitSlot::new(),
         });
         let cancelled = state.graph.insert(id, parents, Arc::downgrade(&node));
         if cancelled {
@@ -168,12 +165,7 @@ impl CancellationToken {
         };
         let selected = cancelled
             .into_iter()
-            .filter_map(|node| {
-                let id = node.id();
-                lock(node.domain.waits_for(id))
-                    .get(id)
-                    .map(|wait| (wait.token, wait.registration.clone()))
-            })
+            .filter_map(|node| node.active_wait())
             .collect::<Vec<_>>();
         // Wake selection can acquire scheduler locks; no domain lock spans it.
         for (token, wait) in selected {
@@ -196,37 +188,6 @@ impl CancellationToken {
         Arc::ptr_eq(&self.0.domain.epoch, epoch)
     }
 
-    pub(crate) fn register(
-        &self,
-        token: ParkToken,
-        wait: &WaitRegistration,
-    ) -> Result<Subscription> {
-        let id = self.0.id();
-        let mut waits = lock(self.0.domain.waits_for(id));
-        if !waits.try_insert(
-            id,
-            WaitSlot {
-                token,
-                registration: wait.clone(),
-            },
-        ) {
-            return Err(Error::fault(
-                crate::error::FaultComponent::Scheduler,
-                "task registered concurrent cancellation waits",
-            ));
-        }
-        let cancelled = self.is_cancelled();
-        drop(waits);
-        if cancelled {
-            wait.select_cancelled(token);
-        }
-        Ok(Subscription {
-            node: Arc::clone(&self.0),
-            id,
-            token,
-        })
-    }
-
     #[cfg(test)]
     fn graph_snapshot(&self) -> (usize, usize, usize) {
         self.0.domain.flush_retired();
@@ -244,24 +205,6 @@ impl std::fmt::Debug for CancellationToken {
         f.debug_struct("CancellationToken")
             .field("cancelled", &self.is_cancelled())
             .finish()
-    }
-}
-
-pub(crate) struct Subscription {
-    node: Arc<Node>,
-    id: usize,
-    token: ParkToken,
-}
-impl Drop for Subscription {
-    fn drop(&mut self) {
-        let mut waits = lock(self.node.domain.waits_for(self.id));
-        waits.remove(self.id, self.token);
-    }
-}
-
-impl Domain {
-    fn waits_for(&self, node: usize) -> &Mutex<WaitShard> {
-        &self.waits[node % self.waits.len()]
     }
 }
 

@@ -62,18 +62,19 @@ impl Kernel {
                 self.ready.push_back(task);
             }
         }
-        let tokens = self
+        let tasks = self
             .parked
             .iter()
-            .filter(|(_, parked)| {
+            .filter(|parked| {
                 scope.is_none_or(|scope| {
                     self.task(parked.task).execution().record().lock().scope == scope
                 })
             })
-            .map(|(token, _)| *token)
+            .map(|parked| parked.task)
             .collect::<Vec<_>>();
-        for token in tokens {
-            let parked = self.parked.remove(&token).expect("owned park");
+        for task in tasks {
+            let parked = self.parked.remove(task).expect("owned park");
+            let token = parked.token;
             self.local.unregister_wake(token);
             parked.registration.abandon(token);
             if self.timers.cancel(token) {

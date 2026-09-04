@@ -1,8 +1,8 @@
 //! Bounded-lag scheduler progress for one carrier-affine task.
 
-use crate::{SuspensionReason, TaskId, TaskStatus};
+use crate::{SuspensionReason, TaskId, TaskStatus, WakeReason, task_progress_state as state};
 use std::cell::Cell;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 
 const COUNTER_BATCH: u64 = 64;
 
@@ -36,16 +36,26 @@ impl CarrierProgress {
 #[repr(align(64))]
 pub(crate) struct TaskProgress {
     yielded: AtomicBool,
+    state: AtomicU8,
+    last_suspension: AtomicU8,
+    suspension_task: AtomicU64,
+    last_wake: AtomicU8,
     mounts: AtomicU64,
     yields: AtomicU64,
+    parks: AtomicU64,
 }
 
 impl TaskProgress {
     pub(crate) fn new() -> Self {
         Self {
             yielded: AtomicBool::new(false),
+            state: AtomicU8::new(state::RECORD),
+            last_suspension: AtomicU8::new(state::RECORD),
+            suspension_task: AtomicU64::new(0),
+            last_wake: AtomicU8::new(0),
             mounts: AtomicU64::new(0),
             yields: AtomicU64::new(0),
+            parks: AtomicU64::new(0),
         }
     }
 
@@ -57,20 +67,47 @@ impl TaskProgress {
         self.yielded.store(false, Ordering::Release);
     }
 
+    pub(crate) fn suspend(&self, reason: SuspensionReason) {
+        let (code, task) = state::encode_reason(reason);
+        self.suspension_task.store(task, Ordering::Relaxed);
+        self.last_suspension.store(code, Ordering::Release);
+        self.parks
+            .store(self.parks.load(Ordering::Relaxed) + 1, Ordering::Relaxed);
+        self.state.store(code, Ordering::Release);
+    }
+
+    pub(crate) fn wake(&self, reason: WakeReason) {
+        self.last_wake
+            .store(state::encode_wake(reason), Ordering::Release);
+        self.state.store(state::READY, Ordering::Release);
+    }
+
     fn publish(&self, mounts: u64, yields: u64) {
         self.mounts.store(mounts, Ordering::Relaxed);
         self.yields.store(yields, Ordering::Relaxed);
     }
 
     pub(crate) fn status(&self, retained: TaskStatus, running: bool) -> TaskStatus {
-        if matches!(retained, TaskStatus::Ready | TaskStatus::Running) {
-            if running {
-                TaskStatus::Running
-            } else {
-                TaskStatus::Ready
+        if retained.is_terminal() || retained == TaskStatus::Queued {
+            return retained;
+        }
+        match self.state.load(Ordering::Acquire) {
+            state::READY => {
+                if running {
+                    TaskStatus::Running
+                } else {
+                    TaskStatus::Ready
+                }
             }
-        } else {
-            retained
+            state::RECORD => match retained {
+                TaskStatus::Ready | TaskStatus::Running if running => TaskStatus::Running,
+                TaskStatus::Ready | TaskStatus::Running => TaskStatus::Ready,
+                retained => retained,
+            },
+            code => TaskStatus::Suspended(
+                state::decode_reason(code, self.suspension_task.load(Ordering::Relaxed))
+                    .expect("published task suspension reason"),
+            ),
         }
     }
 
@@ -82,6 +119,10 @@ impl TaskProgress {
         self.yields.load(Ordering::Acquire)
     }
 
+    pub(crate) fn parks(&self, retained: u64) -> u64 {
+        retained.max(self.parks.load(Ordering::Acquire))
+    }
+
     pub(crate) fn last_suspension(
         &self,
         retained: Option<SuspensionReason>,
@@ -89,8 +130,13 @@ impl TaskProgress {
         if self.yielded.load(Ordering::Acquire) {
             Some(SuspensionReason::YieldNow)
         } else {
-            retained
+            let code = self.last_suspension.load(Ordering::Acquire);
+            state::decode_reason(code, self.suspension_task.load(Ordering::Relaxed)).or(retained)
         }
+    }
+
+    pub(crate) fn last_wake(&self, retained: Option<WakeReason>) -> Option<WakeReason> {
+        state::decode_wake(self.last_wake.load(Ordering::Acquire)).or(retained)
     }
 }
 
@@ -197,8 +243,13 @@ impl TaskProgress {
 
     pub(crate) fn reset(&mut self) {
         *self.yielded.get_mut() = false;
+        *self.state.get_mut() = state::RECORD;
+        *self.last_suspension.get_mut() = state::RECORD;
+        *self.suspension_task.get_mut() = 0;
+        *self.last_wake.get_mut() = 0;
         *self.mounts.get_mut() = 0;
         *self.yields.get_mut() = 0;
+        *self.parks.get_mut() = 0;
     }
 }
 

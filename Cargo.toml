@@ -12,11 +12,11 @@ authors = ["vthread contributors"]
 
 [workspace.dependencies]
 vthread = { path = "crates/vthread", version = "=0.0.2-rc.1" }
-corosensei = { version = "=0.3.4", default-features = true }
 vthread-stack = { path = "crates/vthread-stack", version = "=0.0.2-rc.1" }
 zio = { version = "=0.0.1-dev.1", default-features = false }
 socket2 = { version = "=0.6.5", default-features = false }
 libc = "=0.2.189"
+crossbeam-queue = "=0.3.13"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

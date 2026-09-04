@@ -1,10 +1,9 @@
 //! Borrowed fibers whose executable state is revoked before their lexical scope exits.
 
 use crate::{
-    Fiber, FiberLease,
+    Fiber, FiberLease, MappedStack,
     panic_payload::{self, CapturedPanic},
 };
-use corosensei::stack::DefaultStack;
 use std::{
     cell::{Cell, RefCell},
     io,
@@ -31,7 +30,7 @@ impl<'scope, 'env> FiberScope<'scope, 'env> {
     /// Creates a local stack. The scope retains ownership even if its lease is forgotten.
     pub fn spawn(
         &'scope self,
-        stack: DefaultStack,
+        stack: MappedStack,
         entry: impl FnOnce() + 'scope,
     ) -> io::Result<FiberLease> {
         let mut fibers = self.registry.fibers.borrow_mut();
@@ -103,8 +102,8 @@ pub fn fiber_scope<'env, R>(
     let cleanup = guard.drain();
     match result {
         Err(payload) => {
-            // corosensei uses a private panic payload as its forced-unwind control token.
-            // Preserve it exactly; cleanup payloads were separately captured and observed.
+            // The stack engine may be unwinding this scope with its private forced-unwind
+            // token. Preserve the payload exactly; cleanup payloads were captured above.
             drop(cleanup);
             std::panic::resume_unwind(payload)
         }

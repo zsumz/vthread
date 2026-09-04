@@ -17,6 +17,7 @@ fn capabilities_include_exact_wait_and_stack_evidence() {
 #[test]
 fn runtime_stream_covers_one_complete_timed_task_lifetime() {
     use super::{EvidenceWakeCause, RuntimeEventKind, TaskOutcome, WakeOrigin};
+    use crate::support_test::until;
 
     let runtime = crate::Runtime::builder()
         .evidence_capacity(1024)
@@ -27,9 +28,10 @@ fn runtime_stream_covers_one_complete_timed_task_lifetime() {
         .run_scope(|scope| {
             let mut task = scope.spawn("evidence", || {
                 crate::yield_now().unwrap();
-                crate::sleep(std::time::Duration::from_millis(1)).unwrap();
+                crate::sleep(std::time::Duration::from_secs(1)).unwrap();
             })?;
             let id = task.task_id();
+            until(|| runtime.snapshot().parked == 1);
             task.join()?;
             Ok(id)
         })

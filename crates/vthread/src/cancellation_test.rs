@@ -2,8 +2,8 @@ use super::CancellationToken;
 
 #[test]
 #[cfg(target_pointer_width = "64")]
-fn node_identity_and_cancellation_flag_fit_two_words() {
-    assert_eq!(std::mem::size_of::<super::Node>(), 16);
+fn node_identity_and_wait_slot_fit_within_one_cache_line() {
+    assert!(std::mem::size_of::<super::Node>() <= 56);
     let state = super::NodeState::new(7);
     assert_eq!(state.id(), 7);
     assert!(!state.is_cancelled());
@@ -139,7 +139,7 @@ fn cancellation_racing_registration_does_not_lose_the_request() {
 
 #[test]
 fn node_shards_wake_each_inherited_generation_exactly_once() {
-    use crate::{TaskId, wait::WaitBegin, wait::WaitCell, wait::WaitHub};
+    use crate::{TaskId, task_slab::TaskKey, wait::WaitBegin, wait::WaitCell, wait::WaitHub};
     use std::sync::Arc;
 
     let root = CancellationToken::root(2);
@@ -152,7 +152,12 @@ fn node_shards_wake_each_inherited_generation_exactly_once() {
             request,
             registration,
         } = cell
-            .begin(TaskId::new(index as u64 + 1), &hub, None)
+            .begin(
+                TaskId::new(index as u64 + 1),
+                TaskKey::owned(index),
+                &hub,
+                None,
+            )
             .unwrap()
         else {
             panic!("expected active wait");
@@ -179,22 +184,28 @@ fn node_shards_wake_each_inherited_generation_exactly_once() {
 
 #[test]
 fn colliding_node_shard_slots_wake_each_generation_exactly_once() {
-    use crate::{TaskId, wait::WaitBegin, wait::WaitCell, wait::WaitHub};
+    use crate::{TaskId, task_slab::TaskKey, wait::WaitBegin, wait::WaitCell, wait::WaitHub};
     use std::sync::Arc;
 
     let root = CancellationToken::root(66);
     let first = root.child_token();
     let fillers = (0..63).map(|_| root.child_token()).collect::<Vec<_>>();
     let colliding = root.child_token();
+    let children = [first, colliding];
     let hub = Arc::new(WaitHub::new(2, Arc::default()));
     let cells = [WaitCell::new(), WaitCell::new()];
     let mut waits = Vec::new();
-    for (index, (child, cell)) in [first, colliding].iter().zip(&cells).enumerate() {
+    for (index, (child, cell)) in children.iter().zip(&cells).enumerate() {
         let WaitBegin::Park {
             request,
             registration,
         } = cell
-            .begin(TaskId::new(index as u64 + 1), &hub, None)
+            .begin(
+                TaskId::new(index as u64 + 1),
+                TaskKey::owned(index),
+                &hub,
+                None,
+            )
             .unwrap()
         else {
             panic!("expected active wait");
@@ -222,7 +233,7 @@ fn colliding_node_shard_slots_wake_each_generation_exactly_once() {
 
 #[test]
 fn one_node_rejects_overlapping_subscriptions_and_reuses_its_slot() {
-    use crate::{TaskId, wait::WaitBegin, wait::WaitCell, wait::WaitHub};
+    use crate::{TaskId, task_slab::TaskKey, wait::WaitBegin, wait::WaitCell, wait::WaitHub};
     use std::sync::Arc;
 
     let root = CancellationToken::root(1);
@@ -233,14 +244,18 @@ fn one_node_rejects_overlapping_subscriptions_and_reuses_its_slot() {
     let WaitBegin::Park {
         request: first_request,
         registration: first_registration,
-    } = first.begin(TaskId::new(1), &hub, None).unwrap()
+    } = first
+        .begin(TaskId::new(1), TaskKey::owned(0), &hub, None)
+        .unwrap()
     else {
         panic!("expected first wait");
     };
     let WaitBegin::Park {
         request: second_request,
         registration: second_registration,
-    } = second.begin(TaskId::new(2), &hub, None).unwrap()
+    } = second
+        .begin(TaskId::new(2), TaskKey::owned(1), &hub, None)
+        .unwrap()
     else {
         panic!("expected second wait");
     };

@@ -15,11 +15,13 @@ fn matching_mounted_carrier_routes_and_unregisters_wakes_locally() {
                     let first = WakeNotice {
                         token: ParkToken::new(1, 1),
                         task: TaskId::new(1),
+                        route: execution.task_key(),
                         cause: WakeCause::Ready,
                     };
                     let second = WakeNotice {
                         token: ParkToken::new(2, 1),
                         task: TaskId::new(2),
+                        route: execution.task_key(),
                         cause: WakeCause::Closed,
                     };
                     assert!(super::enqueue_local_wake(execution.hub(), first));
@@ -44,6 +46,7 @@ fn a_foreign_hub_is_never_routed_to_the_mounted_carrier() {
                     let notice = WakeNotice {
                         token: ParkToken::new(1, 1),
                         task: TaskId::new(1),
+                        route: crate::task_slab::TaskKey::owned(0),
                         cause: WakeCause::Ready,
                     };
                     assert!(!super::enqueue_local_wake(&foreign, notice));

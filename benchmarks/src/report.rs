@@ -82,7 +82,9 @@ pub(crate) fn measure(
         let median = latency_quantile(&operation_latencies, 50);
         let p95 = latency_quantile(&operation_latencies, 95);
         let p99 = latency_quantile(&operation_latencies, 99);
-        let maximum = *operation_latencies.last().expect("nonempty latency samples");
+        let maximum = *operation_latencies
+            .last()
+            .expect("nonempty latency samples");
         println!(
             "engine={} operation={} phase=latency median_ns={} p95_ns={} p99_ns={} max_ns={} observations={}",
             config.engine_name(),

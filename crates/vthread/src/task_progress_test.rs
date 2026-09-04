@@ -1,5 +1,31 @@
 use super::{COUNTER_BATCH, CarrierProgress, TaskProgress, TaskProgressWriter};
-use crate::{SuspensionReason, TaskId, TaskStatus};
+use crate::{SuspensionReason, TaskId, TaskStatus, WakeReason};
+
+#[test]
+fn atomic_park_and_wake_diagnostics_override_stale_nonterminal_records() {
+    let progress = TaskProgress::new();
+    progress.suspend(SuspensionReason::Mutex);
+    assert_eq!(
+        progress.status(TaskStatus::Running, false),
+        TaskStatus::Suspended(SuspensionReason::Mutex)
+    );
+    assert_eq!(progress.parks(0), 1);
+    assert_eq!(
+        progress.last_suspension(None),
+        Some(SuspensionReason::Mutex)
+    );
+
+    progress.wake(WakeReason::Ready);
+    assert_eq!(
+        progress.status(TaskStatus::Running, false),
+        TaskStatus::Ready
+    );
+    assert_eq!(progress.last_wake(None), Some(WakeReason::Ready));
+    assert_eq!(
+        progress.status(TaskStatus::Completed, false),
+        TaskStatus::Completed
+    );
+}
 
 #[test]
 fn progress_preserves_hot_mount_and_yield_observations() {

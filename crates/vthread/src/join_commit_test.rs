@@ -34,8 +34,9 @@ fn after_completion(record: &SharedTaskRecord, deadline: Option<Instant>) -> Arc
             selected, 1,
             "completion must select the parked join generation"
         );
+        let retained = parent.lock().status;
         assert_eq!(
-            parent.lock().status,
+            parent.progress().status(retained, false),
             TaskStatus::Suspended(SuspensionReason::Join(child)),
             "the single carrier has not resumed the joiner"
         );

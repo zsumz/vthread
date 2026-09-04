@@ -4,48 +4,19 @@ use vthread_stack::ParkToken;
 
 use super::WaitHub;
 use crate::{
-    Error, TaskId,
-    wait::{WaitBegin, WaitCell, WakeCause, WakeNotice},
+    TaskId,
+    task_slab::TaskKey,
+    wait::{WakeCause, WakeNotice},
 };
 
 #[test]
-fn capacity_is_reserved_before_parking_and_released_on_rollback() {
-    let hub = Arc::new(WaitHub::new(1, Arc::default()));
-    let first = WaitCell::new();
-    let second = WaitCell::new();
-    let WaitBegin::Park { request, .. } = first.begin(TaskId::new(1), &hub, None).expect("first")
-    else {
-        panic!("expected a park");
-    };
-    assert_eq!(hub.reserved(), 1);
-    assert!(matches!(
-        second.begin(TaskId::new(2), &hub, None,),
-        Err(Error::Capacity {
-            resource: crate::error::CapacityResource::Waiters,
-            limit: 1
-        })
-    ));
-    first.rollback(request.token());
-    assert_eq!(hub.reserved(), 0);
-    let WaitBegin::Park {
-        request: second_request,
-        ..
-    } = second.begin(TaskId::new(2), &hub, None).unwrap()
-    else {
-        panic!("expected a second park");
-    };
-    second.rollback(second_request.token());
-    assert_eq!(hub.reserved(), 0);
-}
-
-#[test]
 fn duplicates_and_stale_generations_cannot_fill_the_inbox() {
-    let hub = WaitHub::new(1, Arc::default());
+    let hub = WaitHub::new_tracked(1, Arc::default());
     let token = ParkToken::new(1, 2);
-    hub.reserve().expect("reserve");
     let notice = WakeNotice {
         token,
         task: TaskId::new(1),
+        route: TaskKey::owned(0),
         cause: WakeCause::Ready,
     };
     hub.enqueue(notice);
@@ -61,7 +32,6 @@ fn duplicates_and_stale_generations_cannot_fill_the_inbox() {
     assert_eq!(hub.stale(), 200);
     assert_eq!(hub.pop_wake(), Some(notice));
     assert!(hub.pop_wake().is_none());
-    hub.release();
 }
 
 #[test]
@@ -70,12 +40,10 @@ fn queued_wakes_release_predicate_waiters_without_advancing_the_epoch() {
     let hub = WaitHub::new(2, Arc::clone(&signal));
     let first = ParkToken::new(1, 1);
     let second = ParkToken::new(2, 1);
-    hub.reserve().expect("first reservation");
-    hub.reserve().expect("second reservation");
     let empty = signal.version();
     std::thread::scope(|threads| {
         threads.spawn(|| {
-            signal.wait_while(empty, None, || hub.pending_for_wait() != 0);
+            hub.wait(empty, None);
         });
         while signal.waiting() == 0 {
             std::thread::yield_now();
@@ -83,6 +51,7 @@ fn queued_wakes_release_predicate_waiters_without_advancing_the_epoch() {
         hub.enqueue(WakeNotice {
             token: first,
             task: TaskId::new(1),
+            route: TaskKey::owned(0),
             cause: WakeCause::Ready,
         });
     });
@@ -91,11 +60,57 @@ fn queued_wakes_release_predicate_waiters_without_advancing_the_epoch() {
     hub.enqueue(WakeNotice {
         token: second,
         task: TaskId::new(2),
+        route: TaskKey::owned(1),
         cause: WakeCause::Ready,
     });
     assert_eq!(signal.version(), queued);
     assert!(hub.pop_wake().is_some());
     assert!(hub.pop_wake().is_some());
-    hub.release();
-    hub.release();
+}
+
+#[test]
+fn published_predicate_never_precedes_its_queue_item() {
+    let hub = Arc::new(WaitHub::new(1, Arc::default()));
+    let (arrived_tx, arrived_rx) = std::sync::mpsc::channel();
+    let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+    hub.before_pending_publication(move || {
+        arrived_tx.send(()).unwrap();
+        resume_rx.recv().unwrap();
+    });
+    let producer_hub = Arc::clone(&hub);
+    let producer = std::thread::spawn(move || {
+        producer_hub.enqueue(WakeNotice {
+            token: ParkToken::new(1, 1),
+            task: TaskId::new(1),
+            route: TaskKey::owned(0),
+            cause: WakeCause::Ready,
+        });
+    });
+
+    arrived_rx.recv().unwrap();
+    assert_eq!(hub.pending(), 1);
+    assert!(!hub.ready.has_pending());
+    resume_tx.send(()).unwrap();
+    producer.join().unwrap();
+    assert_eq!(hub.pending(), 1);
+    assert!(hub.ready.has_pending());
+    assert!(hub.pop_wake().is_some());
+}
+
+#[test]
+fn wake_inbox_preserves_publication_order() {
+    let hub = WaitHub::new(3, Arc::default());
+    for index in 0..3 {
+        hub.enqueue(WakeNotice {
+            token: ParkToken::new(index as u64 + 1, 1),
+            task: TaskId::new(index as u64 + 1),
+            route: TaskKey::owned(index),
+            cause: WakeCause::Ready,
+        });
+    }
+
+    for expected in 1..=3 {
+        assert_eq!(hub.pop_wake().unwrap().task, TaskId::new(expected));
+    }
+    assert!(hub.pop_wake().is_none());
 }

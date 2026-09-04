@@ -48,19 +48,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "corosensei"
-version = "0.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6886a0c0f263965933c438626e7179139a62b978a33aa18281cbf0cd5a975f34"
-dependencies = [
- "autocfg",
- "cfg-if",
- "libc",
- "scopeguard",
- "windows-sys 0.59.0",
-]
-
-[[package]]
 name = "crossbeam"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -338,6 +325,7 @@ dependencies = [
 name = "vthread"
 version = "0.0.2-rc.1"
 dependencies = [
+ "crossbeam-queue",
  "libc",
  "socket2 0.6.5",
  "vthread-stack",
@@ -356,7 +344,7 @@ dependencies = [
 name = "vthread-stack"
 version = "0.0.2-rc.1"
 dependencies = [
- "corosensei",
+ "libc",
 ]
 
 [[package]]

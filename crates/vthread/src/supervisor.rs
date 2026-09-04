@@ -131,10 +131,12 @@ impl Supervisor<'_> {
 
     /// Stops this supervisor's work and waits for stack reclamation at runtime boundaries.
     pub fn shutdown(mut self) -> Result<ShutdownReport> {
-        self.close(None)?.ok_or(Error::fault(
-            crate::error::FaultComponent::Lifecycle,
-            "unbounded supervisor wait timed out",
-        ))
+        self.close(None)?.ok_or_else(|| {
+            Error::fault(
+                crate::error::FaultComponent::Lifecycle,
+                "unbounded supervisor wait timed out",
+            )
+        })
     }
 
     /// Closes child admission and requests reclamation without waiting for user work.

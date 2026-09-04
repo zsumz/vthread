@@ -20,10 +20,12 @@ impl<T> Output<T> {
         drop(value);
     }
     pub(super) fn take(&self) -> Result<T> {
-        lock(&self.value).take().ok_or(Error::fault(
-            crate::error::FaultComponent::Native,
-            "native work woke without a result",
-        ))?
+        lock(&self.value).take().ok_or_else(|| {
+            Error::fault(
+                crate::error::FaultComponent::Native,
+                "native work woke without a result",
+            )
+        })?
     }
 }
 

@@ -1,7 +1,6 @@
 //! Explicit lease transitions keep metadata borrows off executing fiber stacks.
 
-use crate::{Fiber, FiberState, Resume, panic_payload};
-use corosensei::stack::DefaultStack;
+use crate::{Fiber, FiberState, MappedStack, Resume, panic_payload};
 use std::{any::Any, cell::RefCell, rc::Rc};
 
 type Cleanup = Rc<dyn Fn() -> Box<dyn Any>>;
@@ -73,7 +72,7 @@ impl FiberLease {
     }
 
     /// Takes a completed stack. Every other phase retains ownership and returns None.
-    pub fn take_stack(&self) -> Option<DefaultStack> {
+    pub fn take_stack(&self) -> Option<MappedStack> {
         let (fiber, cleanup) = {
             let mut state = self.0.borrow_mut();
             if state.phase != Phase::Complete {

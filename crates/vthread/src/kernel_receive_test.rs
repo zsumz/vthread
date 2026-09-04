@@ -131,8 +131,9 @@ fn pending_ingress_never_enters_the_signal_wait() {
         .config();
     let shared = Arc::new(Shared::new(config));
     let scope = shared.begin_scope().unwrap();
-    shared.submit(scope, "queued".into(), || ()).unwrap();
     let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
+    kernel.publish(crate::CarrierStatus::Running);
+    shared.submit(scope, "queued".into(), || ()).unwrap();
     let observed = kernel.inbox.signal.version();
     let signal = Arc::clone(&kernel.inbox.signal);
     let (cancel, cancelled) = mpsc::channel();
@@ -150,6 +151,10 @@ fn pending_ingress_never_enters_the_signal_wait() {
     assert!(
         !rescue.join().unwrap(),
         "pending ingress entered signal wait"
+    );
+    assert_eq!(
+        shared.snapshot().carriers[0].status,
+        crate::CarrierStatus::Running
     );
 
     kernel.abort(None, TaskFailure::RuntimeStopped);

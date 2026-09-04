@@ -30,6 +30,14 @@ impl TaskKey {
     pub(crate) fn is_borrowed(self) -> bool {
         self.0.get() & 1 != 0
     }
+
+    pub(crate) fn encoded(self) -> usize {
+        self.0.get()
+    }
+
+    pub(crate) fn from_encoded(encoded: usize) -> Self {
+        Self(NonZeroUsize::new(encoded).expect("encoded task key is nonzero"))
+    }
 }
 
 pub(crate) struct TaskSlab<T> {

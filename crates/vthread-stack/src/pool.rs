@@ -1,12 +1,10 @@
 //! Bounded carrier-local stack cache.
 
 #[cfg(feature = "runtime-evidence")]
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::io;
 
-use corosensei::stack::DefaultStack;
-#[cfg(feature = "runtime-evidence")]
-use corosensei::stack::Stack;
+use crate::MappedStack;
 
 /// Operational counters for a stack pool.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -24,16 +22,16 @@ pub struct StackPoolSnapshot {
 }
 
 /// A bounded cache of guard-page-backed stacks.
+///
+/// Every mapping the pool allocates is stamped with a pool-local identity that survives
+/// cache reuse and is retired once the mapping leaves the pool for good.
 pub struct StackPool {
     stack_size: usize,
     max_cached: usize,
-    stacks: Vec<DefaultStack>,
-    #[cfg(feature = "runtime-evidence")]
-    identities: BTreeMap<usize, u64>,
-    #[cfg(feature = "runtime-evidence")]
-    mappings: BTreeMap<u64, usize>,
-    #[cfg(feature = "runtime-evidence")]
+    stacks: Vec<MappedStack>,
     next_identity: u64,
+    #[cfg(feature = "runtime-evidence")]
+    live: BTreeSet<u64>,
     snapshot: StackPoolSnapshot,
 }
 
@@ -44,98 +42,55 @@ impl StackPool {
             stack_size,
             max_cached,
             stacks: Vec::new(),
-            #[cfg(feature = "runtime-evidence")]
-            identities: BTreeMap::new(),
-            #[cfg(feature = "runtime-evidence")]
-            mappings: BTreeMap::new(),
-            #[cfg(feature = "runtime-evidence")]
             next_identity: 1,
+            #[cfg(feature = "runtime-evidence")]
+            live: BTreeSet::new(),
             snapshot: StackPoolSnapshot::default(),
         }
     }
 
     /// Acquires a cached stack or allocates a new one.
-    pub fn acquire(&mut self) -> io::Result<DefaultStack> {
-        #[cfg(feature = "runtime-evidence")]
-        {
-            self.acquire_identified().map(|(_, stack)| stack)
+    pub fn acquire(&mut self) -> io::Result<MappedStack> {
+        if let Some(stack) = self.reuse() {
+            return Ok(stack);
         }
-        #[cfg(not(feature = "runtime-evidence"))]
-        {
-            if let Some(stack) = self.stacks.pop() {
-                self.snapshot.cached = self.stacks.len();
-                self.snapshot.reused += 1;
-                return Ok(stack);
-            }
-            self.snapshot.allocated += 1;
-            DefaultStack::new(self.stack_size)
-        }
+        self.allocate()
     }
 
     /// Acquires a stack together with its stable pool-local mapping identity.
     #[cfg(feature = "runtime-evidence")]
-    pub fn acquire_identified(&mut self) -> io::Result<(u64, DefaultStack)> {
-        if let Some(stack) = self.stacks.pop() {
-            self.snapshot.cached = self.stacks.len();
-            self.snapshot.reused += 1;
-            let identity = self
-                .identity(&stack)
-                .ok_or_else(|| io::Error::other("cached stack mapping has no pool identity"))?;
-            return Ok((identity, stack));
-        }
-
-        let stack = DefaultStack::new(self.stack_size)?;
-        let identity = self.next_identity;
-        self.next_identity = identity
-            .checked_add(1)
-            .ok_or_else(|| io::Error::other("stack mapping identity exhausted"))?;
-        let base = stack.base().get();
-        self.identities.insert(base, identity);
-        self.mappings.insert(identity, base);
-        self.snapshot.allocated += 1;
-        Ok((identity, stack))
+    pub fn acquire_identified(&mut self) -> io::Result<(u64, MappedStack)> {
+        let stack = self.acquire()?;
+        Ok((stack.identity(), stack))
     }
 
     /// Returns a completed stack to the bounded cache.
-    pub fn release(&mut self, stack: DefaultStack) {
+    pub fn release(&mut self, stack: MappedStack) {
         #[cfg(feature = "runtime-evidence")]
         {
-            let Some(identity) = self.identity(&stack) else {
-                self.snapshot.discarded += 1;
-                return;
-            };
+            let identity = stack.identity();
             self.release_identified(identity, stack);
         }
         #[cfg(not(feature = "runtime-evidence"))]
-        {
-            if self.stacks.len() < self.max_cached {
-                self.stacks.push(stack);
-                self.snapshot.retained += 1;
-                self.snapshot.cached = self.stacks.len();
-            } else {
-                self.snapshot.discarded += 1;
-            }
-        }
+        self.retain(stack);
     }
 
     /// Returns an identified mapping and reports whether the bounded cache retained it.
+    ///
+    /// A mapping whose stamp differs from `identity`, or that this pool never issued or
+    /// has already retired, is dropped instead of cached.
     #[cfg(feature = "runtime-evidence")]
-    pub fn release_identified(&mut self, identity: u64, stack: DefaultStack) -> bool {
-        let actual = self.identity(&stack);
-        if actual != Some(identity) {
+    pub fn release_identified(&mut self, identity: u64, stack: MappedStack) -> bool {
+        let actual = stack.identity();
+        if actual != identity || !self.live.contains(&actual) {
             self.snapshot.discarded += 1;
-            if let Some(actual) = actual {
-                self.retire(actual);
-            }
+            self.retire(actual);
+            drop(stack);
             return false;
         }
-        if self.stacks.len() < self.max_cached {
-            self.stacks.push(stack);
-            self.snapshot.retained += 1;
-            self.snapshot.cached = self.stacks.len();
+        if self.retain(stack) {
             true
         } else {
-            self.snapshot.discarded += 1;
             self.retire(identity);
             false
         }
@@ -144,11 +99,7 @@ impl StackPool {
     /// Retires metadata after its active mapping was discarded outside the cache.
     #[cfg(feature = "runtime-evidence")]
     pub fn retire(&mut self, identity: u64) -> bool {
-        let Some(base) = self.mappings.remove(&identity) else {
-            return false;
-        };
-        self.identities.remove(&base);
-        true
+        self.live.remove(&identity)
     }
 
     /// Returns the current counters.
@@ -156,9 +107,36 @@ impl StackPool {
         self.snapshot
     }
 
-    #[cfg(feature = "runtime-evidence")]
-    fn identity(&self, stack: &DefaultStack) -> Option<u64> {
-        self.identities.get(&stack.base().get()).copied()
+    fn reuse(&mut self) -> Option<MappedStack> {
+        let stack = self.stacks.pop()?;
+        self.snapshot.cached = self.stacks.len();
+        self.snapshot.reused += 1;
+        Some(stack)
+    }
+
+    fn allocate(&mut self) -> io::Result<MappedStack> {
+        let identity = self.next_identity;
+        let next = identity
+            .checked_add(1)
+            .ok_or_else(|| io::Error::other("stack mapping identity exhausted"))?;
+        let stack = MappedStack::new(self.stack_size, identity)?;
+        self.next_identity = next;
+        #[cfg(feature = "runtime-evidence")]
+        self.live.insert(identity);
+        self.snapshot.allocated += 1;
+        Ok(stack)
+    }
+
+    fn retain(&mut self, stack: MappedStack) -> bool {
+        if self.stacks.len() < self.max_cached {
+            self.stacks.push(stack);
+            self.snapshot.retained += 1;
+            self.snapshot.cached = self.stacks.len();
+            true
+        } else {
+            self.snapshot.discarded += 1;
+            false
+        }
     }
 }
 

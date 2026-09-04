@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Replaced the corosensei dependency with a native stack engine for Linux x86_64 and macOS
+  ARM64 that owns guard-page-backed stack mappings, stack identities, and forced reclamation
+  of suspended stacks. Fiber control blocks and entries live on the fiber's own stack, so a
+  pooled fiber start performs no heap allocation.
+
 ## 0.0.2-rc.1 - 2026-09-01
 
 - Added opt-in bounded runtime evidence with sequenced task, stack, wait, timer, queue, scope,

@@ -85,6 +85,7 @@ impl Shared {
         let Some(completion) = self.prepare_completion(record, failure) else {
             return;
         };
+        record.completion().complete();
         let mut batch = CompletionBatch::new();
         let progress = self.scope_progress(completion.scope);
         batch.push(completion);
@@ -122,7 +123,6 @@ impl Shared {
         drop(task_record);
         #[cfg(feature = "runtime-evidence")]
         self.record_terminal(terminal.0, terminal.1, terminal.2);
-        record.completion().complete();
         #[cfg(feature = "lifecycle-profiling")]
         self.lifecycle_probe
             .record_completion(completion_started.elapsed(), 0);

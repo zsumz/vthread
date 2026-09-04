@@ -2,33 +2,45 @@
 schema = 3
 semantics = 4
 producer = "0.0.3-rc.5"
-contract_sha256 = "cdb54337ffe0ba3fb2a75dde376971356cb9a930a7e8c6e07268d219a3d43798"
+contract_sha256 = "fd36742cf540d1361356956503127948cd71323f78018c8aa7b7386a652007d9"
 ratchet = []
 
 [analysis]
-inventory_sha256 = "ce41465232ba12fa8958db5501831d6ff06a896ce514b8b0d4ffe49fb91b3653"
+inventory_sha256 = "e968348602b381fa84d1749852eef8edc632cd5401fe59c0c152ec5e3e3f335b"
 exclusions_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-cargo_lock_sha256 = "cf4cc2232f0fb9963334d06b2b6a5f2a3bad167393361685ef0859d0e3777aa0"
+cargo_lock_sha256 = "20b7d3277365cb32f2786ac76cad04ec2891e99b991eaec9bb535a6c0fbb0e7e"
 cargo_features_sha256 = "c8c3ae783795fefa2eaaf8ac7fda3383de6ec0a9e9edcd82e8b540419e320b56"
 feature_worlds_sha256 = "864a6d19f460aa9b9460f8375e9ac99d93e1fc09112fa246d08c6b224dc8c51b"
 feature_worlds = 3
 packages = 4
 targets = 5
-physical_rust_files = 315
-base_source_contexts = 1353
+physical_rust_files = 349
+base_source_contexts = 1503
 derived_source_contexts = 0
-source_facts = 96649
-projection_queries = 1736946
-projected_facts = 13
+source_facts = 107073
+projection_queries = 1999388
+projected_facts = 29
 unresolved_bindings = 0
 analyzer_semantics = 4
 
 [[analysis.contract_source]]
 path = "zrail.toml"
-sha256 = "ba5df26a64b979f56c5ac90f1d8d28ece45800480b21310ec817a357b4d6c462"
+sha256 = "158cfb0fc2ad8368651ad8bab83560ecdde2336459ff672dc34090e092f7f287"
 
 [[package]]
 name = "vthread"
+
+[[package.dependency]]
+alias = "crossbeam-queue"
+name = "crossbeam-queue"
+kind = "normal"
+scope = "external"
+optional = false
+default_features = true
+
+[package.dependency.source]
+kind = "registry"
+requirement = "=0.3.13"
 
 [[package.dependency]]
 alias = "libc"
@@ -101,8 +113,8 @@ requirement = "=0.0.2-rc.1"
 name = "vthread-stack"
 
 [[package.dependency]]
-alias = "corosensei"
-name = "corosensei"
+alias = "libc"
+name = "libc"
 kind = "normal"
 scope = "external"
 optional = false
@@ -110,7 +122,7 @@ default_features = true
 
 [package.dependency.source]
 kind = "registry"
-requirement = "=0.3.4"
+requirement = "=0.2.189"
 
 [[package]]
 name = "vthreads"

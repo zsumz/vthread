@@ -55,7 +55,7 @@ impl<T> JoinHandle<T> {
 
     /// Returns whether the task has reached a terminal state.
     pub fn is_finished(&self) -> bool {
-        self.record.lock().status.is_terminal()
+        self.record.completion().done()
     }
 
     /// Waits without consuming observation ownership. Cancellation/deadlines are retryable.
@@ -114,10 +114,12 @@ impl<T> JoinHandle<T> {
             let name = self.record.lock().name.to_string();
             return Err(Error::task_panicked(self.id, name, panic));
         }
-        let outcome = self.cell.take().ok_or(Error::fault(
-            crate::error::FaultComponent::Scheduler,
-            "completed task has no join outcome",
-        ))?;
+        let outcome = self.cell.take().ok_or_else(|| {
+            Error::fault(
+                crate::error::FaultComponent::Scheduler,
+                "completed task has no join outcome",
+            )
+        })?;
         outcome.map_err(|panic| {
             let name = self.record.lock().name.to_string();
             Error::task_panicked(self.id, name, panic)

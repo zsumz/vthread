@@ -2,6 +2,7 @@ use super::Reactor;
 use crate::{
     Error, TaskId,
     support_test::until,
+    task_slab::TaskKey,
     wait::{WaitBegin, WaitCell, WaitHub, WakeCause},
 };
 use std::{
@@ -20,7 +21,9 @@ fn registration_is_bounded_and_remote_readiness_selects_the_exact_generation() {
     let WaitBegin::Park {
         request,
         registration,
-    } = cell.begin(TaskId::new(1), &hub, None).unwrap()
+    } = cell
+        .begin(TaskId::new(1), TaskKey::owned(0), &hub, None)
+        .unwrap()
     else {
         panic!("park");
     };
@@ -41,7 +44,7 @@ fn registration_is_bounded_and_remote_readiness_selects_the_exact_generation() {
         })
     ));
     writer.write_all(b"ready").unwrap();
-    until(|| hub.pending() == 1);
+    until(|| hub.has_pending());
     let wake = hub.pop_wake().unwrap();
     assert_eq!(wake.token, token);
     assert_eq!(wake.cause, WakeCause::Ready);
@@ -67,7 +70,9 @@ fn driver_failure_closes_waits_and_rejects_later_registration() {
     let WaitBegin::Park {
         request,
         registration,
-    } = cell.begin(TaskId::new(1), &hub, None).unwrap()
+    } = cell
+        .begin(TaskId::new(1), TaskKey::owned(0), &hub, None)
+        .unwrap()
     else {
         panic!("park");
     };
@@ -80,7 +85,7 @@ fn driver_failure_closes_waits_and_rejects_later_registration() {
         )
         .unwrap();
     reactor.inner.close(Some("injected failure".to_owned()));
-    until(|| hub.pending() == 1);
+    until(|| hub.has_pending());
     assert_eq!(hub.pop_wake().unwrap().cause, WakeCause::Closed);
     assert!(matches!(reactor.check(), Err(Error::ReadinessFailed)));
 }

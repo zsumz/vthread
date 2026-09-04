@@ -76,3 +76,19 @@ fn running_carrier_publication_is_independent_of_admission() {
 
     assert!(progress.is_ok(), "carrier publication waited for admission");
 }
+
+#[test]
+fn idle_carrier_publication_is_quiet_but_terminal_publication_signals() {
+    use crate::{CarrierId, CarrierSnapshot, CarrierStatus};
+
+    let shared = Shared::new(RuntimeConfig::default());
+    let observed = shared.changed.version();
+    let mut snapshot = CarrierSnapshot::new(CarrierId(0));
+    snapshot.status = CarrierStatus::Idle;
+    shared.publish(snapshot.clone());
+    assert_eq!(shared.changed.version(), observed);
+
+    snapshot.status = CarrierStatus::Stopped;
+    shared.publish(snapshot);
+    assert_ne!(shared.changed.version(), observed);
+}

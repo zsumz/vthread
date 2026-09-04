@@ -123,10 +123,12 @@ impl Shared {
             });
         };
         let id = TaskId::new(state.next_task);
-        state.next_task = state.next_task.checked_add(1).ok_or(Error::fault(
-            crate::error::FaultComponent::Scheduler,
-            "task id space exhausted",
-        ))?;
+        state.next_task = state.next_task.checked_add(1).ok_or_else(|| {
+            Error::fault(
+                crate::error::FaultComponent::Scheduler,
+                "task id space exhausted",
+            )
+        })?;
         let task = TaskRecord {
             id,
             scope,

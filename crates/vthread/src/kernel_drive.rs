@@ -12,7 +12,7 @@ impl Kernel {
         self.sweep_revoked();
         if signal_changed
             || (!self.parked.is_empty()
-                && (self.local.pending_wakes() != 0 || self.inbox.hub.pending() != 0))
+                && (self.local.pending_wakes() != 0 || self.inbox.hub.has_pending()))
         {
             self.process_wakes()?;
         }
@@ -26,7 +26,7 @@ impl Kernel {
                         reason: crate::diagnostics::evidence::TimerRetirement::Expired,
                     },
                 );
-                if let Some(parked) = self.parked.get(&token) {
+                if let Some(parked) = self.parked.find_token(token) {
                     parked.registration.select_timeout(token)?;
                 }
             }
@@ -34,7 +34,7 @@ impl Kernel {
         }
         self.select_ready();
         if self.in_flight.is_none()
-            && (self.local.pending_wakes() != 0 || self.inbox.hub.pending() != 0)
+            && (self.local.pending_wakes() != 0 || self.inbox.hub.has_pending())
         {
             self.process_wakes()?;
             self.select_ready();
@@ -128,7 +128,7 @@ impl Kernel {
             }
         };
         if publish {
-            self.publish(CarrierStatus::Running);
+            self.publish_transition();
         }
         Ok(true)
     }
@@ -137,7 +137,7 @@ impl Kernel {
         let mut processed = false;
         while let Some(notice) = self.local.pop_wake().or_else(|| self.inbox.hub.pop_wake()) {
             processed = true;
-            let Some(parked) = self.parked.get(&notice.token) else {
+            let Some(parked) = self.parked.get(notice.route) else {
                 self.stats.stale_wakes += 1;
                 continue;
             };
@@ -147,8 +147,15 @@ impl Kernel {
                     "wake notice task does not own wait token",
                 ));
             }
-            let parked = self.parked.remove(&notice.token).expect("validated park");
-            if self.timers.cancel(notice.token) {
+            if parked.token != notice.token {
+                self.stats.stale_wakes += 1;
+                continue;
+            }
+            let parked = self
+                .parked
+                .remove(notice.route)
+                .expect("validated park route");
+            if parked.has_deadline && self.timers.cancel(notice.token) {
                 #[cfg(feature = "runtime-evidence")]
                 self.shared.record(
                     crate::diagnostics::evidence::RuntimeEventKind::TimerRetired {
@@ -158,19 +165,25 @@ impl Kernel {
                     },
                 );
             }
-            self.shared
-                .transition(self.task(parked.task).execution().record(), |record| {
-                    record.status = TaskStatus::Ready;
-                    record.deadline = None;
-                    record.last_wake = Some(match notice.cause {
-                        WakeCause::Ready => WakeReason::Ready,
-                        WakeCause::TimedOut => WakeReason::TimedOut,
-                        WakeCause::Cancelled | WakeCause::InheritedCancelled => {
-                            WakeReason::Cancelled
-                        }
-                        WakeCause::Closed => WakeReason::Closed,
+            let wake = match notice.cause {
+                WakeCause::Ready => WakeReason::Ready,
+                WakeCause::TimedOut => WakeReason::TimedOut,
+                WakeCause::Cancelled | WakeCause::InheritedCancelled => WakeReason::Cancelled,
+                WakeCause::Closed => WakeReason::Closed,
+            };
+            self.task(parked.task)
+                .execution()
+                .record()
+                .progress()
+                .wake(wake);
+            if parked.has_deadline || self.shared.config.stall_policy().timeout().is_some() {
+                self.shared
+                    .transition(self.task(parked.task).execution().record(), |record| {
+                        record.status = TaskStatus::Ready;
+                        record.deadline = None;
+                        record.last_wake = Some(wake);
                     });
-                });
+            }
             self.stats.wakes += 1;
             match notice.cause {
                 WakeCause::Ready => {}
@@ -178,10 +191,10 @@ impl Kernel {
                 WakeCause::Cancelled | WakeCause::InheritedCancelled => self.stats.cancelled += 1,
                 WakeCause::Closed => self.stats.closed += 1,
             }
-            self.ready.push_back(parked.task);
+            self.ready.push_wake(parked.task);
         }
         if processed {
-            self.publish(CarrierStatus::Running);
+            self.publish_transition();
         }
         Ok(())
     }
@@ -189,16 +202,14 @@ impl Kernel {
     fn park_task(&mut self, request: ParkRequest) -> Result<()> {
         self.yield_pressure = 0;
         let token = request.token();
-        if self.parked.contains_key(&token) {
+        let task = self.in_flight.expect("parking task key");
+        if self.parked.get(task).is_some() {
             return Err(Error::fault(
                 crate::error::FaultComponent::Scheduler,
-                "wait token parked twice",
+                "task parked twice",
             ));
         }
-        let registration = self
-            .task(self.in_flight.expect("parking task key"))
-            .execution()
-            .take_wait(token)?;
+        let registration = self.task(task).execution().take_wait(token)?;
         if let Some(deadline) = request.deadline()
             && !self.timers.schedule(token, deadline)
         {
@@ -220,15 +231,30 @@ impl Kernel {
         #[cfg(feature = "runtime-evidence")]
         let task_id = self.task(task).execution().id;
         let reason = self.task(task).execution().data.reason();
-        self.shared
-            .transition(self.task(task).execution().record(), |record| {
-                record.status = TaskStatus::Suspended(reason);
-                record.deadline = request.deadline();
-                record.parks += 1;
-                record.last_suspension = Some(reason);
-            });
+        self.task(task)
+            .execution()
+            .record()
+            .progress()
+            .suspend(reason);
+        if request.deadline().is_some() || self.shared.config.stall_policy().timeout().is_some() {
+            self.shared
+                .transition(self.task(task).execution().record(), |record| {
+                    record.status = TaskStatus::Suspended(reason);
+                    record.deadline = request.deadline();
+                    record.parks += 1;
+                    record.last_suspension = Some(reason);
+                });
+        }
         self.stats.parks += 1;
-        self.parked.insert(token, ParkedTask { task, registration });
+        assert!(
+            self.parked.insert(ParkedTask {
+                token,
+                task,
+                has_deadline: request.deadline().is_some(),
+                registration,
+            }),
+            "validated vacant park route"
+        );
         #[cfg(feature = "runtime-evidence")]
         self.shared
             .record(crate::diagnostics::evidence::RuntimeEventKind::Parked {

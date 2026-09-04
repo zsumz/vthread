@@ -64,6 +64,8 @@ impl Kernel {
         } else {
             self.publish_transition();
         }
+        // Publish reclaimed-stack counters before a joining observer can resume.
+        record.completion().complete();
         // Completion and admission release become visible only after reclaiming the stack.
         self.queue_completion(completion);
         if self.ready.is_empty() {

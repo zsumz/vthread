@@ -89,10 +89,12 @@ impl<T> LocalJoinHandle<'_, T> {
             .borrow_mut()
             .outcome
             .take()
-            .ok_or(Error::fault(
-                crate::error::FaultComponent::Scheduler,
-                "local child has no outcome",
-            ))?
+            .ok_or_else(|| {
+                Error::fault(
+                    crate::error::FaultComponent::Scheduler,
+                    "local child has no outcome",
+                )
+            })?
             .map_err(|panic| Error::task_panicked(id, name, panic))
     }
 }

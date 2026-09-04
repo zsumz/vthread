@@ -67,8 +67,7 @@ impl Config {
         if matches!(
             scenario,
             Scenario::Park { .. } | Scenario::Channel { .. } | Scenario::WakeTail { .. }
-        )
-            && (tasks < 2 || !tasks.is_multiple_of(2))
+        ) && (tasks < 2 || !tasks.is_multiple_of(2))
         {
             return Err("paired tasks must be an even number of at least two".into());
         }
