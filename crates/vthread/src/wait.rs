@@ -41,12 +41,27 @@ pub(crate) struct WakeNotice {
     pub(crate) cause: WakeCause,
 }
 
-pub(crate) enum WaitBegin {
+pub(crate) enum WaitBegin<R = WaitRegistration> {
     Immediate(WakeCause),
     Park {
         request: ParkRequest,
-        registration: WaitRegistration,
+        registration: R,
     },
+}
+
+impl<R> WaitBegin<R> {
+    pub(crate) fn map_registration<S>(self, map: impl FnOnce(R) -> S) -> WaitBegin<S> {
+        match self {
+            Self::Immediate(cause) => WaitBegin::Immediate(cause),
+            Self::Park {
+                request,
+                registration,
+            } => WaitBegin::Park {
+                request,
+                registration: map(registration),
+            },
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -117,7 +132,6 @@ impl WaitRegistration {
 }
 
 impl WaitCell {
-    #[cfg(test)]
     pub(crate) fn registration(&self) -> WaitRegistration {
         #[cfg(feature = "runtime-evidence")]
         let word = self.state.load();
@@ -135,6 +149,14 @@ impl WaitCell {
             #[cfg(feature = "runtime-evidence")]
             evidence,
         }
+    }
+
+    pub(crate) fn weak_state(&self) -> Weak<WaitInner> {
+        Arc::downgrade(&self.state)
+    }
+
+    pub(crate) fn matches_state(&self, state: &Weak<WaitInner>) -> bool {
+        Arc::as_ptr(&self.state) == state.as_ptr()
     }
 
     pub(crate) fn guard(&self, token: ParkToken) -> ParkGuard<'_> {
