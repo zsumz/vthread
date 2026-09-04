@@ -3,22 +3,20 @@
 use super::wait::Wait;
 use crate::{
     Error, Result,
-    signal::lock,
     wait::{ResourceSelection, WaitCell},
 };
 use std::{
     collections::VecDeque,
-    sync::{
-        Mutex as NativeMutex,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::atomic::{AtomicUsize, Ordering},
 };
-use vthread_sync_core::{ExclusiveCell, ExclusiveGuard, Ownership, OwnershipSlot, QueueDecision};
+use vthread_sync_core::{
+    ExclusiveCell, ExclusiveGuard, Ownership, OwnershipSlot, QueueDecision, SpinMutex,
+};
 
 pub(super) struct MutexQueue {
     outstanding: AtomicUsize,
     capacity: usize,
-    entries: NativeMutex<VecDeque<WaitCell>>,
+    entries: SpinMutex<VecDeque<WaitCell>>,
     handoff: OwnershipSlot,
 }
 
@@ -44,7 +42,7 @@ impl MutexQueue {
         Ok(Self {
             outstanding: AtomicUsize::new(0),
             capacity,
-            entries: NativeMutex::new(VecDeque::new()),
+            entries: SpinMutex::new(VecDeque::new()),
             handoff: OwnershipSlot::new(),
         })
     }
@@ -55,7 +53,7 @@ impl MutexQueue {
         wait: &'wait WaitCell,
     ) -> Result<Subscription<'mutex, 'wait, T>> {
         self.reserve()?;
-        let mut entries = lock(&self.entries);
+        let mut entries = self.entries.lock();
         match value.queue_or_lock() {
             QueueDecision::Acquired(guard) => {
                 assert!(entries.is_empty(), "unlocked mutex retained waiters");
@@ -88,7 +86,7 @@ impl MutexQueue {
     pub(super) fn release_ownership<T>(&self, value: &ExclusiveCell<T>, mut ownership: Ownership) {
         loop {
             let wait = {
-                let mut entries = lock(&self.entries);
+                let mut entries = self.entries.lock();
                 let Some(wait) = entries.pop_front() else {
                     assert!(
                         self.handoff.take().is_none(),
@@ -168,7 +166,7 @@ impl<T> Drop for Ticket<'_, '_, T> {
             return;
         };
         let queued = {
-            let mut entries = lock(&self.queue.entries);
+            let mut entries = self.queue.entries.lock();
             match entries.iter().position(|entry| entry.same_cell(wait)) {
                 Some(index) => {
                     drop(entries.remove(index).expect("mutex ticket position"));
