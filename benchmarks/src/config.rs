@@ -17,6 +17,7 @@ pub(crate) enum Scenario {
     },
     Mutex {
         per_task: usize,
+        contended: bool,
     },
     Channel {
         per_task: usize,
@@ -59,6 +60,11 @@ impl Config {
             },
             Some("mutex") => Scenario::Mutex {
                 per_task: positive(&mut args, "locks-per-task")?,
+                contended: true,
+            },
+            Some("mutex-uncontended") => Scenario::Mutex {
+                per_task: positive(&mut args, "locks-per-task")?,
+                contended: false,
             },
             Some("channel") => Scenario::Channel {
                 per_task: positive(&mut args, "messages-per-task")?,
@@ -89,8 +95,25 @@ impl Config {
         {
             return Err("paired tasks must be an even number of at least two".into());
         }
-        if matches!(scenario, Scenario::Mutex { .. }) && tasks < 2 {
+        if matches!(
+            scenario,
+            Scenario::Mutex {
+                contended: true,
+                ..
+            }
+        ) && tasks < 2
+        {
             return Err("mutex requires at least two contending tasks".into());
+        }
+        if matches!(
+            scenario,
+            Scenario::Mutex {
+                contended: false,
+                ..
+            }
+        ) && tasks != 1
+        {
+            return Err("uncontended mutex requires exactly one task".into());
         }
         if args.next().is_some() {
             return Err(usage());
@@ -116,7 +139,12 @@ impl Config {
             Scenario::Yield { .. } => Cow::Borrowed("yield"),
             Scenario::Spawn => Cow::Borrowed("task"),
             Scenario::Park { .. } => Cow::Borrowed("park-handoff"),
-            Scenario::Mutex { .. } => Cow::Borrowed("mutex-handoff"),
+            Scenario::Mutex {
+                contended: true, ..
+            } => Cow::Borrowed("mutex-handoff"),
+            Scenario::Mutex {
+                contended: false, ..
+            } => Cow::Borrowed("mutex-uncontended"),
             Scenario::Channel { capacity: None, .. } => Cow::Borrowed("channel-handoff"),
             Scenario::Channel {
                 capacity: Some(capacity),
@@ -131,7 +159,7 @@ impl Config {
         let per_task = match self.scenario {
             Scenario::Yield { per_task }
             | Scenario::Park { per_task }
-            | Scenario::Mutex { per_task }
+            | Scenario::Mutex { per_task, .. }
             | Scenario::Channel { per_task, .. }
             | Scenario::Tcp { per_task }
             | Scenario::WakeTail { per_task } => per_task,
@@ -161,7 +189,7 @@ fn channel_capacity(args: &mut impl Iterator<Item = String>) -> Result<usize, St
 }
 
 fn usage() -> String {
-    "usage: vthread-benchmarks <vthread|may> yield <yields-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> spawn <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> park <parks-per-task> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> mutex <locks-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> channel <messages-per-task> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> channel-bounded-spsc <messages-per-task> <capacity> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> tcp <round-trips-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> wake-tail <wakes-per-task> <workers> <even-tasks> <odd-samples>".into()
+    "usage: vthread-benchmarks <vthread|may> yield <yields-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> spawn <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> park <parks-per-task> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> mutex <locks-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> mutex-uncontended <locks-per-task> <workers> 1 <odd-samples>\n       vthread-benchmarks <vthread|may> channel <messages-per-task> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> channel-bounded-spsc <messages-per-task> <capacity> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> tcp <round-trips-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> wake-tail <wakes-per-task> <workers> <even-tasks> <odd-samples>".into()
 }
 
 #[cfg(test)]

@@ -50,7 +50,13 @@ fn wake_tail_accepts_multiple_workers_but_still_requires_pairs() {
 #[test]
 fn operation_count_includes_each_task() {
     let config = parse(&["vthread", "mutex", "10", "1", "4", "3"]).unwrap();
-    assert!(matches!(config.scenario, Scenario::Mutex { per_task: 10 }));
+    assert!(matches!(
+        config.scenario,
+        Scenario::Mutex {
+            per_task: 10,
+            contended: true
+        }
+    ));
     assert_eq!(config.operations(), 40);
 }
 
@@ -58,6 +64,20 @@ fn operation_count_includes_each_task() {
 fn mutex_requires_two_contending_tasks() {
     assert!(parse(&["vthread", "mutex", "10", "1", "2", "3"]).is_ok());
     assert!(parse(&["may", "mutex", "10", "1", "1", "3"]).is_err());
+}
+
+#[test]
+fn uncontended_mutex_requires_exactly_one_task() {
+    let config = parse(&["vthread", "mutex-uncontended", "10", "1", "1", "3"]).unwrap();
+    assert!(matches!(
+        config.scenario,
+        Scenario::Mutex {
+            per_task: 10,
+            contended: false
+        }
+    ));
+    assert_eq!(config.operation(), "mutex-uncontended");
+    assert!(parse(&["may", "mutex-uncontended", "10", "1", "2", "3"]).is_err());
 }
 
 #[test]
