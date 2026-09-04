@@ -17,6 +17,9 @@
 //!    160  fpcr, padding
 //! ```
 //!
+//! FPCR is restored only when the two contexts disagree, because writing it costs far
+//! more than the comparison and the mode is almost always shared.
+//!
 //! A fabricated first frame carries the fiber core in x19, a zero frame pointer, and
 //! the bootstrap trampoline as its link register. The trampoline jumps to the fiber
 //! root with a zero link register, so frame-pointer walkers and DWARF unwinders both
@@ -66,11 +69,15 @@ pub(crate) unsafe extern "C" fn context_switch(save_current: *mut usize, restore
         "stp d14, d15, [sp, #144]",
         "mrs x2, fpcr",
         "str x2, [sp, #160]",
-        "mov x2, sp",
-        "str x2, [x0]",
+        "mov x3, sp",
+        "str x3, [x0]",
         "mov sp, x1",
-        "ldr x2, [sp, #160]",
-        "msr fpcr, x2",
+        // Writing FPCR is far costlier than reading it; skip it when the mode matches.
+        "ldr x3, [sp, #160]",
+        "cmp x2, x3",
+        "b.eq 2f",
+        "msr fpcr, x3",
+        "2:",
         "ldp d14, d15, [sp, #144]",
         "ldp d12, d13, [sp, #128]",
         "ldp d10, d11, [sp, #112]",
@@ -95,9 +102,14 @@ pub(crate) unsafe extern "C" fn context_switch(save_current: *mut usize, restore
 #[unsafe(naked)]
 pub(crate) unsafe extern "C" fn context_finish(restore: usize) -> ! {
     naked_asm!(
+        "mrs x2, fpcr",
         "mov sp, x0",
-        "ldr x2, [sp, #160]",
-        "msr fpcr, x2",
+        // Writing FPCR is far costlier than reading it; skip it when the mode matches.
+        "ldr x3, [sp, #160]",
+        "cmp x2, x3",
+        "b.eq 2f",
+        "msr fpcr, x3",
+        "2:",
         "ldp d14, d15, [sp, #144]",
         "ldp d12, d13, [sp, #128]",
         "ldp d10, d11, [sp, #112]",

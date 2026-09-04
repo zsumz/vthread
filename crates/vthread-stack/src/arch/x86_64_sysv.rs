@@ -17,6 +17,10 @@
 //!     64  return address
 //! ```
 //!
+//! MXCSR and the x87 control word are restored only when the two contexts disagree,
+//! because loading them costs far more than the comparison and the mode is almost
+//! always shared.
+//!
 //! The saved stack pointer is congruent to 8 modulo 16, exactly as inside a called
 //! function. A fabricated first frame carries the fiber core in rbx, a zero rbp, and
 //! the bootstrap trampoline as its return address. The trampoline pushes a zero return
@@ -66,10 +70,19 @@ pub(crate) unsafe extern "C" fn context_switch(save_current: *mut usize, restore
         "sub rsp, 16",
         "stmxcsr [rsp]",
         "fnstcw [rsp + 4]",
+        "mov eax, [rsp]",
+        "movzx ecx, word ptr [rsp + 4]",
         "mov [rdi], rsp",
         "mov rsp, rsi",
+        // Loading the control words is slow; skip each one whose value already matches.
+        "cmp eax, [rsp]",
+        "je 2f",
         "ldmxcsr [rsp]",
+        "2:",
+        "cmp cx, [rsp + 4]",
+        "je 3f",
         "fldcw [rsp + 4]",
+        "3:",
         "add rsp, 16",
         "pop r15",
         "pop r14",
@@ -90,9 +103,20 @@ pub(crate) unsafe extern "C" fn context_switch(save_current: *mut usize, restore
 #[unsafe(naked)]
 pub(crate) unsafe extern "C" fn context_finish(restore: usize) -> ! {
     naked_asm!(
+        "sub rsp, 8",
+        "stmxcsr [rsp]",
+        "fnstcw [rsp + 4]",
+        "mov eax, [rsp]",
+        "movzx ecx, word ptr [rsp + 4]",
         "mov rsp, rdi",
+        "cmp eax, [rsp]",
+        "je 2f",
         "ldmxcsr [rsp]",
+        "2:",
+        "cmp cx, [rsp + 4]",
+        "je 3f",
         "fldcw [rsp + 4]",
+        "3:",
         "add rsp, 16",
         "pop r15",
         "pop r14",
