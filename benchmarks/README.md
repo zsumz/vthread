@@ -74,11 +74,12 @@ loopback echo peer for both engines;
 its per-operation distribution is more useful than its whole-round total, which also includes peer
 startup and shutdown. Use a quiet machine and compare distributions as well as medians. Carrier
 placement, frequency scaling, and host scheduling make short and multi-worker samples noisy.
-May can move coroutines through work stealing; vthread deliberately keeps every started task on its
-owner carrier. The harness therefore compares the complete runtime contracts, not identical
-scheduling policies. Per-task and paired-tail summaries expose fairness. For vthread's paired park,
-channel, and wake-tail scenarios, the untimed warm-up also records the actual owner-carrier pair
-counts from runtime diagnostics before drain; May has no immutable owner route to report.
+May can move coroutines through work stealing and wake routing; vthread deliberately keeps every
+started task on its owner carrier. The harness therefore compares the complete runtime contracts,
+not identical scheduling policies. Per-task and paired-tail summaries expose fairness. For paired
+park and channel workloads, a warm-up-only observer reports May's final execution-worker pairs and
+per-task migration alongside vthread's immutable owner-carrier pairs. No placement observer runs in
+the measured rounds. Vthread's wake-tail warm-up also reports immutable owner-carrier pairs.
 
 For a readiness comparison, local socket creation must be permitted:
 

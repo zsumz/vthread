@@ -6,6 +6,7 @@ mod config;
 #[cfg(feature = "lifecycle-profiling")]
 mod lifecycle_profile;
 mod may_bounded_channel;
+mod may_channel;
 mod may_engine;
 mod may_placement;
 mod report;
