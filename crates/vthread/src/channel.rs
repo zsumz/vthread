@@ -28,11 +28,8 @@ mod wait;
 pub use crate::sync::DEFAULT_WAIT_CAPACITY;
 
 use crate::{Error, Result, wait::WaitCell};
-use std::{
-    collections::VecDeque,
-    fmt,
-    sync::{Arc, Mutex},
-};
+use std::{collections::VecDeque, fmt, sync::Arc};
+use vthread_sync_core::SpinMutex;
 
 /// The sending endpoint of a bounded multiple-producer, multiple-consumer channel.
 /// Endpoints cross carriers only when their message type implements `Send`.
@@ -91,7 +88,7 @@ impl<T> std::error::Error for SendError<T> {
 struct Core<T> {
     capacity: usize,
     wait_capacity: usize,
-    state: Mutex<State<T>>,
+    state: SpinMutex<State<T>>,
 }
 struct State<T> {
     values: VecDeque<T>,
@@ -131,7 +128,7 @@ pub fn bounded_with_wait_capacity<T>(
     let core = Arc::new(Core {
         capacity,
         wait_capacity,
-        state: Mutex::new(State {
+        state: SpinMutex::new(State {
             values: VecDeque::new(),
             senders: 1,
             receivers: 1,

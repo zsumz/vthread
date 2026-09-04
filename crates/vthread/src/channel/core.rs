@@ -4,7 +4,7 @@ use super::{
     Core, SendError,
     wait::{Direction, Ticket},
 };
-use crate::{Error, Result, SuspensionReason, signal::lock, sync::wait::Wait};
+use crate::{Error, Result, SuspensionReason, sync::wait::Wait};
 
 impl<T> Core<T> {
     pub(super) fn send(&self, value: T, blocking: bool) -> std::result::Result<(), SendError<T>> {
@@ -24,7 +24,7 @@ impl<T> Core<T> {
         let mut ticket = Ticket::new(self, Direction::Send);
         loop {
             {
-                let mut state = lock(&self.state);
+                let mut state = self.state.lock();
                 if state.closed || state.receivers == 0 {
                     return Err(Error::Closed);
                 }
@@ -62,7 +62,7 @@ impl<T> Core<T> {
         let mut ticket = Ticket::new(self, Direction::Recv);
         loop {
             {
-                let mut state = lock(&self.state);
+                let mut state = self.state.lock();
                 if !state.values.is_empty() && ticket.take_turn(&mut state) {
                     let value = state.values.pop_front().expect("nonempty channel");
                     state.wake_fronts();
@@ -95,7 +95,7 @@ impl<T> Core<T> {
     }
 
     pub(super) fn close(&self) {
-        let mut state = lock(&self.state);
+        let mut state = self.state.lock();
         state.closed = true;
         state.wake_all();
     }

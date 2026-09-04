@@ -1,6 +1,4 @@
-use crate::{
-    Error, Runtime, channel::bounded_with_wait_capacity, local_scope, signal::lock, yield_now,
-};
+use crate::{Error, Runtime, channel::bounded_with_wait_capacity, local_scope, yield_now};
 
 #[test]
 fn one_task_reuses_its_resident_wait_across_channels() {
@@ -22,7 +20,10 @@ fn one_task_reuses_its_resident_wait_across_channels() {
                         while first_sender.waiting() == 0 {
                             yield_now()?;
                         }
-                        let first = lock(&first_sender.core.state)
+                        let first = first_sender
+                            .core
+                            .state
+                            .lock()
                             .send_waits
                             .front()
                             .expect("first wait")
@@ -31,7 +32,10 @@ fn one_task_reuses_its_resident_wait_across_channels() {
                         while second_sender.waiting() == 0 {
                             yield_now()?;
                         }
-                        let second = lock(&second_sender.core.state)
+                        let second = second_sender
+                            .core
+                            .state
+                            .lock()
                             .send_waits
                             .front()
                             .expect("second wait")

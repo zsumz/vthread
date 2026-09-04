@@ -1,7 +1,7 @@
 //! Endpoint counts and disconnection, with value destruction outside metadata locks.
 
 use super::{Receiver, SendError, Sender};
-use crate::{Result, signal::lock};
+use crate::Result;
 use std::sync::Arc;
 
 impl<T> Sender<T> {
@@ -19,7 +19,7 @@ impl<T> Sender<T> {
     }
     /// Whether sending is permanently disconnected or explicitly closed.
     pub fn is_closed(&self) -> bool {
-        let state = lock(&self.core.state);
+        let state = self.core.state.lock();
         state.closed || state.receivers == 0
     }
     /// Configured message capacity.
@@ -32,7 +32,7 @@ impl<T> Sender<T> {
     }
     /// Buffered message count, excluding inputs held by waiting senders.
     pub fn len(&self) -> usize {
-        lock(&self.core.state).values.len()
+        self.core.state.lock().values.len()
     }
     /// Whether the buffer is empty.
     pub fn is_empty(&self) -> bool {
@@ -40,7 +40,7 @@ impl<T> Sender<T> {
     }
     /// Outstanding sender wait tickets, including selected waiters.
     pub fn waiting(&self) -> usize {
-        lock(&self.core.state).send_waits.len()
+        self.core.state.lock().send_waits.len()
     }
 }
 
@@ -64,12 +64,12 @@ impl<T> Receiver<T> {
     }
     /// Whether future sends are impossible. Buffered values may still remain.
     pub fn is_closed(&self) -> bool {
-        let state = lock(&self.core.state);
+        let state = self.core.state.lock();
         state.closed || state.senders == 0
     }
     /// Buffered message count.
     pub fn len(&self) -> usize {
-        lock(&self.core.state).values.len()
+        self.core.state.lock().values.len()
     }
     /// Whether the buffer is empty.
     pub fn is_empty(&self) -> bool {
@@ -77,13 +77,13 @@ impl<T> Receiver<T> {
     }
     /// Outstanding receiver wait tickets, including selected waiters.
     pub fn waiting(&self) -> usize {
-        lock(&self.core.state).recv_waits.len()
+        self.core.state.lock().recv_waits.len()
     }
 }
 
 impl<T> Clone for Sender<T> {
     fn clone(&self) -> Self {
-        let mut state = lock(&self.core.state);
+        let mut state = self.core.state.lock();
         state.senders = state
             .senders
             .checked_add(1)
@@ -95,7 +95,7 @@ impl<T> Clone for Sender<T> {
 }
 impl<T> Clone for Receiver<T> {
     fn clone(&self) -> Self {
-        let mut state = lock(&self.core.state);
+        let mut state = self.core.state.lock();
         state.receivers = state
             .receivers
             .checked_add(1)
@@ -107,7 +107,7 @@ impl<T> Clone for Receiver<T> {
 }
 impl<T> Drop for Sender<T> {
     fn drop(&mut self) {
-        let mut state = lock(&self.core.state);
+        let mut state = self.core.state.lock();
         state.senders -= 1;
         if state.senders == 0 {
             state.wake_all();
@@ -117,7 +117,7 @@ impl<T> Drop for Sender<T> {
 impl<T> Drop for Receiver<T> {
     fn drop(&mut self) {
         let discarded = {
-            let mut state = lock(&self.core.state);
+            let mut state = self.core.state.lock();
             state.receivers -= 1;
             if state.receivers == 0 {
                 state.wake_all();

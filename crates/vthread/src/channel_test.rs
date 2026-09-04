@@ -63,6 +63,53 @@ fn mpmc_delivers_each_value_once_on_one_and_four_carriers() {
 }
 
 #[test]
+fn native_try_operations_remain_exact_under_contention() {
+    const PRODUCERS: usize = 4;
+    const VALUES: usize = 1_024;
+    let (sender, receiver) = bounded_with_wait_capacity(16, 1).unwrap();
+    let output = Arc::new(Mutex::new(Vec::with_capacity(PRODUCERS * VALUES)));
+    std::thread::scope(|threads| {
+        for _ in 0..PRODUCERS {
+            let receiver = receiver.clone();
+            let output = Arc::clone(&output);
+            threads.spawn(move || {
+                loop {
+                    match receiver.try_recv() {
+                        Ok(value) => output.lock().unwrap().push(value),
+                        Err(Error::WouldBlock) => std::thread::yield_now(),
+                        Err(Error::Closed) => break,
+                        Err(error) => panic!("unexpected receive failure: {error}"),
+                    }
+                }
+            });
+        }
+        for producer in 0..PRODUCERS {
+            let sender = sender.clone();
+            threads.spawn(move || {
+                for offset in 0..VALUES {
+                    let mut value = producer * VALUES + offset;
+                    loop {
+                        match sender.try_send(value) {
+                            Ok(()) => break,
+                            Err(error) if matches!(error.error(), Error::WouldBlock) => {
+                                value = error.into_inner();
+                                std::thread::yield_now();
+                            }
+                            Err(error) => panic!("unexpected send failure: {error}"),
+                        }
+                    }
+                }
+            });
+        }
+        drop(sender);
+        drop(receiver);
+    });
+    let mut actual = Arc::into_inner(output).unwrap().into_inner().unwrap();
+    actual.sort_unstable();
+    assert_eq!(actual, (0..PRODUCERS * VALUES).collect::<Vec<_>>());
+}
+
+#[test]
 fn constructors_and_nonblocking_operations_enforce_bounds() {
     assert!(bounded_with_wait_capacity::<u8>(0, 1).is_err());
     assert!(bounded_with_wait_capacity::<u8>(1, 0).is_err());
