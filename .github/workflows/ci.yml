@@ -12,19 +12,32 @@ permissions:
 
 jobs:
   check:
-    name: check (${{ matrix.target }})
+    name: check (${{ matrix.target }}, ${{ matrix.engine }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: ubuntu-24.04
             target: linux-x86-64
+            engine: corosensei
+            rustflags: ''
+          - runner: ubuntu-24.04
+            target: linux-x86-64
+            engine: native
+            rustflags: '--cfg vthread_stack_engine="native"'
           - runner: macos-14
             target: macos-arm64
+            engine: corosensei
+            rustflags: ''
+          - runner: macos-14
+            target: macos-arm64
+            engine: native
+            rustflags: '--cfg vthread_stack_engine="native"'
     runs-on: ${{ matrix.runner }}
     env:
       CARGO_TARGET_DIR: /tmp/vthread-check-build
       CARGO_HOME: ${{ github.workspace }}/target/cargo-home
+      RUSTFLAGS: ${{ matrix.rustflags }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rust
@@ -45,7 +58,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: check-${{ matrix.target }}
+          name: check-${{ matrix.target }}-${{ matrix.engine }}
           path: .zcheck/
           include-hidden-files: true
           if-no-files-found: warn
