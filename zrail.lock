@@ -6,20 +6,20 @@ contract_sha256 = "7f9576862e185cea2088e047411366b828bc3b4c388ed54d139106e85fc35
 ratchet = []
 
 [analysis]
-inventory_sha256 = "e30385aef4aa03ce468a8fdbb1cbe4a6da3580bf1d29db8ed1899cc3b5246554"
+inventory_sha256 = "e40efcdf96c5d79d13070d3351e95e5c64dfe1ff10231ba35de39ab3dbc54e70"
 exclusions_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-cargo_lock_sha256 = "9f4804e1c713d62e28f96050005b1e3934eea87732ef39054845185a0fb9d7ed"
+cargo_lock_sha256 = "a79cefd9a9902fabb3fad54aeb2f1f9a512c5f72840da66f5c312c634e2f26af"
 cargo_features_sha256 = "c8c3ae783795fefa2eaaf8ac7fda3383de6ec0a9e9edcd82e8b540419e320b56"
 feature_worlds_sha256 = "864a6d19f460aa9b9460f8375e9ac99d93e1fc09112fa246d08c6b224dc8c51b"
 feature_worlds = 3
 packages = 4
 targets = 5
-physical_rust_files = 335
-base_source_contexts = 1440
+physical_rust_files = 333
+base_source_contexts = 1431
 derived_source_contexts = 0
-source_facts = 100432
-projection_queries = 1780260
-projected_facts = 13
+source_facts = 100581
+projection_queries = 1787403
+projected_facts = 28
 unresolved_bindings = 0
 analyzer_semantics = 4
 
@@ -99,18 +99,6 @@ requirement = "=0.0.2-rc.1"
 
 [[package]]
 name = "vthread-stack"
-
-[[package.dependency]]
-alias = "corosensei"
-name = "corosensei"
-kind = "normal"
-scope = "external"
-optional = false
-default_features = true
-
-[package.dependency.source]
-kind = "registry"
-requirement = "=0.3.4"
 
 [[package.dependency]]
 alias = "libc"
