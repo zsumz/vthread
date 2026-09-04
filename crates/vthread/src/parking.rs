@@ -29,9 +29,11 @@ use std::{
 };
 
 use crate::{
-    Error, Result, context,
-    wait::{NotifyResult, WaitBegin, WaitCell, WakeCause},
+    Error, Result,
+    context::{self, Execution},
+    wait::{NotifyResult, WaitBegin, WaitCell, WaitRegistration, WakeCause},
 };
+use vthread_stack::ParkToken;
 
 /// The exact selected winner for one parking generation.
 ///
@@ -92,21 +94,25 @@ impl Parker {
         self.park_with(deadline, |_, _| Ok(()))
     }
 
-    pub(crate) fn park_after_checkpoint(
-        &self,
-        execution: &crate::context::Execution,
-    ) -> Result<ParkOutcome> {
+    pub(crate) fn park_after_checkpoint(&self, execution: &Execution) -> Result<ParkOutcome> {
         let handoff = if execution.owns_synchronization_wait(&self.wait) {
             WaitHandoff::TaskResident
         } else {
             WaitHandoff::Shared
         };
-        park_wait(execution, &self.wait, None, handoff, |_, _| Ok(()))
+        park_wait::<false, _>(execution, &self.wait, None, handoff, |_, _| Ok(()))
+    }
+
+    pub(crate) fn park_notification_after_checkpoint(
+        &self,
+        execution: &Execution,
+    ) -> Result<ParkOutcome> {
+        park_wait_after_checkpoint::<true>(&self.wait, execution)
     }
 
     pub(crate) fn park_registered<G>(
         &self,
-        register: impl FnOnce(vthread_stack::ParkToken, &crate::wait::WaitRegistration) -> Result<G>,
+        register: impl FnOnce(ParkToken, &WaitRegistration) -> Result<G>,
     ) -> Result<ParkOutcome> {
         self.park_with(None, register)
     }
@@ -114,12 +120,12 @@ impl Parker {
     fn park_with<G>(
         &self,
         deadline: Option<Instant>,
-        register: impl FnOnce(vthread_stack::ParkToken, &crate::wait::WaitRegistration) -> Result<G>,
+        register: impl FnOnce(ParkToken, &WaitRegistration) -> Result<G>,
     ) -> Result<ParkOutcome> {
         let mounted = context::current().ok_or(Error::OutsideVThread)?;
         let execution = mounted.execution()?;
         execution.data.check()?;
-        park_wait(
+        park_wait::<true, _>(
             execution,
             &self.wait,
             deadline,
@@ -129,27 +135,26 @@ impl Parker {
     }
 }
 
-pub(crate) fn park_wait_after_checkpoint(
+pub(crate) fn park_wait_after_checkpoint<const PLAIN_READY: bool>(
     wait: &WaitCell,
-    execution: &crate::context::Execution,
+    execution: &Execution,
 ) -> Result<ParkOutcome> {
-    park_wait(execution, wait, None, WaitHandoff::TaskResident, |_, _| {
+    park_wait::<PLAIN_READY, _>(execution, wait, None, WaitHandoff::TaskResident, |_, _| {
         Ok(())
     })
 }
-
 #[derive(Clone, Copy)]
 enum WaitHandoff {
     Shared,
     TaskResident,
 }
 
-fn park_wait<G>(
-    execution: &crate::context::Execution,
+fn park_wait<const PLAIN_READY: bool, G>(
+    execution: &Execution,
     wait: &WaitCell,
     deadline: Option<Instant>,
     handoff: WaitHandoff,
-    register: impl FnOnce(vthread_stack::ParkToken, Option<&crate::wait::WaitRegistration>) -> Result<G>,
+    register: impl FnOnce(ParkToken, Option<&WaitRegistration>) -> Result<G>,
 ) -> Result<ParkOutcome> {
     let policy = &execution.data;
     let unmasked = policy.masked() == 0;
@@ -211,7 +216,11 @@ fn park_wait<G>(
                 wait.rollback(token);
                 return Err(Error::from(error));
             }
-            let cause = wait.finish(token)?;
+            let cause = if PLAIN_READY {
+                wait.finish_plain_ready(token)?
+            } else {
+                wait.finish(token)?
+            };
             generation.disarm();
             selected(cause, inherited_timeout)
         }

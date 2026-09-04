@@ -212,6 +212,29 @@ impl WaitCell {
         if token.wait() != self.state.id {
             return Err(resumed_generation_fault());
         }
+        self.finish_slow(token)
+    }
+
+    pub(crate) fn finish_plain_ready(&self, token: ParkToken) -> Result<WakeCause> {
+        if token.wait() != self.state.id {
+            return Err(resumed_generation_fault());
+        }
+        let selected = wait_state::WaitWord::initial()
+            .with_generation(token.generation())
+            .with_phase(Phase::SelectedReady);
+        if self
+            .state
+            .compare_exchange(selected, selected.retire())
+            .is_ok()
+        {
+            #[cfg(feature = "runtime-evidence")]
+            self.record_resumed(selected, token, WakeCause::Ready);
+            return Ok(WakeCause::Ready);
+        }
+        self.finish_slow(token)
+    }
+
+    fn finish_slow(&self, token: ParkToken) -> Result<WakeCause> {
         loop {
             let word = self.state.load();
             if word.generation() != token.generation() {
@@ -227,21 +250,25 @@ impl WaitCell {
                     "resumed parker has no selected wake",
                 ));
             };
-            #[cfg(feature = "runtime-evidence")]
-            let resumed = self
-                .state
-                .with_target(word, |task, _, hub| (task, hub.evidence()));
             if self.state.compare_exchange(word, word.retire()).is_ok() {
                 #[cfg(feature = "runtime-evidence")]
-                if let (task, Some(evidence)) = resumed {
-                    evidence.record(crate::diagnostics::evidence::RuntimeEventKind::Resumed {
-                        task,
-                        wait: crate::diagnostics::evidence::WaitKey::from_token(token),
-                        cause: cause.evidence(),
-                    });
-                }
+                self.record_resumed(word, token, cause);
                 return Ok(cause);
             }
+        }
+    }
+
+    #[cfg(feature = "runtime-evidence")]
+    fn record_resumed(&self, word: wait_state::WaitWord, token: ParkToken, cause: WakeCause) {
+        let (task, evidence) = self
+            .state
+            .with_target(word, |task, _, hub| (task, hub.evidence()));
+        if let Some(evidence) = evidence {
+            evidence.record(crate::diagnostics::evidence::RuntimeEventKind::Resumed {
+                task,
+                wait: crate::diagnostics::evidence::WaitKey::from_token(token),
+                cause: cause.evidence(),
+            });
         }
     }
 

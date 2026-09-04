@@ -47,7 +47,7 @@ impl<T> Core<T> {
             }
             wait.as_ref()
                 .expect("blocking send")
-                .park(ticket.parker())?;
+                .park_notification(ticket.parker())?;
         }
     }
 
@@ -82,7 +82,7 @@ impl<T> Core<T> {
             }
             wait.as_ref()
                 .expect("blocking receive")
-                .park(ticket.parker())?;
+                .park_notification(ticket.parker())?;
         }
     }
 
