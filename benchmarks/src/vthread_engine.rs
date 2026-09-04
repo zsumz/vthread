@@ -1,11 +1,12 @@
 use crate::{
     config::{Config, Scenario},
     report::{Round, measure},
+    wake_clock::{WakeClock, WakeStamp},
 };
 use std::{
     hint::black_box,
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::Instant,
@@ -229,8 +230,9 @@ fn spawn_wake_tail_pairs(
     for _ in 0..tasks / 2 {
         let (park_a, wake_a) = vthread::parking::park_pair();
         let (park_b, wake_b) = vthread::parking::park_pair();
-        let stamp_a = Arc::new(Mutex::new(None));
-        let stamp_b = Arc::new(Mutex::new(None));
+        let clock = WakeClock::new();
+        let stamp_a = Arc::new(WakeStamp::new());
+        let stamp_b = Arc::new(WakeStamp::new());
         let started = Arc::new(AtomicBool::new(false));
         let own_stamp = Arc::clone(&stamp_a);
         let peer_stamp = Arc::clone(&stamp_b);
@@ -240,8 +242,8 @@ fn spawn_wake_tail_pairs(
             own_started.store(true, Ordering::Release);
             for _ in 0..iterations {
                 park_a.park()?;
-                samples.push(take_elapsed(&own_stamp));
-                set_stamp(&peer_stamp);
+                samples.push(clock.elapsed(&own_stamp));
+                clock.publish(&peer_stamp);
                 wake_b.unpark();
             }
             Ok(samples)
@@ -252,27 +254,13 @@ fn spawn_wake_tail_pairs(
                 vthread::yield_now()?;
             }
             for _ in 0..iterations {
-                set_stamp(&stamp_a);
+                clock.publish(&stamp_a);
                 wake_a.unpark();
                 park_b.park()?;
-                samples.push(take_elapsed(&stamp_b));
+                samples.push(clock.elapsed(&stamp_b));
             }
             Ok(samples)
         })?);
     }
     Ok(handles)
-}
-
-fn set_stamp(stamp: &Mutex<Option<Instant>>) {
-    *stamp.lock().expect("wake timestamp") = Some(Instant::now());
-}
-
-fn take_elapsed(stamp: &Mutex<Option<Instant>>) -> u64 {
-    stamp
-        .lock()
-        .expect("wake timestamp")
-        .take()
-        .expect("published wake timestamp")
-        .elapsed()
-        .as_nanos() as u64
 }

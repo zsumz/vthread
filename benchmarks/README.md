@@ -57,7 +57,9 @@ exercised without an all-task startup deadlock.
 
 The round report includes median, p95, p99, maximum, and every whole-round sample. `tcp` and
 `wake-tail` additionally aggregate individual operation latencies across measured rounds and print
-their median, p95, p99, and maximum. The TCP case uses a native loopback echo peer for both engines;
+their median, p95, p99, p99.9, p99.99, and maximum. Wake timestamps move through a cache-aligned
+atomic slot so the observer does not add a native mutex to every sample. The TCP case uses a native
+loopback echo peer for both engines;
 its per-operation distribution is more useful than its whole-round total, which also includes peer
 startup and shutdown. Use a quiet machine and compare distributions as well as medians. Carrier
 placement, frequency scaling, and host scheduling make short and multi-worker samples noisy.
