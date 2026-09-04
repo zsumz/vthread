@@ -28,8 +28,7 @@ impl<T> Core<T> {
                 if state.closed || state.receivers == 0 {
                     return Err(Error::Closed);
                 }
-                if state.values.len() < self.capacity && ticket.turn(&mut state) {
-                    ticket.remove(&mut state);
+                if state.values.len() < self.capacity && ticket.take_turn(&mut state) {
                     state.values.push_back(value.take().expect("send input"));
                     state.wake_fronts();
                     return Ok(());
@@ -61,8 +60,7 @@ impl<T> Core<T> {
         loop {
             {
                 let mut state = lock(&self.state);
-                if !state.values.is_empty() && ticket.turn(&mut state) {
-                    ticket.remove(&mut state);
+                if !state.values.is_empty() && ticket.take_turn(&mut state) {
                     let value = state.values.pop_front().expect("nonempty channel");
                     state.wake_fronts();
                     return Ok(value);

@@ -59,11 +59,19 @@ impl<'a, T> Ticket<'a, T> {
         );
     }
 
-    pub(super) fn turn(&self, state: &mut State<T>) -> bool {
-        state
-            .queue(self.direction)
-            .front()
-            .is_none_or(|wait| self.queued && wait.same_cell(&self.parker().wait))
+    pub(super) fn take_turn(&mut self, state: &mut State<T>) -> bool {
+        let queue = state.queue(self.direction);
+        let Some(front) = queue.front() else {
+            assert!(!self.queued, "queued channel ticket disappeared");
+            return true;
+        };
+        if !self.queued || !front.same_cell(&self.parker().wait) {
+            return false;
+        }
+        drop(queue.pop_front().expect("channel queue front"));
+        self.queued = false;
+        drop(self.parker.take().expect("queued channel ticket"));
+        true
     }
 
     pub(super) fn enqueue(&mut self, state: &mut State<T>) -> Result<()> {
