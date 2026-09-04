@@ -18,6 +18,8 @@ taskset -c 0 benchmarks/target/release/vthread-benchmarks vthread park 100000 1 
 taskset -c 0 benchmarks/target/release/vthread-benchmarks may park 100000 1 2 11
 taskset -c 0 benchmarks/target/release/vthread-benchmarks vthread mutex 100000 1 2 11
 taskset -c 0 benchmarks/target/release/vthread-benchmarks may mutex 100000 1 2 11
+taskset -c 0 benchmarks/target/release/vthread-benchmarks vthread mutex-uncontended 1000000 1 1 11
+taskset -c 0 benchmarks/target/release/vthread-benchmarks may mutex-uncontended 1000000 1 1 11
 taskset -c 0 benchmarks/target/release/vthread-benchmarks vthread channel 100000 1 2 11
 taskset -c 0 benchmarks/target/release/vthread-benchmarks may channel 100000 1 2 11
 taskset -c 0 benchmarks/target/release/vthread-benchmarks vthread channel-bounded-spsc 100000 1 1 2 11
@@ -50,6 +52,7 @@ The scenarios have deliberately narrow operation contracts:
 | `spawn` | One admitted, completed, reclaimed, and drained task |
 | `park` | One half of a paired park/unpark handoff |
 | `mutex` | One contended lock acquisition and release |
+| `mutex-uncontended` | One immediately available lock acquisition and release |
 | `channel` | One message handoff in a paired bounded-channel exchange |
 | `channel-bounded-spsc` | One message handoff through a paired capacity-gated SPSC channel |
 | `tcp` | One write/read echo round trip on a task-owned connection |

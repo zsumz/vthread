@@ -62,7 +62,7 @@ macro_rules! spawn_park_pairs {
 }
 
 macro_rules! spawn_mutex_tasks {
-    ($scope:expr, $tasks:expr, $iterations:expr, $workers:expr) => {{
+    ($scope:expr, $tasks:expr, $iterations:expr, $workers:expr, $contended:expr) => {{
         let mutex = Arc::new(may::sync::Mutex::new(0usize));
         let ready = Arc::new(AtomicUsize::new(0));
         for _ in 0..$tasks {
@@ -70,7 +70,7 @@ macro_rules! spawn_mutex_tasks {
             let ready = Arc::clone(&ready);
             may::go!($scope, move || {
                 ready.fetch_add(1, Ordering::Release);
-                if $workers == 1 {
+                if $contended && $workers == 1 {
                     while ready.load(Ordering::Acquire) != $tasks {
                         may::coroutine::yield_now();
                     }
@@ -78,11 +78,13 @@ macro_rules! spawn_mutex_tasks {
                 for _ in 0..$iterations {
                     let mut value = mutex.lock().expect("mutex must not be poisoned");
                     *value += 1;
-                    if $workers == 1 {
-                        may::coroutine::yield_now();
-                    } else {
-                        for _ in 0..32 {
-                            black_box(*value);
+                    if $contended {
+                        if $workers == 1 {
+                            may::coroutine::yield_now();
+                        } else {
+                            for _ in 0..32 {
+                                black_box(*value);
+                            }
                         }
                     }
                 }
@@ -190,8 +192,11 @@ fn run_round(config: &Config) -> Result<Round, String> {
                 }
             }
             Scenario::Park { per_task } => spawn_park_pairs!(scope, config.tasks, per_task),
-            Scenario::Mutex { per_task } => {
-                spawn_mutex_tasks!(scope, config.tasks, per_task, config.workers)
+            Scenario::Mutex {
+                per_task,
+                contended,
+            } => {
+                spawn_mutex_tasks!(scope, config.tasks, per_task, config.workers, contended)
             }
             Scenario::Channel { per_task, capacity } => match capacity {
                 None => spawn_channel_pairs!(scope, config.tasks, per_task, || {

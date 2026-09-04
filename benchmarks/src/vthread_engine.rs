@@ -13,7 +13,6 @@ use std::{
 };
 
 const STACK_SIZE: usize = 64 * 1024;
-
 pub(crate) fn run(config: &Config) -> Result<(), String> {
     let runtime = vthread::Runtime::builder()
         .carriers(config.workers)
@@ -74,9 +73,10 @@ fn run_round(
                         );
                     }
                 }
-                Scenario::Mutex { per_task } => {
-                    spawn_mutex_tasks(scope, config.tasks, per_task, config.workers)?
-                }
+                Scenario::Mutex {
+                    per_task,
+                    contended,
+                } => spawn_mutex_tasks(scope, config.tasks, per_task, config.workers, contended)?,
                 Scenario::Channel { per_task, capacity } => {
                     spawn_channel_pairs(scope, config.tasks, per_task, capacity.unwrap_or(1))?;
                     if observe_placement {
@@ -191,6 +191,7 @@ fn spawn_mutex_tasks(
     tasks: usize,
     iterations: usize,
     workers: usize,
+    contended: bool,
 ) -> vthread::Result<()> {
     let mutex = Arc::new(vthread::sync::Mutex::with_wait_capacity(0, tasks)?);
     let ready = Arc::new(AtomicUsize::new(0));
@@ -199,7 +200,7 @@ fn spawn_mutex_tasks(
         let ready = Arc::clone(&ready);
         drop(scope.spawn("benchmark-mutex", move || {
             ready.fetch_add(1, Ordering::Release);
-            if workers == 1 {
+            if contended && workers == 1 {
                 while ready.load(Ordering::Acquire) != tasks {
                     vthread::yield_now().expect("mutex barrier task must remain live");
                 }
@@ -207,11 +208,13 @@ fn spawn_mutex_tasks(
             for _ in 0..iterations {
                 let mut value = mutex.lock().expect("mutex must remain open");
                 *value += 1;
-                if workers == 1 {
-                    vthread::yield_now().expect("mutex owner must remain live");
-                } else {
-                    for _ in 0..32 {
-                        black_box(*value);
+                if contended {
+                    if workers == 1 {
+                        vthread::yield_now().expect("mutex owner must remain live");
+                    } else {
+                        for _ in 0..32 {
+                            black_box(*value);
+                        }
                     }
                 }
             }
