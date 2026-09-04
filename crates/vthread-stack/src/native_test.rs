@@ -1,5 +1,3 @@
-#![cfg(all(target_arch = "aarch64", target_os = "macos"))]
-
 use std::{
     cell::{Cell, RefCell},
     hint::black_box,
