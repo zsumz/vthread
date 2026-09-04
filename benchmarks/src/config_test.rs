@@ -11,6 +11,36 @@ fn paired_scenarios_require_even_task_counts() {
 }
 
 #[test]
+fn bounded_spsc_channels_require_and_report_their_capacity() {
+    let config = parse(&["may", "channel-bounded-spsc", "10", "64", "4", "8", "3"]).unwrap();
+    assert!(matches!(
+        config.scenario,
+        Scenario::Channel {
+            per_task: 10,
+            capacity: Some(64)
+        }
+    ));
+    assert_eq!(config.operation(), "bounded-spsc-channel-64-handoff");
+    assert!(parse(&["may", "channel-bounded-spsc", "10", "0", "4", "8", "3"]).is_err());
+    let excessive = isize::MAX.to_string();
+    assert!(
+        Config::parse_from(
+            [
+                "may".to_owned(),
+                "channel-bounded-spsc".to_owned(),
+                "10".to_owned(),
+                excessive,
+                "4".to_owned(),
+                "8".to_owned(),
+                "3".to_owned(),
+            ]
+            .into_iter(),
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn wake_tail_accepts_multiple_workers_but_still_requires_pairs() {
     assert!(parse(&["vthread", "wake-tail", "10", "1", "2", "3"]).is_ok());
     assert!(parse(&["may", "wake-tail", "10", "2", "2", "3"]).is_ok());

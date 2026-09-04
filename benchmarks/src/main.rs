@@ -5,6 +5,7 @@ mod allocation_probe;
 mod config;
 #[cfg(feature = "lifecycle-profiling")]
 mod lifecycle_profile;
+mod may_bounded_channel;
 mod may_engine;
 mod report;
 mod tcp_peer;

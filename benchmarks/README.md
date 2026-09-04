@@ -20,6 +20,8 @@ taskset -c 0 benchmarks/target/release/vthread-benchmarks vthread mutex 100000 1
 taskset -c 0 benchmarks/target/release/vthread-benchmarks may mutex 100000 1 2 11
 taskset -c 0 benchmarks/target/release/vthread-benchmarks vthread channel 100000 1 2 11
 taskset -c 0 benchmarks/target/release/vthread-benchmarks may channel 100000 1 2 11
+taskset -c 0 benchmarks/target/release/vthread-benchmarks vthread channel-bounded-spsc 100000 1 1 2 11
+taskset -c 0 benchmarks/target/release/vthread-benchmarks may channel-bounded-spsc 100000 1 1 2 11
 taskset -c 0 benchmarks/target/release/vthread-benchmarks vthread wake-tail 10000 1 2 11
 taskset -c 0 benchmarks/target/release/vthread-benchmarks may wake-tail 10000 1 2 11
 ```
@@ -34,6 +36,8 @@ taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread mutex 2000 4
 taskset -c 0-3 benchmarks/target/release/vthread-benchmarks may mutex 2000 4 64 11
 taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread channel 20000 4 64 11
 taskset -c 0-3 benchmarks/target/release/vthread-benchmarks may channel 20000 4 64 11
+taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread channel-bounded-spsc 20000 1 4 64 11
+taskset -c 0-3 benchmarks/target/release/vthread-benchmarks may channel-bounded-spsc 20000 1 4 64 11
 taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread wake-tail 10000 4 64 11
 taskset -c 0-3 benchmarks/target/release/vthread-benchmarks may wake-tail 10000 4 64 11
 ```
@@ -47,10 +51,14 @@ The scenarios have deliberately narrow operation contracts:
 | `park` | One half of a paired park/unpark handoff |
 | `mutex` | One contended lock acquisition and release |
 | `channel` | One message handoff in a paired bounded-channel exchange |
+| `channel-bounded-spsc` | One message handoff through a paired capacity-gated SPSC channel |
 | `tcp` | One write/read echo round trip on a task-owned connection |
 | `wake-tail` | One timestamped wake-to-resume handoff |
 
-`park`, `channel`, and `wake-tail` require an even task count of at least two. With one worker, the
+`park`, both channel scenarios, and `wake-tail` require an even task count of at least two. The
+historical `channel` case retains vthread's capacity-one channel against May's unbounded MPSC
+channel. `channel-bounded-spsc` gives both engines the requested positive capacity; May 0.3.51 has
+no bounded channel, so its SPSC channel is capacity-gated by May's coroutine-aware semaphore. With one worker, the
 mutex benchmark yields while holding the lock to force FIFO handoffs. With multiple workers, it
 performs the same 32 black-box operations in each engine's critical section so native contention is
 exercised without an all-task startup deadlock.
