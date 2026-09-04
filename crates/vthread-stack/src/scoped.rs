@@ -102,8 +102,8 @@ pub fn fiber_scope<'env, R>(
     let cleanup = guard.drain();
     match result {
         Err(payload) => {
-            // corosensei uses a private panic payload as its forced-unwind control token.
-            // Preserve it exactly; cleanup payloads were separately captured and observed.
+            // The stack engine may be unwinding this scope with its private forced-unwind
+            // token. Preserve the payload exactly; cleanup payloads were captured above.
             drop(cleanup);
             std::panic::resume_unwind(payload)
         }
