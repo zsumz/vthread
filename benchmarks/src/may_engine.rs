@@ -92,10 +92,10 @@ macro_rules! spawn_mutex_tasks {
 }
 
 macro_rules! spawn_channel_pairs {
-    ($scope:expr, $tasks:expr, $iterations:expr) => {
+    ($scope:expr, $tasks:expr, $iterations:expr, $channel:expr) => {
         for _ in 0..$tasks / 2 {
-            let (to_b, from_a) = may::sync::mpsc::channel();
-            let (to_a, from_b) = may::sync::mpsc::channel();
+            let (to_b, from_a) = ($channel)();
+            let (to_a, from_b) = ($channel)();
             may::go!($scope, move || {
                 to_b.send(0).expect("peer must remain connected");
                 for index in 0..$iterations {
@@ -193,9 +193,14 @@ fn run_round(config: &Config) -> Result<Round, String> {
             Scenario::Mutex { per_task } => {
                 spawn_mutex_tasks!(scope, config.tasks, per_task, config.workers)
             }
-            Scenario::Channel { per_task } => {
-                spawn_channel_pairs!(scope, config.tasks, per_task)
-            }
+            Scenario::Channel { per_task, capacity } => match capacity {
+                None => spawn_channel_pairs!(scope, config.tasks, per_task, || {
+                    may::sync::mpsc::channel()
+                }),
+                Some(capacity) => spawn_channel_pairs!(scope, config.tasks, per_task, || {
+                    crate::may_bounded_channel::bounded(capacity)
+                }),
+            },
             Scenario::Tcp { per_task } => {
                 let address = address.expect("TCP peer address");
                 let mut clients = Vec::with_capacity(config.tasks);

@@ -62,8 +62,8 @@ fn run_round(runtime: &vthread::Runtime, config: &Config) -> Result<Round, Strin
                 Scenario::Mutex { per_task } => {
                     spawn_mutex_tasks(scope, config.tasks, per_task, config.workers)?
                 }
-                Scenario::Channel { per_task } => {
-                    spawn_channel_pairs(scope, config.tasks, per_task)?
+                Scenario::Channel { per_task, capacity } => {
+                    spawn_channel_pairs(scope, config.tasks, per_task, capacity.unwrap_or(1))?
                 }
                 Scenario::Tcp { per_task } => {
                     let address = address.expect("TCP peer address");
@@ -196,10 +196,11 @@ fn spawn_channel_pairs(
     scope: &vthread::Scope<'_>,
     tasks: usize,
     iterations: usize,
+    capacity: usize,
 ) -> vthread::Result<()> {
     for _ in 0..tasks / 2 {
-        let (to_b, from_a) = vthread::channel::bounded(1)?;
-        let (to_a, from_b) = vthread::channel::bounded(1)?;
+        let (to_b, from_a) = vthread::channel::bounded(capacity)?;
+        let (to_a, from_b) = vthread::channel::bounded(capacity)?;
         drop(scope.spawn("benchmark-channel-a", move || {
             to_b.send(0).expect("peer must remain connected");
             for index in 0..iterations {
