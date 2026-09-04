@@ -1,13 +1,31 @@
-//! Transfer protocol between a carrier and one native fiber.
+//! Transfer protocol between a carrier and one fiber, and the fiber's control block.
+//!
+//! The control block and the entry closure live at the top of the fiber's own stack:
+//!
+//! ```text
+//! base ─┬─ FiberCore      control block, stable for the fiber's whole life
+//!       ├─ entry storage  the closure, moved out by the root on first entry
+//!       ├─ frame_top      sixteen-byte aligned
+//!       ├─ first frame    written by `arch::init_frame`, consumed on the first resume
+//!       │  ...            ordinary frames grow downward from here
+//!       └─ guard page
+//! ```
+//!
+//! A fiber started on a pooled stack therefore performs no heap allocation.
 
 use std::{
     any::Any,
     cell::Cell,
+    mem,
     panic::{AssertUnwindSafe, catch_unwind},
+    ptr::NonNull,
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use crate::{Resume, Suspension, arch, entry::ErasedEntry};
+use crate::{MappedStack, Resume, STACK_ALIGNMENT, Suspension, arch, entry::ErasedEntry};
+
+/// Ordinary frames below the first one always get at least this much room.
+const MIN_HEADROOM: usize = 4096;
 
 /// What the carrier asks of a fiber when it hands control over.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,7 +64,14 @@ impl ForcedUnwind {
 
 static NEXT_COOKIE: AtomicU64 = AtomicU64::new(1);
 
-/// Heap-resident state both stacks share; its address is stable for the fiber's life.
+/// Where a fiber's control block and first frame sit on its stack.
+pub(crate) struct Placement {
+    pub(crate) core: NonNull<FiberCore>,
+    /// Aligned address the first saved context is written below.
+    pub(crate) frame_top: usize,
+}
+
+/// State both stacks share, resident at the top of the fiber's own stack.
 pub(crate) struct FiberCore {
     parent_sp: Cell<usize>,
     child_sp: Cell<usize>,
@@ -57,7 +82,40 @@ pub(crate) struct FiberCore {
 }
 
 impl FiberCore {
-    pub(crate) fn new(entry: ErasedEntry) -> Self {
+    /// Writes a control block holding `entry` at the top of `stack`.
+    ///
+    /// Panics when the stack cannot hold the entry, the first frame, and minimal headroom.
+    ///
+    /// # Safety
+    ///
+    /// No fiber may be live on `stack`. The placement stays valid until the mapping is
+    /// released or another placement overwrites it.
+    pub(crate) unsafe fn place<F: FnOnce()>(stack: &MappedStack, entry: F) -> Placement {
+        let core = align_down(
+            stack.base().get() - mem::size_of::<Self>(),
+            mem::align_of::<Self>(),
+        );
+        let storage = align_down(core - mem::size_of::<F>(), mem::align_of::<F>());
+        let frame_top = align_down(storage, STACK_ALIGNMENT);
+        let lowest = stack.limit().get() + stack.guard_len() + arch::FRAME_LEN + MIN_HEADROOM;
+        assert!(
+            frame_top >= lowest,
+            "a {} byte fiber entry does not fit on a {} byte stack",
+            mem::size_of::<F>(),
+            stack.usable_len()
+        );
+        let storage = NonNull::new(storage as *mut ()).expect("stack addresses are never null");
+        let core = NonNull::new(core as *mut Self).expect("stack addresses are never null");
+        // SAFETY: both regions lie inside the usable range, are aligned for their types,
+        // and the caller guarantees nothing live occupies them.
+        unsafe {
+            let entry = ErasedEntry::place(storage, entry);
+            core.as_ptr().write(Self::new(entry));
+        }
+        Placement { core, frame_top }
+    }
+
+    fn new(entry: ErasedEntry) -> Self {
         Self {
             parent_sp: Cell::new(0),
             child_sp: Cell::new(0),
@@ -124,12 +182,17 @@ impl FiberCore {
     }
 }
 
+fn align_down(address: usize, alignment: usize) -> usize {
+    address & !(alignment - 1)
+}
+
 /// Runs a fiber's entry on its own stack and never returns.
 ///
 /// Every panic, including the forced-unwind token, is caught here on the fiber stack,
 /// so unwinding never crosses the context switch and backtraces end at this frame.
 pub(crate) extern "C" fn fiber_root(core: *const FiberCore) -> ! {
-    // SAFETY: the owning execution keeps the core alive until this stack is terminal.
+    // SAFETY: the owning execution keeps the stack, and so the block, alive until the
+    // fiber is terminal.
     let core = unsafe { &*core };
     let outcome = match catch_unwind(AssertUnwindSafe(|| {
         if let Some(entry) = core.take_entry() {

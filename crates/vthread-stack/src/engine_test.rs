@@ -1,9 +1,11 @@
 use std::{
+    alloc::{GlobalAlloc, Layout, System},
     cell::{Cell, RefCell},
     hint::black_box,
     panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
     ptr,
     rc::Rc,
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 use super::{Execution, suspend};
@@ -13,6 +15,28 @@ use crate::{
 };
 
 type Handle = Rc<Cell<*const FiberCore>>;
+
+static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
+
+/// The system allocator plus a count of every allocation this test binary makes.
+struct CountingAllocator;
+
+// SAFETY: every method defers to the system allocator; the counter is the only addition.
+unsafe impl GlobalAlloc for CountingAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
+        // SAFETY: the layout is the caller's, forwarded unchanged.
+        unsafe { System.alloc(layout) }
+    }
+
+    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+        // SAFETY: the pointer came from this allocator's `alloc` with the same layout.
+        unsafe { System.dealloc(pointer, layout) }
+    }
+}
+
+#[global_allocator]
+static GLOBAL: CountingAllocator = CountingAllocator;
 
 struct Count(Rc<Cell<u32>>);
 
@@ -28,7 +52,7 @@ fn start(entry: impl FnOnce(&Handle) + 'static) -> (Execution, Handle) {
     let stack = MappedStack::new(128 * 1024, 0).expect("allocate stack");
     // SAFETY: the entry borrows nothing.
     let execution = unsafe { Execution::start(stack, move || entry(&body_handle)) };
-    handle.set(execution.yielder());
+    handle.set(execution.core_ptr());
     (execution, handle)
 }
 
@@ -216,4 +240,55 @@ fn deep_recursion_keeps_the_stack_pointer_aligned() {
     assert_eq!(execution.resume(Resume::Continue), FiberState::Complete);
     let expected: usize = (0..=300u32).map(|depth| depth.to_string().len()).sum();
     assert_eq!(total.get(), expected);
+}
+
+#[test]
+fn a_pooled_fiber_runs_without_heap_allocation() {
+    const CHILD: &str = "VTHREAD_ALLOCATION_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "engine::engine_test::a_pooled_fiber_runs_without_heap_allocation",
+            ])
+            .env(CHILD, "1")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(
+            status.success(),
+            "the child observed a heap allocation: {status:?}"
+        );
+        return;
+    }
+    let stack = MappedStack::new(128 * 1024, 0).expect("allocate stack");
+    let observed = Rc::new(Cell::new(0));
+    let body_observed = Rc::clone(&observed);
+    let handle: Handle = Rc::new(Cell::new(ptr::null()));
+    let body_handle = Rc::clone(&handle);
+    let before = ALLOCATIONS.load(Ordering::Relaxed);
+    // SAFETY: the entry borrows nothing.
+    let mut execution = unsafe {
+        Execution::start(stack, move || {
+            body_observed.set(1);
+            park(&body_handle);
+            body_observed.set(2);
+        })
+    };
+    handle.set(execution.core_ptr());
+    assert_eq!(
+        execution.resume(Resume::Continue),
+        FiberState::Suspended(Suspension::YieldNow)
+    );
+    assert_eq!(execution.resume(Resume::Continue), FiberState::Complete);
+    let stack = execution.into_stack();
+    let after = ALLOCATIONS.load(Ordering::Relaxed);
+    drop(stack);
+    assert_eq!(observed.get(), 2);
+    assert_eq!(
+        after - before,
+        0,
+        "starting, suspending, completing, and reclaiming a fiber must not allocate"
+    );
 }

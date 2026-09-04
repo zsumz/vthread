@@ -12,7 +12,6 @@ authors = ["vthread contributors"]
 
 [workspace.dependencies]
 vthread = { path = "crates/vthread", version = "=0.0.2-rc.1" }
-corosensei = { version = "=0.3.4", default-features = true }
 vthread-stack = { path = "crates/vthread-stack", version = "=0.0.2-rc.1" }
 zio = { version = "=0.0.1-dev.1", default-features = false }
 socket2 = { version = "=0.6.5", default-features = false }
@@ -21,7 +20,6 @@ libc = "=0.2.189"
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 unreachable_pub = "warn"
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(vthread_stack_engine, values("native", "corosensei"))'] }
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }

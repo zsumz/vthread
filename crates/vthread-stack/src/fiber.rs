@@ -1,8 +1,8 @@
-//! Carrier-local stackful fiber wrapper over the selected stack engine.
+//! Carrier-local stackful fiber.
 
 use crate::{
     FiberState, MappedStack, Resume, engine,
-    mount::{ContextSlot, MountGuard, YielderMount},
+    mount::{ContextSlot, CoreMount, MountGuard},
 };
 
 /// One carrier-local stackful execution context.
@@ -36,12 +36,14 @@ impl Fiber {
 
     /// Mounts the fiber until it suspends or completes.
     ///
-    /// Panics if the fiber has already completed, without mounting its old yielder.
+    /// Panics if the fiber has already completed, without mounting its old control block.
+    #[inline]
     pub fn resume(&mut self) -> FiberState {
         self.resume_with(Resume::Continue)
     }
 
     /// Mounts the fiber and delivers a decision to its last suspension point.
+    #[inline]
     pub fn resume_with(&mut self, resume: Resume) -> FiberState {
         self.resume_mounted(resume, None)
     }
@@ -67,7 +69,7 @@ impl Fiber {
             .execution
             .as_mut()
             .expect("a completed fiber cannot be resumed");
-        let _mount = MountGuard::install(execution.yielder(), context);
+        let _mount = MountGuard::install(execution.core_ptr(), context);
         execution.resume(resume)
     }
 
@@ -80,7 +82,7 @@ impl Fiber {
 
     /// Reclaims the stack after completion so it can be reused.
     ///
-    /// Panics if incomplete; the fiber is still reclaimed with its yielder mounted.
+    /// Panics if incomplete; the fiber is still reclaimed with its control block mounted.
     pub fn into_stack(mut self) -> MappedStack {
         // Keep ownership here on failure so Drop mounts the fiber for unwinding.
         assert!(
@@ -97,7 +99,7 @@ impl Fiber {
 impl Drop for Fiber {
     fn drop(&mut self) {
         if let Some(execution) = self.execution.take() {
-            let _mount = YielderMount::install(execution.yielder());
+            let _mount = CoreMount::install(execution.core_ptr());
             drop(execution);
         }
     }

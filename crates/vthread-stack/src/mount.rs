@@ -2,10 +2,7 @@
 
 use std::{cell::Cell, marker::PhantomData, ptr, sync::atomic::AtomicU8};
 
-use crate::{Resume, SuspendError, Suspension, engine};
-
-/// The engine-specific handle a mounted fiber suspends through.
-pub(crate) type RawYielder = engine::Yielder;
+use crate::{Resume, SuspendError, Suspension, context::FiberCore, engine};
 
 /// A typed identity for context supplied while a fiber is mounted.
 ///
@@ -73,13 +70,13 @@ impl<'context> ContextSlot<'context> {
 
 #[derive(Clone, Copy)]
 struct CurrentMount {
-    yielder: *const RawYielder,
+    core: *const FiberCore,
     context: *const ContextSlot<'static>,
 }
 
 impl CurrentMount {
     const EMPTY: Self = Self {
-        yielder: ptr::null(),
+        core: ptr::null(),
         context: ptr::null(),
     };
 }
@@ -88,18 +85,20 @@ thread_local! {
     static CURRENT_MOUNT: Cell<CurrentMount> = const { Cell::new(CurrentMount::EMPTY) };
 }
 
+/// Mounts one fiber's control block and optional typed context for one resume.
 pub(crate) struct MountGuard<'mount> {
     previous: CurrentMount,
     lifetime: PhantomData<&'mount ()>,
 }
 
 impl MountGuard<'_> {
+    #[inline]
     pub(crate) fn install<'mount>(
-        yielder: *const RawYielder,
+        core: *const FiberCore,
         context: Option<&'mount ContextSlot<'_>>,
     ) -> MountGuard<'mount> {
         let mounted = CurrentMount {
-            yielder,
+            core,
             context: context.map_or(ptr::null(), |slot| ptr::from_ref(slot).cast()),
         };
         let previous = CURRENT_MOUNT.with(|current| current.replace(mounted));
@@ -111,21 +110,23 @@ impl MountGuard<'_> {
 }
 
 impl Drop for MountGuard<'_> {
+    #[inline]
     fn drop(&mut self) {
         CURRENT_MOUNT.with(|current| current.set(self.previous));
     }
 }
 
-pub(crate) struct YielderMount {
-    previous: *const RawYielder,
+/// Mounts only a control block, leaving any typed context in place; used for reclamation.
+pub(crate) struct CoreMount {
+    previous: *const FiberCore,
 }
 
-impl YielderMount {
-    pub(crate) fn install(yielder: *const RawYielder) -> Self {
+impl CoreMount {
+    pub(crate) fn install(core: *const FiberCore) -> Self {
         let previous = CURRENT_MOUNT.with(|current| {
             let mut mounted = current.get();
-            let previous = mounted.yielder;
-            mounted.yielder = yielder;
+            let previous = mounted.core;
+            mounted.core = core;
             current.set(mounted);
             previous
         });
@@ -133,30 +134,30 @@ impl YielderMount {
     }
 }
 
-impl Drop for YielderMount {
+impl Drop for CoreMount {
     fn drop(&mut self) {
         CURRENT_MOUNT.with(|current| {
             let mut mounted = current.get();
-            mounted.yielder = self.previous;
+            mounted.core = self.previous;
             current.set(mounted);
         });
     }
 }
 
-pub(crate) fn mounted_yielder() -> *const RawYielder {
-    CURRENT_MOUNT.with(|current| current.get().yielder)
+pub(crate) fn mounted_core() -> *const FiberCore {
+    CURRENT_MOUNT.with(|current| current.get().core)
 }
 
 /// Suspends the currently mounted fiber.
+#[inline]
 pub fn suspend(reason: Suspension) -> Result<Resume, SuspendError> {
-    let pointer = mounted_yielder();
-    if pointer.is_null() {
+    let core = mounted_core();
+    if core.is_null() {
         return Err(SuspendError);
     }
-
     // The pointer is carrier-local and restored before leaving this mount.
-    // SAFETY: it belongs to the currently mounted, non-Send execution of the engine.
-    unsafe { Ok(engine::suspend(pointer, reason)) }
+    // SAFETY: it belongs to the currently mounted, non-Send execution.
+    unsafe { Ok(engine::suspend(core, reason)) }
 }
 
 #[cfg(test)]

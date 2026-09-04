@@ -1,19 +1,15 @@
-//! Native stackful execution: the lifecycle state machine over the transfer protocol.
+//! The fiber lifecycle state machine over the transfer protocol.
 
 use std::{marker::PhantomData, panic::resume_unwind, ptr::NonNull};
 
 use crate::{
     FiberState, MappedStack, Resume, Suspension, arch,
     context::{Command, FiberCore, ForcedUnwind, Outcome},
-    entry::ErasedEntry,
 };
-
-/// The mounted handle a native fiber suspends through.
-pub(crate) type Yielder = FiberCore;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Stage {
-    /// The entry has not run; its closure still lives on the carrier heap.
+    /// The entry has not run; its closure still waits at the top of the stack.
     Unstarted,
     /// Frames are live on the fiber stack, parked inside `suspend`.
     Suspended,
@@ -21,8 +17,9 @@ enum Stage {
     Terminal,
 }
 
+/// One fiber: the control block at the top of its own mapped stack plus its stage.
 pub(crate) struct Execution {
-    core: Box<FiberCore>,
+    core: NonNull<FiberCore>,
     stack: Option<MappedStack>,
     stage: Stage,
     // A started fiber never migrates: its saved context belongs to one carrier.
@@ -30,36 +27,49 @@ pub(crate) struct Execution {
 }
 
 impl Execution {
+    /// Places the control block and `entry` on `stack` and fabricates the first frame.
+    ///
+    /// # Safety
+    ///
     /// The caller must reclaim this execution before the entry's borrows expire.
     pub(crate) unsafe fn start<F: FnOnce()>(stack: MappedStack, entry: F) -> Self {
-        let core = Box::new(FiberCore::new(ErasedEntry::new(entry)));
-        // SAFETY: the mapping is live and its usable range holds at least one page,
-        // which exceeds the first frame; the boxed core outlives every fiber frame.
-        let child_sp = unsafe { arch::init_frame(&stack, NonNull::from(&*core)) };
-        core.set_child_sp(child_sp);
-        Self {
-            core,
+        // SAFETY: the stack was just handed over, so nothing is live on it.
+        let placement = unsafe { FiberCore::place(&stack, entry) };
+        // SAFETY: `place` leaves at least one frame plus headroom below `frame_top`, and
+        // the block stays valid for as long as this execution owns the stack.
+        let child_sp = unsafe { arch::init_frame(placement.frame_top, placement.core) };
+        let execution = Self {
+            core: placement.core,
             stack: Some(stack),
             stage: Stage::Unstarted,
             carrier_local: PhantomData,
-        }
+        };
+        execution.core().set_child_sp(child_sp);
+        execution
     }
 
-    /// The core this fiber suspends through; stable from creation.
-    pub(crate) fn yielder(&self) -> *const FiberCore {
-        &*self.core
+    /// The control block this fiber suspends through; stable while the execution lives.
+    pub(crate) fn core_ptr(&self) -> *const FiberCore {
+        self.core.as_ptr()
+    }
+
+    fn core(&self) -> &FiberCore {
+        // SAFETY: the block lives on the stack this execution owns until `into_stack`
+        // consumes the execution or `Drop` finishes unwinding it.
+        unsafe { self.core.as_ref() }
     }
 
     /// Runs until the next suspension or completion; the caller installs the mount.
+    #[inline]
     pub(crate) fn resume(&mut self, resume: Resume) -> FiberState {
         assert!(
             self.stage != Stage::Terminal,
             "a completed fiber cannot be resumed"
         );
-        self.core.issue(Command::Resume(resume));
+        self.core().issue(Command::Resume(resume));
         self.stage = Stage::Suspended;
         self.transfer();
-        match self.core.take_outcome() {
+        match self.core().take_outcome() {
             Outcome::Suspended(reason) => FiberState::Suspended(reason),
             Outcome::Complete => {
                 self.stage = Stage::Terminal;
@@ -87,10 +97,12 @@ impl Execution {
         self.stack.take().expect("fiber stack already extracted")
     }
 
+    #[inline]
     fn transfer(&mut self) {
+        let core = self.core();
         // SAFETY: the child slot holds the fabricated first frame or a context saved by
         // `suspend` on this carrier, and the parent slot receives this context.
-        unsafe { arch::context_switch(self.core.parent_sp_slot(), self.core.child_sp()) };
+        unsafe { arch::context_switch(core.parent_sp_slot(), core.child_sp()) };
     }
 
     /// Drives a non-terminal fiber to its root, running every live destructor.
@@ -98,16 +110,17 @@ impl Execution {
         match self.stage {
             Stage::Terminal => return,
             Stage::Unstarted => {
-                drop(self.core.take_entry());
+                drop(self.core().take_entry());
                 self.stage = Stage::Terminal;
                 return;
             }
             Stage::Suspended => {}
         }
         loop {
-            self.core.issue(Command::ForceUnwind(self.core.cookie()));
+            self.core()
+                .issue(Command::ForceUnwind(self.core().cookie()));
             self.transfer();
-            match self.core.take_outcome() {
+            match self.core().take_outcome() {
                 // User code caught the token and suspended again; inject it again.
                 Outcome::Suspended(_) => {}
                 Outcome::Complete | Outcome::Unwound => {
@@ -130,13 +143,14 @@ impl Drop for Execution {
     }
 }
 
-/// Parks the mounted native fiber and returns the carrier's next decision.
+/// Parks the mounted fiber and returns the carrier's next decision.
 ///
 /// # Safety
 ///
 /// `core` must belong to the currently mounted, non-Send execution on this carrier.
+#[inline]
 pub(crate) unsafe fn suspend(core: *const FiberCore, reason: Suspension) -> Resume {
-    // SAFETY: the caller guarantees the core belongs to the mounted fiber on this carrier.
+    // SAFETY: the caller guarantees the block belongs to the mounted fiber on this carrier.
     let core = unsafe { &*core };
     core.report(Outcome::Suspended(reason));
     // SAFETY: the carrier saved its context in the parent slot before resuming this
@@ -149,5 +163,5 @@ pub(crate) unsafe fn suspend(core: *const FiberCore, reason: Suspension) -> Resu
 }
 
 #[cfg(test)]
-#[path = "native_test.rs"]
-mod native_test;
+#[path = "engine_test.rs"]
+mod engine_test;

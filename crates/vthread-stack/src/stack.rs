@@ -113,20 +113,6 @@ impl Drop for MappedStack {
     }
 }
 
-// Temporary bridge: corosensei keeps switching contexts on vthread-owned mappings until
-// the native engine replaces it.
-// SAFETY: the mapping has at least one usable page above a guard page and both bounds
-// are page aligned, which satisfies the trait's alignment and minimum size requirements.
-unsafe impl corosensei::stack::Stack for MappedStack {
-    fn base(&self) -> corosensei::stack::StackPointer {
-        self.base
-    }
-
-    fn limit(&self) -> corosensei::stack::StackPointer {
-        self.limit()
-    }
-}
-
 #[cfg(test)]
 #[path = "stack_test.rs"]
 mod stack_test;

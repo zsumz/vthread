@@ -32,10 +32,7 @@ use core::arch::{asm, naked_asm};
 use std::ptr::{self, NonNull};
 
 #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
-use crate::{
-    MappedStack, STACK_ALIGNMENT,
-    context::{FiberCore, fiber_root},
-};
+use crate::context::{FiberCore, fiber_root};
 
 /// Bytes one saved context occupies on its stack.
 #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
@@ -121,18 +118,17 @@ unsafe extern "C" fn trampoline() -> ! {
     )
 }
 
-/// Writes a fiber's first saved context at the top of `stack` and returns its stack pointer.
+/// Writes a fiber's first saved context below `frame_top` and returns its stack pointer.
 ///
 /// # Safety
 ///
-/// `stack` must be live with at least `FRAME_LEN` usable bytes, and `core` must stay
-/// valid until the fiber is terminal.
+/// `frame_top` must be aligned to sixteen bytes with at least `FRAME_LEN` mapped bytes
+/// below it, and `core` must stay valid until the fiber is terminal.
 #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
-pub(crate) unsafe fn init_frame(stack: &MappedStack, core: NonNull<FiberCore>) -> usize {
-    let top = stack.base().get() & !(STACK_ALIGNMENT - 1);
-    let sp = top - FRAME_LEN;
+pub(crate) unsafe fn init_frame(frame_top: usize, core: NonNull<FiberCore>) -> usize {
+    let sp = frame_top - FRAME_LEN;
     let frame = sp as *mut u8;
-    // SAFETY: the frame lies inside the usable range directly below the stack base.
+    // SAFETY: the caller guarantees the frame below `frame_top` is mapped and unused.
     unsafe {
         ptr::write_bytes(frame, 0, FRAME_LEN);
         frame

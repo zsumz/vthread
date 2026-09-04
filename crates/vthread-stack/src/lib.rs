@@ -4,9 +4,15 @@
 //! runtime integration hooks and must succeed. A persistent mount failure during lexical
 //! scope exit aborts: borrowed executable stacks cannot safely escape their environment.
 //!
-//! The native context engine is the default. For one release candidate the interim
-//! corosensei engine stays available behind `--cfg vthread_stack_engine="corosensei"` so
-//! both engines can be qualified against the same suite before it is removed.
+//! Layers, lowest first:
+//!
+//! - `stack_unix` and `stack`: guard-page-backed mappings stamped with a pool identity.
+//! - `arch`: per-target context switch and first-frame fabrication, nothing more.
+//! - `entry` and `context`: the entry closure and control block at the top of each
+//!   stack, and the command and outcome protocol between a carrier and its fiber.
+//! - `engine`: the fiber lifecycle state machine, including forced reclamation.
+//! - `mount`, `fiber`, `lease`, `scoped`, and `pool`: the carrier-facing ownership
+//!   model the scheduler consumes.
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
@@ -23,6 +29,10 @@ const _: () = {
     compile_error!("vthread-stack 0.0.2-rc.1 supports Linux x86_64 and macOS ARM64");
 };
 
+mod arch;
+mod context;
+mod engine;
+mod entry;
 mod fiber;
 mod lease;
 mod mount;
@@ -33,23 +43,6 @@ mod scoped;
 mod stack;
 mod stack_unix;
 mod suspension;
-
-// Both engines always compile so every target keeps checking both; only one is selected.
-#[cfg_attr(vthread_stack_engine = "corosensei", allow(dead_code))]
-mod arch;
-#[cfg_attr(vthread_stack_engine = "corosensei", allow(dead_code))]
-mod context;
-#[cfg_attr(not(vthread_stack_engine = "corosensei"), allow(dead_code))]
-mod engine_corosensei;
-#[cfg_attr(vthread_stack_engine = "corosensei", allow(dead_code))]
-mod entry;
-#[cfg_attr(vthread_stack_engine = "corosensei", allow(dead_code))]
-mod native;
-
-#[cfg(vthread_stack_engine = "corosensei")]
-use engine_corosensei as engine;
-#[cfg(not(vthread_stack_engine = "corosensei"))]
-use native as engine;
 
 pub use fiber::Fiber;
 pub use lease::FiberLease;
@@ -62,8 +55,8 @@ pub use stack::{MappedStack, STACK_ALIGNMENT};
 pub use suspension::{FiberState, ParkRequest, ParkToken, Resume, SuspendError, Suspension};
 
 #[cfg(test)]
-#[path = "differential_test.rs"]
-mod differential_test;
-#[cfg(test)]
 #[path = "lib_test.rs"]
 mod lib_test;
+#[cfg(test)]
+#[path = "trace_test.rs"]
+mod trace_test;
