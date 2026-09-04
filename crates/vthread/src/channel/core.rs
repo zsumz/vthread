@@ -17,11 +17,10 @@ impl<T> Core<T> {
     }
 
     fn send_inner(&self, value: &mut Option<T>, blocking: bool) -> Result<()> {
-        let wait = if blocking {
-            Some(Wait::enter(SuspensionReason::ChannelSend)?)
-        } else {
-            None
-        };
+        if blocking {
+            crate::context::check_current()?;
+        }
+        let mut wait = None;
         let mut ticket = Ticket::new(self, Direction::Send);
         loop {
             {
@@ -35,8 +34,13 @@ impl<T> Core<T> {
                     state.wake_fronts();
                     return Ok(());
                 }
-                if wait.is_none() {
+                if !blocking {
                     return Err(Error::WouldBlock);
+                }
+                if wait.is_none() {
+                    drop(state);
+                    wait = Some(Wait::enter_after_check(SuspensionReason::ChannelSend)?);
+                    continue;
                 }
                 ticket.enqueue(&mut state)?;
             }
@@ -47,11 +51,10 @@ impl<T> Core<T> {
     }
 
     pub(super) fn recv(&self, blocking: bool) -> Result<T> {
-        let wait = if blocking {
-            Some(Wait::enter(SuspensionReason::ChannelRecv)?)
-        } else {
-            None
-        };
+        if blocking {
+            crate::context::check_current()?;
+        }
+        let mut wait = None;
         let mut ticket = Ticket::new(self, Direction::Recv);
         loop {
             {
@@ -65,8 +68,13 @@ impl<T> Core<T> {
                 if state.values.is_empty() && (state.closed || state.senders == 0) {
                     return Err(Error::Closed);
                 }
-                if wait.is_none() {
+                if !blocking {
                     return Err(Error::WouldBlock);
+                }
+                if wait.is_none() {
+                    drop(state);
+                    wait = Some(Wait::enter_after_check(SuspensionReason::ChannelRecv)?);
+                    continue;
                 }
                 ticket.enqueue(&mut state)?;
             }

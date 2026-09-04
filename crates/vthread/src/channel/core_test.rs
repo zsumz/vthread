@@ -151,3 +151,27 @@ fn inherited_deadlines_remove_channel_waits_without_transferring_values() {
         })
         .unwrap();
 }
+
+#[test]
+fn immediately_available_operations_still_checkpoint_cancellation() {
+    Runtime::new()
+        .unwrap()
+        .run_scope(|scope| {
+            scope
+                .spawn("cancelled-fast-channel", || {
+                    let (sender, receiver) = bounded_with_wait_capacity(1, 1)?;
+                    crate::cancellation_token()?.cancel();
+
+                    let error = sender.send(1).unwrap_err();
+                    assert!(matches!(error.error, Error::Cancelled));
+                    assert_eq!(error.value, 1);
+
+                    sender.try_send(2).unwrap();
+                    assert!(matches!(receiver.recv(), Err(Error::Cancelled)));
+                    assert_eq!(receiver.try_recv()?, 2);
+                    Ok::<_, Error>(())
+                })?
+                .join()?
+        })
+        .unwrap();
+}
