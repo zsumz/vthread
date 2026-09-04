@@ -234,6 +234,16 @@ reason = "Approved by primary agent: constant unsupported-target diagnostic unde
 name = "format_args"
 reason = "Approved by primary agent: standard borrowed formatting arguments feed bounded diagnostic writers; no allocation, generated source, external input or unsafe expansion."
 
+[[source.rust.macros.allow]]
+name = "core::arch::naked_asm"
+inputs = "opaque"
+reason = "Approved by primary agent: fixed callee-saved context switch and fiber bootstrap instruction text in the vthread-stack native engine; no generated source, filesystem input or behavior beyond the documented switch."
+
+[[source.rust.macros.allow]]
+name = "core::arch::asm"
+inputs = "opaque"
+reason = "Approved by primary agent: fixed reads and test-only writes of the floating-point control register in the vthread-stack native engine; no generated source, filesystem input or memory access."
+
 [source.rust.hygiene]
 unsafe = "allow"
 lint_suppressions = "allow"
