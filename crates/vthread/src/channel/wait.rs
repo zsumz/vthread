@@ -1,7 +1,7 @@
 //! Bounded channel queue tickets preserve FIFO order through cancellation and wake races.
 
 use super::{Core, State};
-use crate::{Error, Parker, Result, signal::lock, wait::WaitCell};
+use crate::{Error, Result, signal::lock, wait::WaitCell};
 use std::collections::VecDeque;
 
 #[derive(Clone, Copy)]
@@ -13,7 +13,7 @@ pub(super) enum Direction {
 pub(super) struct Ticket<'a, T> {
     core: &'a Core<T>,
     direction: Direction,
-    parker: Option<Parker>,
+    wait: Option<u64>,
     queued: bool,
 }
 
@@ -47,14 +47,14 @@ impl<'a, T> Ticket<'a, T> {
         Self {
             core,
             direction,
-            parker: None,
+            wait: None,
             queued: false,
         }
     }
 
-    pub(super) fn attach(&mut self, parker: Parker) {
+    pub(super) fn attach(&mut self, wait: &WaitCell) {
         assert!(
-            self.parker.replace(parker).is_none(),
+            self.wait.replace(wait.identity()).is_none(),
             "channel wait attached twice"
         );
     }
@@ -65,28 +65,31 @@ impl<'a, T> Ticket<'a, T> {
             assert!(!self.queued, "queued channel ticket disappeared");
             return true;
         };
-        if !self.queued || !front.same_cell(&self.parker().wait) {
+        if !self.queued || front.identity() != self.wait_identity() {
             return false;
         }
         drop(queue.pop_front().expect("channel queue front"));
         self.queued = false;
-        drop(self.parker.take().expect("queued channel ticket"));
+        self.wait.take().expect("queued channel ticket");
         true
     }
 
-    pub(super) fn enqueue(&mut self, state: &mut State<T>) -> Result<()> {
+    pub(super) fn enqueue(&mut self, state: &mut State<T>, wait: &WaitCell) -> Result<()> {
         if self.queued {
             return Ok(());
         }
+        assert_eq!(
+            wait.identity(),
+            self.wait_identity(),
+            "channel wait changed"
+        );
         if state.queue(self.direction).len() == self.core.wait_capacity {
             return Err(Error::Capacity {
                 resource: crate::error::CapacityResource::Waiters,
                 limit: self.core.wait_capacity,
             });
         }
-        state
-            .queue(self.direction)
-            .push_back(self.parker().wait.clone());
+        state.queue(self.direction).push_back(wait.clone());
         self.queued = true;
         Ok(())
     }
@@ -98,16 +101,16 @@ impl<'a, T> Ticket<'a, T> {
         let queue = state.queue(self.direction);
         if let Some(index) = queue
             .iter()
-            .position(|wait| wait.same_cell(&self.parker().wait))
+            .position(|wait| wait.identity() == self.wait_identity())
         {
             drop(queue.remove(index));
         }
         self.queued = false;
-        drop(self.parker.take().expect("queued channel ticket"));
+        self.wait.take().expect("queued channel ticket");
     }
 
-    pub(super) fn parker(&self) -> &Parker {
-        self.parker.as_ref().expect("queued channel ticket")
+    fn wait_identity(&self) -> u64 {
+        self.wait.expect("attached channel wait")
     }
 }
 
