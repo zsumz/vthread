@@ -7,8 +7,10 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 mod exclusive;
+mod spin_mutex;
 
 pub use exclusive::{ExclusiveCell, ExclusiveGuard, Ownership, OwnershipSlot, QueueDecision};
+pub use spin_mutex::{SpinMutex, SpinMutexGuard};
 
 #[cfg(test)]
 #[path = "lib_test.rs"]

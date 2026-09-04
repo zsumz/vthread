@@ -1,7 +1,7 @@
 //! Bounded channel queue tickets preserve FIFO order through cancellation and wake races.
 
 use super::{Core, State};
-use crate::{Error, Result, signal::lock, wait::WaitCell};
+use crate::{Error, Result, wait::WaitCell};
 use std::collections::VecDeque;
 
 #[derive(Clone, Copy)]
@@ -120,7 +120,7 @@ impl<T> Drop for Ticket<'_, T> {
             return;
         }
         let core = self.core;
-        let mut state = lock(&core.state);
+        let mut state = core.state.lock();
         self.remove(&mut state);
         state.wake_fronts();
     }
