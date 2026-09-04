@@ -29,8 +29,17 @@ fn every_winner_has_distinct_claimed_and_published_phases() {
     ] {
         let claimed = WaitWord::initial().claimed(cause);
         assert!(claimed.is_claimed());
-        let selected = claimed.publish_claim();
+        let selected = claimed
+            .with_permit(true)
+            .with_closed(true)
+            .with_fallback_hub(true)
+            .with_resource(Some(ResourceSelection::Broadcast))
+            .publish_claim();
         assert_eq!(selected.selected_cause(), Some(cause));
         assert!(!selected.is_claimed());
+        assert!(selected.has_permit());
+        assert!(selected.is_closed());
+        assert!(selected.uses_fallback_hub());
+        assert_eq!(selected.resource(), Some(ResourceSelection::Broadcast));
     }
 }

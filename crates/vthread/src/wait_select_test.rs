@@ -5,7 +5,7 @@ use std::{
 
 use crate::{TaskId, task_slab::TaskKey};
 
-use super::super::{WaitBegin, WaitCell, WaitHub, WakeCause};
+use super::super::{NotifyResult, WaitBegin, WaitCell, WaitHub, WakeCause, wait_state::Phase};
 
 #[test]
 fn selected_timeout_emits_the_registered_task_identity() {
@@ -153,4 +153,74 @@ fn publication_racing_a_ready_offer_never_loses_the_generation() {
             }
         });
     }
+}
+
+#[test]
+fn selected_phase_never_precedes_wake_queue_publication() {
+    let cell = WaitCell::new();
+    let hub = Arc::new(WaitHub::new(1, Arc::default()));
+    let WaitBegin::Park { request, .. } = cell
+        .begin(TaskId::new(1), TaskKey::owned(0), &hub, None)
+        .expect("begin wait")
+    else {
+        panic!("expected a park");
+    };
+    let (claimed_tx, claimed_rx) = std::sync::mpsc::channel();
+    let (publish_tx, publish_rx) = std::sync::mpsc::channel();
+    hub.before_pending_publication(move || {
+        claimed_tx.send(()).unwrap();
+        publish_rx.recv().unwrap();
+    });
+
+    std::thread::scope(|threads| {
+        let selector = threads.spawn(|| cell.notify());
+        claimed_rx.recv().unwrap();
+        assert_eq!(cell.state.load().phase(), Phase::ClaimReady);
+        assert!(hub.pop_wake().is_none());
+        publish_tx.send(()).unwrap();
+        assert_eq!(selector.join().unwrap(), NotifyResult::Woke);
+    });
+
+    assert_eq!(cell.state.load().phase(), Phase::SelectedReady);
+    assert_eq!(hub.pop_wake().unwrap().token, request.token());
+    assert_eq!(cell.finish(request.token()).unwrap(), WakeCause::Ready);
+}
+
+#[test]
+fn publishing_a_claim_preserves_concurrent_close_state() {
+    let cell = WaitCell::new();
+    let hub = Arc::new(WaitHub::new(1, Arc::default()));
+    let WaitBegin::Park { request, .. } = cell
+        .begin(TaskId::new(1), TaskKey::owned(0), &hub, None)
+        .expect("begin wait")
+    else {
+        panic!("expected a park");
+    };
+    let (claimed_tx, claimed_rx) = std::sync::mpsc::channel();
+    let (publish_tx, publish_rx) = std::sync::mpsc::channel();
+    hub.before_pending_publication(move || {
+        claimed_tx.send(()).unwrap();
+        publish_rx.recv().unwrap();
+    });
+
+    std::thread::scope(|threads| {
+        let selector = threads.spawn(|| cell.notify());
+        claimed_rx.recv().unwrap();
+        let mutator = threads.spawn(|| {
+            let notified = cell.notify();
+            let closed = cell.close();
+            (notified, closed)
+        });
+        publish_tx.send(()).unwrap();
+        assert_eq!(selector.join().unwrap(), NotifyResult::Woke);
+        assert_eq!(mutator.join().unwrap(), (NotifyResult::Stored, true));
+    });
+
+    assert!(cell.is_closed());
+    assert_eq!(hub.pop_wake().unwrap().token, request.token());
+    assert_eq!(cell.finish(request.token()).unwrap(), WakeCause::Ready);
+    assert!(matches!(
+        cell.begin(TaskId::new(1), TaskKey::owned(0), &hub, None),
+        Ok(WaitBegin::Immediate(WakeCause::Closed))
+    ));
 }
