@@ -5,9 +5,8 @@ macro_rules! spawn_channel_pairs {
         for _ in 0..$tasks / 2 {
             let (to_b, from_a) = ($channel)();
             let (to_a, from_b) = ($channel)();
-            let probe = $observe.then(|| {
-                std::sync::Arc::new($crate::may_placement::PairProbe::new())
-            });
+            let probe =
+                $observe.then(|| std::sync::Arc::new($crate::may_placement::PairProbe::new()));
             if let Some(probe) = &probe {
                 $probes.push(std::sync::Arc::clone(probe));
             }

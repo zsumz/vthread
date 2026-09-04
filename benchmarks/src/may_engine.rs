@@ -1,6 +1,7 @@
 use crate::{
     config::{Config, Scenario},
     may_channel::spawn_channel_pairs,
+    may_mutex::spawn_mutex_tasks,
     report::{Round, measure},
     wake_clock::{WakeClock, WakeStamp},
 };
@@ -9,7 +10,7 @@ use std::{
     io::{Read, Write},
     sync::{
         Arc, OnceLock,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, Ordering},
     },
     time::Instant,
 };
@@ -47,15 +48,21 @@ macro_rules! spawn_park_pairs {
             let own = Arc::clone(&a);
             let peer = Arc::clone(&b);
             may::go!($scope, move || {
-                let mut trace = probe_a.as_ref().map(|_| crate::may_placement::TaskTrace::start());
+                let mut trace = probe_a
+                    .as_ref()
+                    .map(|_| crate::may_placement::TaskTrace::start());
                 assert!(own.set(may::coroutine::current()).is_ok());
                 while peer.get().is_none() {
                     may::coroutine::yield_now();
                 }
-                trace.iter_mut().for_each(crate::may_placement::TaskTrace::observe);
+                trace
+                    .iter_mut()
+                    .for_each(crate::may_placement::TaskTrace::observe);
                 for _ in 0..$iterations {
                     may::coroutine::park();
-                    trace.iter_mut().for_each(crate::may_placement::TaskTrace::observe);
+                    trace
+                        .iter_mut()
+                        .for_each(crate::may_placement::TaskTrace::observe);
                     peer.get().expect("peer handle published").unpark();
                 }
                 if let (Some(probe), Some(trace)) = (probe_a, trace) {
@@ -63,16 +70,22 @@ macro_rules! spawn_park_pairs {
                 }
             });
             may::go!($scope, move || {
-                let mut trace = probe_b.as_ref().map(|_| crate::may_placement::TaskTrace::start());
+                let mut trace = probe_b
+                    .as_ref()
+                    .map(|_| crate::may_placement::TaskTrace::start());
                 assert!(b.set(may::coroutine::current()).is_ok());
                 while a.get().is_none() {
                     may::coroutine::yield_now();
                 }
-                trace.iter_mut().for_each(crate::may_placement::TaskTrace::observe);
+                trace
+                    .iter_mut()
+                    .for_each(crate::may_placement::TaskTrace::observe);
                 for _ in 0..$iterations {
                     a.get().expect("peer handle published").unpark();
                     may::coroutine::park();
-                    trace.iter_mut().for_each(crate::may_placement::TaskTrace::observe);
+                    trace
+                        .iter_mut()
+                        .for_each(crate::may_placement::TaskTrace::observe);
                 }
                 if let (Some(probe), Some(trace)) = (probe_b, trace) {
                     probe.record(1, trace);
@@ -80,38 +93,6 @@ macro_rules! spawn_park_pairs {
             });
         }
     };
-}
-
-macro_rules! spawn_mutex_tasks {
-    ($scope:expr, $tasks:expr, $iterations:expr, $workers:expr, $contended:expr) => {{
-        let mutex = Arc::new(may::sync::Mutex::new(0usize));
-        let ready = Arc::new(AtomicUsize::new(0));
-        for _ in 0..$tasks {
-            let mutex = Arc::clone(&mutex);
-            let ready = Arc::clone(&ready);
-            may::go!($scope, move || {
-                ready.fetch_add(1, Ordering::Release);
-                if $contended && $workers == 1 {
-                    while ready.load(Ordering::Acquire) != $tasks {
-                        may::coroutine::yield_now();
-                    }
-                }
-                for _ in 0..$iterations {
-                    let mut value = mutex.lock().expect("mutex must not be poisoned");
-                    *value += 1;
-                    if $contended {
-                        if $workers == 1 {
-                            may::coroutine::yield_now();
-                        } else {
-                            for _ in 0..32 {
-                                black_box(*value);
-                            }
-                        }
-                    }
-                }
-            });
-        }
-    }};
 }
 
 macro_rules! spawn_wake_tail_pairs {
@@ -174,6 +155,7 @@ fn run_round(config: &Config, observe_placement: bool) -> Result<Round, String> 
     let mut admission_ns = 0;
     let mut operation_latency_groups_ns = Vec::new();
     let mut placement_probes = Vec::new();
+    let mut mutex_probes = Vec::new();
     may::coroutine::scope(|scope| {
         let started = Instant::now();
         match config.scenario {
@@ -198,7 +180,11 @@ fn run_round(config: &Config, observe_placement: bool) -> Result<Round, String> 
                 per_task,
                 contended,
             } => {
-                spawn_mutex_tasks!(scope, config.tasks, per_task, config.workers, contended)
+                if observe_placement {
+                    spawn_mutex_tasks!(scope, config, per_task, contended, true, mutex_probes);
+                } else {
+                    spawn_mutex_tasks!(scope, config, per_task, contended, false, mutex_probes);
+                }
             }
             Scenario::Channel { per_task, capacity } => {
                 macro_rules! spawn {
@@ -258,7 +244,8 @@ fn run_round(config: &Config, observe_placement: bool) -> Result<Round, String> 
     if let Some(peer) = peer {
         peer.finish()?;
     }
-    let (pair_owners, task_migrations) = crate::may_placement::summarize(&placement_probes);
+    let (pair_owners, mut task_migrations) = crate::may_placement::summarize(&placement_probes);
+    task_migrations.extend(mutex_probes.iter().map(|probe| probe.migrated()));
     Ok(Round {
         admission_ns,
         operation_latency_groups_ns,

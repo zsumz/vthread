@@ -79,7 +79,10 @@ started task on its owner carrier. The harness therefore compares the complete r
 not identical scheduling policies. Per-task and paired-tail summaries expose fairness. For paired
 park and channel workloads, a warm-up-only observer reports May's final execution-worker pairs and
 per-task migration alongside vthread's immutable owner-carrier pairs. No placement observer runs in
-the measured rounds. Vthread's wake-tail warm-up also reports immutable owner-carrier pairs.
+the measured rounds. The mutex warm-up also reports May task migration after acquisitions.
+These observations describe the instrumented warm-up; they are not a count of migrations during
+the measured rounds and final pair placement does not describe every handoff. Vthread's wake-tail
+warm-up also reports immutable owner-carrier pairs.
 
 For a readiness comparison, local socket creation must be permitted:
 

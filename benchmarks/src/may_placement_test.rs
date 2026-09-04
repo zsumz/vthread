@@ -1,4 +1,4 @@
-use super::{PairProbe, TaskTrace, summarize};
+use super::{PairProbe, TaskProbe, TaskTrace, summarize};
 use std::sync::Arc;
 
 #[test]
@@ -30,4 +30,20 @@ fn movement_between_threads_is_reported() {
     let (_, migrations) = summarize(&[probe]);
 
     assert_eq!(migrations, vec![true, false]);
+}
+
+#[test]
+fn returning_to_the_first_worker_still_counts_as_migration() {
+    let probe = TaskProbe::new();
+    let trace = TaskTrace::start();
+    let mut trace = std::thread::spawn(move || {
+        let mut trace = trace;
+        trace.observe();
+        trace
+    })
+    .join()
+    .unwrap();
+    trace.observe();
+    probe.record(trace);
+    assert!(probe.migrated());
 }
