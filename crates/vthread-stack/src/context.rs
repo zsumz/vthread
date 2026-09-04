@@ -62,7 +62,30 @@ impl ForcedUnwind {
     }
 }
 
-static NEXT_COOKIE: AtomicU64 = AtomicU64::new(1);
+/// Cookies are drawn per carrier from process-unique blocks: fiber starts never contend
+/// on one shared counter, and no two fibers in a process ever share a cookie.
+const COOKIE_BLOCK_BITS: u32 = 32;
+static NEXT_BLOCK: AtomicU64 = AtomicU64::new(1);
+
+thread_local! {
+    static NEXT_COOKIE: Cell<u64> = const { Cell::new(0) };
+}
+
+fn next_cookie() -> u64 {
+    NEXT_COOKIE.with(|next| {
+        let mut cookie = next.get();
+        if cookie & ((1 << COOKIE_BLOCK_BITS) - 1) == 0 {
+            // The first cookie on this carrier, or an exhausted block: claim a fresh one.
+            let block = NEXT_BLOCK.fetch_add(1, Ordering::Relaxed);
+            cookie = block
+                .checked_shl(COOKIE_BLOCK_BITS)
+                .filter(|cookie| *cookie != 0)
+                .expect("unwind cookie blocks exhausted");
+        }
+        next.set(cookie + 1);
+        cookie
+    })
+}
 
 /// Where a fiber's control block and first frame sit on its stack.
 pub(crate) struct Placement {
@@ -122,7 +145,7 @@ impl FiberCore {
             command: Cell::new(Command::Resume(Resume::Continue)),
             outcome: Cell::new(None),
             entry: Cell::new(Some(entry)),
-            cookie: NEXT_COOKIE.fetch_add(1, Ordering::Relaxed),
+            cookie: next_cookie(),
         }
     }
 

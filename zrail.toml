@@ -211,7 +211,7 @@ reason = "Approved: standard panic for enum alternatives excluded under a held s
 [[source.rust.macros.allow]]
 name = "thread_local"
 inputs = "opaque"
-reason = "Approved: carrier-local mount identity and yielder pointer; guards restore prior state."
+reason = "Approved: carrier-local mount state, the cleanup observer, and per-carrier unwind cookie blocks; guards restore prior state."
 
 [[source.rust.macros.allow]]
 name = "vec"
