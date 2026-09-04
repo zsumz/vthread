@@ -129,7 +129,12 @@ impl Parker {
         let inherited_timeout = inherited_deadline
             .is_some_and(|inherited| deadline.is_none_or(|explicit| inherited <= explicit));
         let deadline = deadline.into_iter().chain(inherited_deadline).min();
-        match self.wait.begin(execution.id, execution.hub(), deadline)? {
+        match self.wait.begin(
+            execution.id,
+            execution.task_key(),
+            execution.hub(),
+            deadline,
+        )? {
             WaitBegin::Immediate(cause) => selected(cause, inherited_timeout),
             WaitBegin::Park {
                 request,

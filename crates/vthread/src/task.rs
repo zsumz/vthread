@@ -261,9 +261,9 @@ impl TaskCell {
             status: self.progress.status(record.status, running),
             mounts: self.progress.mounts(),
             yields: self.progress.yields(),
-            parks: record.parks,
+            parks: self.progress.parks(record.parks),
             last_suspension: self.progress.last_suspension(record.last_suspension),
-            last_wake: record.last_wake,
+            last_wake: self.progress.last_wake(record.last_wake),
             outcome_observed: record.outcome_observed,
         }
     }

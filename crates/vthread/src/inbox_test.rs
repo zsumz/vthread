@@ -88,7 +88,7 @@ fn concurrent_push_and_batch_drain_publish_exact_pending_depth() {
 fn capacity_probe_does_not_acquire_the_queue_lock() {
     use std::{sync::Arc, sync::mpsc, thread, time::Duration};
 
-    let inbox = Arc::new(crate::inbox::Inbox::new(1, 1));
+    let inbox = Arc::new(crate::inbox::Inbox::new(1, 1, false));
     let probe = Arc::clone(&inbox);
     let state = crate::signal::lock(&inbox.state);
     let (observed, receiver) = mpsc::sync_channel(1);
@@ -126,7 +126,7 @@ fn a_full_or_stopped_ingress_rejects_without_losing_admission() {
 #[test]
 fn distinct_supervisor_aborts_are_not_overwritten_and_finished_scopes_release_slots() {
     use crate::TaskFailure;
-    let inbox = crate::inbox::Inbox::new(2, 2);
+    let inbox = crate::inbox::Inbox::new(2, 2, false);
     inbox.abort(1, TaskFailure::SupervisorStopped);
     inbox.abort(2, TaskFailure::ScopeStalled);
     assert_eq!(

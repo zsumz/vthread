@@ -9,8 +9,8 @@ const REMOTE_READY_TARGET: usize = 64;
 const REMOTE_ADMISSION_YIELD_BOUND: u32 = 65_536;
 // Bridge short multi-carrier admission gaps without turning an idle carrier into a poller.
 // The carrier performs at most 640 pause instructions before entering the signal wait.
-const IDLE_SIGNAL_PROBES: usize = 80;
-const SPINS_PER_SIGNAL_PROBE: usize = 8;
+const IDLE_SIGNAL_PROBES: usize = 640;
+const SPINS_PER_SIGNAL_PROBE: usize = 1;
 
 impl Kernel {
     pub(crate) fn receive(&mut self) -> bool {
@@ -148,10 +148,9 @@ impl Kernel {
         if deadline.is_some() {
             self.stats.timer_sleeps += 1;
         }
-        self.publish(CarrierStatus::Idle);
         if self.inbox.pending() != 0
             || self.local.pending_wakes() != 0
-            || self.inbox.hub.pending_for_wait() != 0
+            || self.inbox.hub.has_pending()
         {
             return;
         }
@@ -162,16 +161,15 @@ impl Kernel {
                 }
                 if self.inbox.pending() != 0
                     || self.local.pending_wakes() != 0
-                    || self.inbox.hub.pending_for_wait() != 0
+                    || self.inbox.hub.has_pending()
                     || self.inbox.signal.version() != observed
                 {
                     return;
                 }
             }
         }
-        self.inbox.signal.wait_while(observed, deadline, || {
-            self.inbox.hub.pending_for_wait() != 0
-        });
+        self.publish(CarrierStatus::Idle);
+        self.inbox.hub.wait(observed, deadline);
     }
 }
 

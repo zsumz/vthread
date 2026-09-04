@@ -51,30 +51,53 @@ pub(crate) struct Inbox {
 }
 
 impl Inbox {
-    pub(crate) fn new(capacity: usize, wait_capacity: usize) -> Self {
-        Self::construct(capacity, wait_capacity, None)
+    pub(crate) fn new(capacity: usize, wait_capacity: usize, track_wakes: bool) -> Self {
+        Self::construct(capacity, wait_capacity, track_wakes, None)
     }
 
     #[cfg(feature = "runtime-evidence")]
     pub(crate) fn with_evidence(
         capacity: usize,
         wait_capacity: usize,
+        track_wakes: bool,
         evidence: crate::diagnostics::evidence::Emitter,
     ) -> Self {
-        Self::construct(capacity, wait_capacity, Some(evidence))
+        Self::construct(capacity, wait_capacity, track_wakes, Some(evidence))
     }
 
-    fn construct(capacity: usize, wait_capacity: usize, evidence: Option<EvidenceEmitter>) -> Self {
+    fn construct(
+        capacity: usize,
+        wait_capacity: usize,
+        track_wakes: bool,
+        evidence: Option<EvidenceEmitter>,
+    ) -> Self {
         #[cfg(not(feature = "runtime-evidence"))]
         let _ = evidence;
         let signal = Arc::new(Signal::default());
         #[cfg(feature = "runtime-evidence")]
         let hub = evidence.as_ref().map_or_else(
-            || WaitHub::new(wait_capacity, Arc::clone(&signal)),
-            |evidence| WaitHub::with_evidence(wait_capacity, Arc::clone(&signal), evidence.clone()),
+            || {
+                if track_wakes {
+                    WaitHub::new_tracked(wait_capacity, Arc::clone(&signal))
+                } else {
+                    WaitHub::new(wait_capacity, Arc::clone(&signal))
+                }
+            },
+            |evidence| {
+                WaitHub::with_evidence(
+                    wait_capacity,
+                    Arc::clone(&signal),
+                    evidence.clone(),
+                    track_wakes,
+                )
+            },
         );
         #[cfg(not(feature = "runtime-evidence"))]
-        let hub = WaitHub::new(wait_capacity, Arc::clone(&signal));
+        let hub = if track_wakes {
+            WaitHub::new_tracked(wait_capacity, Arc::clone(&signal))
+        } else {
+            WaitHub::new(wait_capacity, Arc::clone(&signal))
+        };
         Self {
             started: AtomicBool::new(false),
             scheduler_stopped: AtomicBool::new(false),

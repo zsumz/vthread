@@ -130,7 +130,7 @@ fn revoked_parked_stacks_release_registrations_before_timer_processing() {
         kernel.ready.push_back(task);
         kernel.has_borrowed = true;
         kernel.tick(true).unwrap();
-        assert_eq!(shared.snapshot().parked, 1);
+        assert_eq!(kernel.parked.len(), 1);
     });
     kernel.tick(true).unwrap();
     let snapshot = shared.snapshot();

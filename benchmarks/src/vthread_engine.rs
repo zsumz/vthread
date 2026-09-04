@@ -36,10 +36,9 @@ fn run_round(runtime: &vthread::Runtime, config: &Config) -> Result<Round, Strin
     #[cfg(feature = "lifecycle-profiling")]
     let before = runtime.lifecycle_profile();
     let peer = match config.scenario {
-        Scenario::Tcp { per_task } => Some(crate::tcp_peer::EchoServer::start(
-            config.tasks,
-            per_task,
-        )?),
+        Scenario::Tcp { per_task } => {
+            Some(crate::tcp_peer::EchoServer::start(config.tasks, per_task)?)
+        }
         _ => None,
     };
     let address = peer.as_ref().map(crate::tcp_peer::EchoServer::address);

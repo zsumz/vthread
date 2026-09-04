@@ -30,6 +30,7 @@ fn disabled_stall_detection_drains_from_scope_activity_without_record_locks() {
 fn a_pending_wake_for_another_scope_does_not_mask_a_stall() {
     use crate::{
         ScopeOptions, SuspensionReason, TaskFailure, TaskStatus,
+        task_slab::TaskKey,
         wait::{WakeCause, WakeNotice},
     };
     use std::{sync::Arc, time::Instant};
@@ -48,10 +49,10 @@ fn a_pending_wake_for_another_scope_does_not_mask_a_stall() {
     let other = shared.reserve(other_scope, "other".into(), None).unwrap();
     let token = vthread_stack::ParkToken::new(100, 1);
     let hub = &shared.inboxes[0].hub;
-    hub.reserve().unwrap();
     hub.enqueue(WakeNotice {
         token,
         task: other.lock().id,
+        route: TaskKey::owned(0),
         cause: WakeCause::Ready,
     });
     let observer = Arc::clone(&shared);

@@ -79,10 +79,12 @@ impl Shared {
             });
         }
         let id = state.next_scope;
-        state.next_scope = id.checked_add(1).ok_or(Error::fault(
-            crate::error::FaultComponent::Lifecycle,
-            "scope id space exhausted",
-        ))?;
+        state.next_scope = id.checked_add(1).ok_or_else(|| {
+            Error::fault(
+                crate::error::FaultComponent::Lifecycle,
+                "scope id space exhausted",
+            )
+        })?;
         if !supervised {
             state.active_scope = Some(id);
         }

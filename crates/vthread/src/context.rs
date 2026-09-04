@@ -15,7 +15,7 @@ use std::{
 
 use crate::{
     Error, Result, control::Shared, local_carrier::LocalCarrier, task::SharedTaskRecord,
-    task_context::TaskContext,
+    task_context::TaskContext, task_slab::TaskKey,
 };
 use crate::{TaskId, wait::WaitHub};
 
@@ -28,6 +28,7 @@ pub(crate) struct Execution {
 
 struct ExecutionCold {
     scope: u64,
+    task_key: Cell<Option<TaskKey>>,
     hub: Arc<WaitHub>,
     record: Option<SharedTaskRecord>,
     shared: Arc<Shared>,
@@ -53,6 +54,7 @@ impl Execution {
             progress: crate::task_progress::TaskProgressWriter::new(),
             cold: Box::new(ExecutionCold {
                 scope,
+                task_key: Cell::new(None),
                 hub,
                 record: Some(record),
                 shared,
@@ -66,6 +68,17 @@ impl Execution {
 
     pub(crate) fn scope(&self) -> u64 {
         self.cold.scope
+    }
+
+    pub(crate) fn assign_task_key(&self, key: TaskKey) {
+        assert!(
+            self.cold.task_key.replace(Some(key)).is_none(),
+            "execution assigned two task slots"
+        );
+    }
+
+    pub(crate) fn task_key(&self) -> TaskKey {
+        self.cold.task_key.get().expect("mounted task slot")
     }
 
     pub(crate) fn hub(&self) -> &Arc<WaitHub> {
@@ -114,6 +127,7 @@ impl Execution {
         };
         let cancellation = self.cold.shared.cancellation.clone();
         data.recycle(cancellation);
+        self.cold.task_key.set(None);
         drop(self.cold.record.take().expect("live task record"));
         true
     }

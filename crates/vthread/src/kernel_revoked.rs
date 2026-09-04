@@ -21,14 +21,15 @@ impl Kernel {
                 self.ready.push_back(task);
             }
         }
-        let tokens = self
+        let tasks = self
             .parked
             .iter()
-            .filter(|(_, parked)| self.task(parked.task).revoked())
-            .map(|(token, _)| *token)
+            .filter(|parked| self.task(parked.task).revoked())
+            .map(|parked| parked.task)
             .collect::<Vec<_>>();
-        for token in tokens {
-            let parked = self.parked.remove(&token).expect("revoked park");
+        for task in tasks {
+            let parked = self.parked.remove(task).expect("revoked park");
+            let token = parked.token;
             self.local.unregister_wake(token);
             parked.registration.abandon(token);
             if self.timers.cancel(token) {
@@ -54,7 +55,7 @@ impl Kernel {
             || self.ready.iter().any(|task| self.task(*task).is_borrowed())
             || self
                 .parked
-                .values()
+                .iter()
                 .any(|parked| self.task(parked.task).is_borrowed());
     }
 }

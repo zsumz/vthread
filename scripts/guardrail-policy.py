@@ -14,7 +14,7 @@ STACK = ROOT / "crates" / "vthread-stack" / "src"
 LAB = ROOT / "crates" / "vthread-lab" / "src"
 REFERENCE = ROOT / "reference" / "src"
 MAX_LINES = 300
-PUBLIC_DEPENDENCIES = {"libc", "socket2", "vthread-stack", "zio"}
+PUBLIC_DEPENDENCIES = {"crossbeam-queue", "libc", "socket2", "vthread-stack", "zio"}
 
 
 def rust_sources(root: pathlib.Path) -> list[pathlib.Path]:

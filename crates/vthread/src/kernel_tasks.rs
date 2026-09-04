@@ -93,11 +93,29 @@ impl KernelTasks {
     }
 
     pub(crate) fn insert_owned(&mut self, task: OwnedTask) -> TaskKey {
-        TaskKey::owned(self.owned.insert(task))
+        let index = self.owned.insert(task);
+        let key = TaskKey::owned(index);
+        self.owned
+            .get(index)
+            .expect("inserted owned task")
+            .execution
+            .as_ref()
+            .expect("task execution")
+            .assign_task_key(key);
+        key
     }
 
     pub(crate) fn insert_borrowed(&mut self, task: BorrowedTask) -> TaskKey {
-        TaskKey::borrowed(self.borrowed.insert(task))
+        let index = self.borrowed.insert(task);
+        let key = TaskKey::borrowed(index);
+        self.borrowed
+            .get(index)
+            .expect("inserted borrowed task")
+            .execution
+            .as_ref()
+            .expect("task execution")
+            .assign_task_key(key);
+        key
     }
 
     pub(crate) fn get(&self, key: TaskKey) -> Option<TaskRef<'_>> {

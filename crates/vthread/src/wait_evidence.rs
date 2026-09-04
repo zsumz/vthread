@@ -1,6 +1,7 @@
 //! Evidence emitted at exact wait-winner linearization points.
 
-use super::{ActiveWait, WaitRegistration, WakeCause};
+use super::{WaitHub, WaitRegistration, WakeCause};
+use crate::TaskId;
 
 #[cfg(feature = "runtime-evidence")]
 impl WakeCause {
@@ -102,15 +103,15 @@ impl WaitRegistration {
     }
 }
 
-pub(super) fn record_current(active: &ActiveWait, cause: WakeCause) {
+pub(super) fn record_current(task: TaskId, token: ParkToken, hub: &WaitHub, cause: WakeCause) {
     #[cfg(feature = "runtime-evidence")]
-    if let Some(evidence) = &active.evidence {
-        let wait = crate::diagnostics::evidence::WaitKey::from_token(active.token);
+    if let Some(evidence) = hub.evidence() {
+        let wait = crate::diagnostics::evidence::WaitKey::from_token(token);
         let cause = cause.evidence();
         let origin = wake_origin();
         evidence.record(
             crate::diagnostics::evidence::RuntimeEventKind::WakeOffered {
-                task: active.task,
+                task,
                 wait,
                 cause,
                 origin,
@@ -118,7 +119,7 @@ pub(super) fn record_current(active: &ActiveWait, cause: WakeCause) {
         );
         evidence.record(
             crate::diagnostics::evidence::RuntimeEventKind::WakeSelected {
-                task: active.task,
+                task,
                 wait,
                 cause,
                 origin,
@@ -126,7 +127,7 @@ pub(super) fn record_current(active: &ActiveWait, cause: WakeCause) {
         );
     }
     #[cfg(not(feature = "runtime-evidence"))]
-    let _ = (active, cause);
+    let _ = (task, token, hub, cause);
 }
 
 #[cfg(feature = "runtime-evidence")]

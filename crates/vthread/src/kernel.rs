@@ -14,24 +14,21 @@ mod kernel_receive;
 mod kernel_revoked;
 #[path = "kernel_task.rs"]
 mod kernel_task;
+#[path = "parked_tasks.rs"]
+mod parked_tasks;
 
 use crate::{
     CarrierId, CarrierSnapshot, CarrierStatus, RuntimeStats, StackSnapshot,
     control::{CompletionBatch, CompletionUpdate, Shared},
     inbox::{Inbox, SpawnPacket},
     kernel_tasks::{KernelTasks, TaskMut, TaskRef},
+    ready_queue::ReadyQueue,
     task_slab::TaskKey,
     timer::TimerQueue,
-    wait::WaitRegistration,
 };
 use crate::{context::Execution, local_carrier::LocalCarrier};
-use std::{
-    cell::Cell,
-    collections::{BTreeMap, VecDeque},
-    rc::Rc,
-    sync::Arc,
-};
-use vthread_stack::ParkToken;
+use parked_tasks::{ParkedTask, ParkedTasks};
+use std::{cell::Cell, collections::VecDeque, rc::Rc, sync::Arc};
 
 const PROGRESS_PUBLICATION_BATCH: u8 = 64;
 const COMPLETION_BATCH: usize = 64;
@@ -41,8 +38,8 @@ pub(crate) struct Kernel {
     pub(crate) inbox: Arc<Inbox>,
     pub(super) id: CarrierId,
     pub(super) tasks: KernelTasks,
-    pub(super) ready: VecDeque<TaskKey>,
-    pub(super) parked: BTreeMap<ParkToken, ParkedTask>,
+    pub(super) ready: ReadyQueue,
+    parked: ParkedTasks,
     pub(super) in_flight: Option<TaskKey>,
     pub(super) pending: Option<SpawnPacket>,
     pub(super) incoming: VecDeque<SpawnPacket>,
@@ -60,11 +57,6 @@ pub(crate) struct Kernel {
     pub(super) revocation_inspections: usize,
 }
 
-pub(super) struct ParkedTask {
-    pub(super) task: TaskKey,
-    pub(super) registration: WaitRegistration,
-}
-
 impl Kernel {
     pub(crate) fn new(shared: Arc<Shared>, id: CarrierId) -> Self {
         let config = shared.config;
@@ -73,8 +65,8 @@ impl Kernel {
             shared,
             id,
             tasks: KernelTasks::new(),
-            ready: VecDeque::new(),
-            parked: BTreeMap::new(),
+            ready: ReadyQueue::new(),
+            parked: ParkedTasks::new(),
             in_flight: None,
             pending: None,
             incoming: VecDeque::new(),

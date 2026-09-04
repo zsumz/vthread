@@ -29,7 +29,7 @@ def main():
         coverage = application_verify.matrix(vars(args))
     except AssertionError:
         parser.error("application bounds exceeded, empty or repeated matrix entry")
-    target = Path(os.environ.get("CARGO_TARGET_DIR", ""))
+    target = Path(os.environ.get("CARGO_TARGET_DIR", evidence.ROOT / "target"))
     if not target.is_absolute():
         parser.error("CARGO_TARGET_DIR must be an absolute build directory")
     if args.out is None:

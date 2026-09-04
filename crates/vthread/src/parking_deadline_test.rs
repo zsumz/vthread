@@ -8,7 +8,7 @@ use std::{
 fn ready_and_closed_winners_survive_a_later_inherited_deadline() {
     for closed in [false, true] {
         let runtime = Runtime::builder().carriers(1).build().unwrap();
-        let deadline = Instant::now() + Duration::from_millis(100);
+        let deadline = Instant::now() + Duration::from_secs(1);
         let mut checked = false;
         let result = runtime.run_scope_with(ScopeOptions::default().deadline(deadline), |scope| {
             let (parker, wake) = park_pair();
@@ -54,7 +54,7 @@ fn ready_and_closed_winners_survive_a_later_inherited_deadline() {
 fn a_selected_timer_preserves_which_deadline_won_after_delayed_resume() {
     for explicit_offset in [-25i64, 0, 25] {
         let runtime = Runtime::builder().carriers(1).build().unwrap();
-        let deadline = Instant::now() + Duration::from_millis(100);
+        let deadline = Instant::now() + Duration::from_secs(1);
         let explicit = if explicit_offset < 0 {
             deadline - Duration::from_millis(explicit_offset.unsigned_abs())
         } else {

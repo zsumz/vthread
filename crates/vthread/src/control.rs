@@ -128,11 +128,18 @@ impl Shared {
         let inboxes: Vec<Arc<Inbox>> = (0..config.carriers())
             .map(|index| {
                 let inbox = evidence.as_ref().map_or_else(
-                    || Inbox::new(config.carrier_queue_capacity(), config.max_vthreads()),
+                    || {
+                        Inbox::new(
+                            config.carrier_queue_capacity(),
+                            config.max_vthreads(),
+                            config.stall_policy().timeout().is_some(),
+                        )
+                    },
                     |recorder| {
                         Inbox::with_evidence(
                             config.carrier_queue_capacity(),
                             config.max_vthreads(),
+                            config.stall_policy().timeout().is_some(),
                             crate::diagnostics::evidence::Emitter::new(
                                 id,
                                 CarrierId(index),
@@ -150,6 +157,7 @@ impl Shared {
                 Arc::new(Inbox::new(
                     config.carrier_queue_capacity(),
                     config.max_vthreads(),
+                    config.stall_policy().timeout().is_some(),
                 ))
             })
             .collect();
@@ -248,12 +256,11 @@ impl Shared {
     }
 
     pub(crate) fn publish(&self, snapshot: CarrierSnapshot) {
-        let notify = snapshot.status != CarrierStatus::Running
-            || self.config.stall_policy().timeout().is_some();
         let terminal = matches!(
             snapshot.status,
             CarrierStatus::Stopped | CarrierStatus::Failed
         );
+        let notify = terminal || self.config.stall_policy().timeout().is_some();
         self.carrier_states.publish(snapshot);
         if terminal && self.carrier_states.all_terminal() {
             lock(&self.state).accepting = false;

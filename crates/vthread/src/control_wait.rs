@@ -72,7 +72,7 @@ impl Shared {
                 {
                     let record = entry.record.lock();
                     if target_id == Some(entry.id) {
-                        target_done = record.status.is_terminal();
+                        target_done = entry.record.completion().done();
                     }
                     if !record.status.is_terminal() {
                         quiescent &= matches!(record.status, TaskStatus::Suspended(reason) if !matches!(reason,
@@ -83,7 +83,7 @@ impl Shared {
                     }
                 }
             } else if let Some(target) = target {
-                target_done = target.lock().status.is_terminal();
+                target_done = target.completion().done();
             }
             if active == 0 || (target.is_some() && target_done && stalled.is_none()) {
                 return stalled.map_or(Ok(true), |active| Err(Error::RuntimeStalled { active }));

@@ -114,10 +114,12 @@ impl Reactor {
                 });
             }
             let key = state.next;
-            state.next = key.checked_add(1).ok_or(Error::fault(
-                crate::error::FaultComponent::Readiness,
-                "readiness identity exhausted",
-            ))?;
+            state.next = key.checked_add(1).ok_or_else(|| {
+                Error::fault(
+                    crate::error::FaultComponent::Readiness,
+                    "readiness identity exhausted",
+                )
+            })?;
             state.entries.insert(
                 key,
                 Entry {

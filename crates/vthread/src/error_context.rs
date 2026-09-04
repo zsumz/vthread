@@ -3,6 +3,10 @@ use std::{
     fmt, io,
     sync::atomic::{AtomicU64, Ordering},
 };
+#[cfg(test)]
+thread_local! {
+    static FAULTS_CREATED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
 /// Bounded resource that rejected admission.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -48,6 +52,8 @@ pub struct RuntimeFault {
 }
 impl RuntimeFault {
     pub(crate) fn new(component: FaultComponent, detail: &'static str) -> Self {
+        #[cfg(test)]
+        FAULTS_CREATED.with(|created| created.set(created.get() + 1));
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let incident_id = NEXT
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
@@ -65,6 +71,10 @@ impl RuntimeFault {
     /// Internal subsystem that detected this incident.
     pub fn component(&self) -> FaultComponent {
         self.component
+    }
+    #[cfg(test)]
+    pub(crate) fn created_on_current_thread() -> u64 {
+        FAULTS_CREATED.with(std::cell::Cell::get)
     }
 }
 impl fmt::Display for RuntimeFault {

@@ -166,10 +166,9 @@ macro_rules! spawn_wake_tail_pairs {
 
 fn run_round(config: &Config) -> Result<Round, String> {
     let peer = match config.scenario {
-        Scenario::Tcp { per_task } => Some(crate::tcp_peer::EchoServer::start(
-            config.tasks,
-            per_task,
-        )?),
+        Scenario::Tcp { per_task } => {
+            Some(crate::tcp_peer::EchoServer::start(config.tasks, per_task)?)
+        }
         _ => None,
     };
     let address = peer.as_ref().map(crate::tcp_peer::EchoServer::address);

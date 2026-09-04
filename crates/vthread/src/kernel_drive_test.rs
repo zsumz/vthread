@@ -107,6 +107,27 @@ fn pending_wakes_are_processed_without_a_signal_epoch_change() {
 }
 
 #[test]
+fn park_publication_is_deferred_until_an_idle_boundary() {
+    use crate::{CarrierId, CarrierStatus, RuntimeConfig, control::Shared, kernel::Kernel};
+
+    let shared = Arc::new(Shared::new(RuntimeConfig::default()));
+    let scope = shared.begin_scope().unwrap();
+    let (parker, _waker) = park_pair();
+    shared
+        .submit(scope, "deferred park".into(), move || parker.park())
+        .unwrap();
+    let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
+    kernel.receive();
+
+    assert!(kernel.tick(true).unwrap());
+    assert_eq!(shared.snapshot().stats.parks, 0);
+    kernel.publish(CarrierStatus::Idle);
+    assert_eq!(shared.snapshot().stats.parks, 1);
+    kernel.abort(None, crate::TaskFailure::RuntimeStopped);
+    shared.finish_scope(scope);
+}
+
+#[test]
 fn same_carrier_ready_wakes_bypass_the_shared_inbox() {
     use crate::{CarrierId, RuntimeConfig, control::Shared, kernel::Kernel};
 
@@ -133,6 +154,38 @@ fn same_carrier_ready_wakes_bypass_the_shared_inbox() {
 }
 
 #[test]
+fn wake_notice_cannot_resume_a_different_task() {
+    use crate::{
+        CarrierId, RuntimeConfig, TaskId,
+        control::Shared,
+        kernel::Kernel,
+        wait::{WakeCause, WakeNotice},
+    };
+
+    let shared = Arc::new(Shared::new(RuntimeConfig::default()));
+    let scope = shared.begin_scope().expect("scope");
+    let (parker, _waker) = park_pair();
+    shared
+        .submit(scope, "parked".into(), move || parker.park())
+        .expect("submit");
+    let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
+    kernel.receive();
+    assert!(kernel.tick(true).expect("park task"));
+    let parked = kernel.parked.iter().next().expect("parked task");
+    let token = parked.token;
+    let route = parked.task;
+
+    kernel.inbox.hub.enqueue(WakeNotice {
+        token,
+        task: TaskId::new(999),
+        route,
+        cause: WakeCause::Ready,
+    });
+    assert!(kernel.process_wakes().is_err());
+    kernel.abort(None, crate::TaskFailure::RuntimeStopped);
+}
+
+#[test]
 fn timeout_updates_task_and_runtime_ledgers() {
     let runtime = Runtime::new().expect("build runtime");
     runtime
@@ -140,9 +193,10 @@ fn timeout_updates_task_and_runtime_ledgers() {
             let (parker, _unparker) = park_pair();
             let mut task = scope.spawn("timer", move || {
                 parker
-                    .park_timeout(Duration::from_millis(1))
+                    .park_timeout(Duration::from_secs(1))
                     .expect("park with timeout")
             })?;
+            crate::support_test::until(|| scope.runtime_snapshot().parked == 1);
             assert_eq!(task.join()?, ParkOutcome::TimedOut);
             let snapshot = scope.runtime_snapshot();
             let task = snapshot
@@ -216,7 +270,12 @@ fn reclaiming_a_selected_but_unresumed_park_releases_the_active_generation() {
     kernel.abort(None, TaskFailure::RuntimeStopped);
     let next = parker
         .wait
-        .begin(TaskId::new(99), &kernel.inbox.hub, None)
+        .begin(
+            TaskId::new(99),
+            crate::task_slab::TaskKey::owned(0),
+            &kernel.inbox.hub,
+            None,
+        )
         .expect("old generation reclaimed");
     if let WaitBegin::Park { request, .. } = next {
         parker.wait.rollback(request.token());

@@ -14,7 +14,9 @@ fn a_published_wait_is_taken_once_by_exact_generation() {
                     let WaitBegin::Park {
                         request,
                         registration,
-                    } = wait.begin(execution.id, execution.hub(), None).unwrap()
+                    } = wait
+                        .begin(execution.id, execution.task_key(), execution.hub(), None)
+                        .unwrap()
                     else {
                         panic!("expected a park request");
                     };
@@ -22,8 +24,9 @@ fn a_published_wait_is_taken_once_by_exact_generation() {
                     let publication = execution
                         .publish_wait(request.token(), registration)
                         .unwrap();
-                    let taken = execution.take_wait(request.token()).unwrap();
-                    assert!(std::sync::Weak::ptr_eq(&taken.state, &expected));
+                    let retained = execution.take_wait(request.token()).unwrap();
+                    assert!(std::sync::Weak::ptr_eq(&retained.state, &expected));
+                    assert!(execution.take_wait(request.token()).is_err());
                     drop(publication);
                     wait.rollback(request.token());
                 })?
@@ -45,7 +48,9 @@ fn dropping_a_publication_clears_the_pending_handoff() {
                     let WaitBegin::Park {
                         request,
                         registration,
-                    } = wait.begin(execution.id, execution.hub(), None).unwrap()
+                    } = wait
+                        .begin(execution.id, execution.task_key(), execution.hub(), None)
+                        .unwrap()
                     else {
                         panic!("expected a park request");
                     };
