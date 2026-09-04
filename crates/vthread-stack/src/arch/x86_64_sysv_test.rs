@@ -4,7 +4,7 @@ use core::arch::asm;
 use std::{cell::Cell, ptr, rc::Rc};
 
 use super::{mxcsr, x87_control_word};
-use crate::{FiberState, MappedStack, Resume, Suspension, context::FiberCore, native};
+use crate::{FiberState, MappedStack, Resume, Suspension, context::FiberCore, engine};
 
 /// MXCSR rounding-control field: both bits set selects round toward zero.
 const ROUND_TOWARD_ZERO: u32 = 0b11 << 13;
@@ -41,12 +41,12 @@ fn floating_point_control_state_stays_with_its_context() {
     let entry = move || {
         write_mxcsr(mxcsr() | ROUND_TOWARD_ZERO);
         // SAFETY: the handle names this execution's core on this carrier.
-        unsafe { native::suspend(body_handle.get(), Suspension::YieldNow) };
+        unsafe { engine::suspend(body_handle.get(), Suspension::YieldNow) };
         assert_eq!(mxcsr() & ROUND_TOWARD_ZERO, ROUND_TOWARD_ZERO);
     };
     // SAFETY: the entry borrows nothing.
-    let mut execution = unsafe { native::Execution::start(stack, entry) };
-    handle.set(execution.yielder());
+    let mut execution = unsafe { engine::Execution::start(stack, entry) };
+    handle.set(execution.core_ptr());
 
     assert_eq!(
         execution.resume(Resume::Continue),

@@ -179,7 +179,7 @@ fn panic_unwinds_values_on_the_fiber_stack() {
 }
 
 #[test]
-fn completed_resume_panics_before_installing_a_stale_yielder() {
+fn completed_resume_panics_before_installing_a_stale_mount() {
     use std::sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -193,7 +193,7 @@ fn completed_resume_panics_before_installing_a_stale_yielder() {
     let forwarded = Arc::clone(&previous);
     std::panic::set_hook(Box::new(move |info| {
         if std::thread::current().id() == owner {
-            observed.store(has_mounted_yielder(), Ordering::Relaxed);
+            observed.store(has_mounted_block(), Ordering::Relaxed);
         }
         forwarded(info);
     }));
@@ -204,11 +204,11 @@ fn completed_resume_panics_before_installing_a_stale_yielder() {
 }
 
 #[test]
-fn incomplete_stack_extraction_reclaims_with_its_yielder_mounted() {
+fn incomplete_stack_extraction_reclaims_with_its_block_mounted() {
     struct ObserveMount(Rc<Cell<bool>>);
     impl Drop for ObserveMount {
         fn drop(&mut self) {
-            self.0.set(has_mounted_yielder());
+            self.0.set(has_mounted_block());
         }
     }
     let mounted = Rc::new(Cell::new(false));
@@ -221,9 +221,9 @@ fn incomplete_stack_extraction_reclaims_with_its_yielder_mounted() {
     let result = catch_unwind(AssertUnwindSafe(|| fiber.into_stack()));
     assert!(result.is_err());
     assert!(mounted.get());
-    assert!(!has_mounted_yielder());
+    assert!(!has_mounted_block());
 }
 
-fn has_mounted_yielder() -> bool {
-    !crate::mount::mounted_yielder().is_null()
+fn has_mounted_block() -> bool {
+    !crate::mount::mounted_core().is_null()
 }

@@ -149,7 +149,7 @@ fn parent_unwind_drops_borrowed_children() {
 }
 
 #[test]
-fn reclaiming_a_nested_stack_restores_the_parent_yielder() {
+fn reclaiming_a_nested_stack_restores_the_parent_mount() {
     let finished = Rc::new(Cell::new(false));
     let flag = Rc::clone(&finished);
     let mut pool = StackPool::new(128 * 1024, 0);

@@ -1,11 +1,15 @@
-//! Type-erased ownership of a fiber's entry closure until its first run.
+//! Type-erased ownership of a fiber's entry closure inside the fiber's own stack.
 
-use std::{mem::ManuallyDrop, ptr::NonNull};
+use std::{
+    mem::ManuallyDrop,
+    ptr::{self, NonNull},
+};
 
-/// A boxed `FnOnce()` whose type is forgotten so one fiber core can hold any entry.
+/// An `FnOnce()` moved into caller-provided storage with its type forgotten.
 ///
-/// The closure's lifetime is erased too; the owning execution guarantees the entry
-/// runs or is dropped before anything it borrows expires.
+/// The storage is the top of the fiber's stack, so no heap is involved. The closure's
+/// lifetime is erased too; the owning execution guarantees the entry runs or is dropped
+/// before anything it borrows expires.
 pub(crate) struct ErasedEntry {
     data: NonNull<()>,
     call: unsafe fn(NonNull<()>),
@@ -13,41 +17,48 @@ pub(crate) struct ErasedEntry {
 }
 
 impl ErasedEntry {
-    pub(crate) fn new<F: FnOnce()>(entry: F) -> Self {
-        let data = NonNull::from(Box::leak(Box::new(entry))).cast::<()>();
+    /// Moves `entry` into `storage`.
+    ///
+    /// # Safety
+    ///
+    /// `storage` must be valid for writes of `F`, aligned for `F`, and stay untouched
+    /// until this handle is called or dropped.
+    pub(crate) unsafe fn place<F: FnOnce()>(storage: NonNull<()>, entry: F) -> Self {
+        // SAFETY: the caller guarantees the storage is valid and aligned for `F`.
+        unsafe { storage.cast::<F>().write(entry) };
         Self {
-            data,
-            call: call_boxed::<F>,
-            drop: drop_boxed::<F>,
+            data: storage,
+            call: call_placed::<F>,
+            drop: drop_placed::<F>,
         }
     }
 
-    /// Runs the entry exactly once, consuming this handle.
+    /// Moves the entry out of its storage and runs it exactly once.
     pub(crate) fn call(self) {
         let entry = ManuallyDrop::new(self);
-        // SAFETY: `data` came from `new` for the closure type behind `call`, and the
-        // ManuallyDrop wrapper guarantees the drop function never runs for this handle.
+        // SAFETY: `data` was written by `place` for the closure type behind `call`, and
+        // the ManuallyDrop wrapper guarantees the drop function never runs afterwards.
         unsafe { (entry.call)(entry.data) }
     }
 }
 
 impl Drop for ErasedEntry {
     fn drop(&mut self) {
-        // SAFETY: this handle still owns the box because `call` consumes handles
+        // SAFETY: the storage still holds the closure because `call` consumes handles
         // without running Drop.
         unsafe { (self.drop)(self.data) }
     }
 }
 
-unsafe fn call_boxed<F: FnOnce()>(data: NonNull<()>) {
-    // SAFETY: the caller passes the pointer `new` leaked from a `Box<F>` exactly once.
-    let entry: F = *unsafe { Box::from_raw(data.cast::<F>().as_ptr()) };
+unsafe fn call_placed<F: FnOnce()>(data: NonNull<()>) {
+    // SAFETY: the caller passes the storage `place` filled with an `F` exactly once.
+    let entry: F = unsafe { data.cast::<F>().read() };
     entry();
 }
 
-unsafe fn drop_boxed<F>(data: NonNull<()>) {
-    // SAFETY: the caller passes the pointer `new` leaked from a `Box<F>` exactly once.
-    drop(unsafe { Box::from_raw(data.cast::<F>().as_ptr()) });
+unsafe fn drop_placed<F>(data: NonNull<()>) {
+    // SAFETY: the caller passes the storage `place` filled with an `F` exactly once.
+    unsafe { ptr::drop_in_place(data.cast::<F>().as_ptr()) }
 }
 
 #[cfg(test)]
