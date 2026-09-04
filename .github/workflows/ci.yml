@@ -19,20 +19,20 @@ jobs:
         include:
           - runner: ubuntu-24.04
             target: linux-x86-64
-            engine: corosensei
+            engine: native
             rustflags: ''
           - runner: ubuntu-24.04
             target: linux-x86-64
-            engine: native
-            rustflags: '--cfg vthread_stack_engine="native"'
+            engine: corosensei
+            rustflags: '--cfg vthread_stack_engine="corosensei"'
           - runner: macos-14
             target: macos-arm64
-            engine: corosensei
+            engine: native
             rustflags: ''
           - runner: macos-14
             target: macos-arm64
-            engine: native
-            rustflags: '--cfg vthread_stack_engine="native"'
+            engine: corosensei
+            rustflags: '--cfg vthread_stack_engine="corosensei"'
     runs-on: ${{ matrix.runner }}
     env:
       CARGO_TARGET_DIR: /tmp/vthread-check-build
