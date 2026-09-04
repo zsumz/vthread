@@ -76,6 +76,7 @@ dependencies = [
  "libc",
  "socket2",
  "vthread-stack",
+ "vthread-sync-core",
  "zio",
 ]
 
@@ -92,6 +93,10 @@ version = "0.0.2-rc.1"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "vthread-sync-core"
+version = "0.0.2-rc.1"
 
 [[package]]
 name = "vthreads"

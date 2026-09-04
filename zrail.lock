@@ -2,30 +2,30 @@
 schema = 3
 semantics = 4
 producer = "0.0.3-rc.5"
-contract_sha256 = "fd36742cf540d1361356956503127948cd71323f78018c8aa7b7386a652007d9"
+contract_sha256 = "a395c4e70820f9ec1023520a06a8147bd5f5507c3319637f0670d13c6bbef30b"
 ratchet = []
 
 [analysis]
-inventory_sha256 = "f3dd5153abcf3cb858b39f7eaaf9dde164ad76b04ba631f2e3100658becbfcc7"
+inventory_sha256 = "723da86ee425326e865893f84c26dc5181dd38acbda531927ffd90e4a4b42452"
 exclusions_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-cargo_lock_sha256 = "20b7d3277365cb32f2786ac76cad04ec2891e99b991eaec9bb535a6c0fbb0e7e"
-cargo_features_sha256 = "c8c3ae783795fefa2eaaf8ac7fda3383de6ec0a9e9edcd82e8b540419e320b56"
-feature_worlds_sha256 = "864a6d19f460aa9b9460f8375e9ac99d93e1fc09112fa246d08c6b224dc8c51b"
+cargo_lock_sha256 = "c6e29ff6a0a68ba0ce9834ddefe2d39dc2dd6783ddddf7c9be876e40012f0d6c"
+cargo_features_sha256 = "1bf66bee6b2ab19d0c4dd89517ee70b1cb6fdfc36d7de6247eb42680b8f5522b"
+feature_worlds_sha256 = "a095667d6185d3f60ac889aebb70faf06c59c0954023f81f69e4965f3c6cab86"
 feature_worlds = 3
-packages = 4
-targets = 5
-physical_rust_files = 351
-base_source_contexts = 1512
+packages = 5
+targets = 6
+physical_rust_files = 357
+base_source_contexts = 1539
 derived_source_contexts = 0
-source_facts = 109444
-projection_queries = 2048046
+source_facts = 110557
+projection_queries = 2060023
 projected_facts = 29
 unresolved_bindings = 0
 analyzer_semantics = 4
 
 [[analysis.contract_source]]
 path = "zrail.toml"
-sha256 = "158cfb0fc2ad8368651ad8bab83560ecdde2336459ff672dc34090e092f7f287"
+sha256 = "d19edec9e7c589fd31bf8d5252d967dbc489150863b45d4e446e18c32a7ee3a9"
 
 [[package]]
 name = "vthread"
@@ -81,6 +81,20 @@ directory = "crates/vthread-stack"
 requirement = "=0.0.2-rc.1"
 
 [[package.dependency]]
+alias = "vthread-sync-core"
+name = "vthread-sync-core"
+crate_root = "vthread_sync_core"
+kind = "normal"
+scope = "internal"
+optional = false
+default_features = true
+
+[package.dependency.source]
+kind = "workspace-member"
+directory = "crates/vthread-sync-core"
+requirement = "=0.0.2-rc.1"
+
+[[package.dependency]]
 alias = "zio"
 name = "zio"
 kind = "normal"
@@ -123,6 +137,10 @@ default_features = true
 [package.dependency.source]
 kind = "registry"
 requirement = "=0.2.189"
+
+[[package]]
+name = "vthread-sync-core"
+dependency = []
 
 [[package]]
 name = "vthreads"
