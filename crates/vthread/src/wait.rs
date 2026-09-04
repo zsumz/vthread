@@ -149,6 +149,11 @@ impl WaitCell {
         self.state.id
     }
 
+    pub(crate) fn matches_generation(&self, token: ParkToken) -> bool {
+        let word = self.state.load();
+        token.wait() == self.state.id && token.generation() == word.generation()
+    }
+
     #[inline]
     pub(crate) fn same_cell(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.state, &other.state)
@@ -224,6 +229,12 @@ impl WaitCell {
         };
         crate::context::unregister_local_wake(&hub, token);
         hub.discard_notice(token);
+    }
+
+    pub(crate) fn abandon(&self, token: ParkToken) {
+        if let Some(hub) = self.state.retire(token) {
+            hub.discard_notice(token);
+        }
     }
 }
 

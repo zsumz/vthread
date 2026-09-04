@@ -96,7 +96,12 @@ impl Parker {
         &self,
         execution: &crate::context::Execution,
     ) -> Result<ParkOutcome> {
-        park_wait(execution, &self.wait, None, |_, _| Ok(()))
+        let handoff = if execution.owns_synchronization_wait(&self.wait) {
+            WaitHandoff::TaskResident
+        } else {
+            WaitHandoff::Shared
+        };
+        park_wait(execution, &self.wait, None, handoff, |_, _| Ok(()))
     }
 
     pub(crate) fn park_registered<G>(
@@ -114,7 +119,13 @@ impl Parker {
         let mounted = context::current().ok_or(Error::OutsideVThread)?;
         let execution = mounted.execution()?;
         execution.data.check()?;
-        park_wait(execution, &self.wait, deadline, register)
+        park_wait(
+            execution,
+            &self.wait,
+            deadline,
+            WaitHandoff::Shared,
+            register,
+        )
     }
 }
 
@@ -122,13 +133,22 @@ pub(crate) fn park_wait_after_checkpoint(
     wait: &WaitCell,
     execution: &crate::context::Execution,
 ) -> Result<ParkOutcome> {
-    park_wait(execution, wait, None, |_, _| Ok(()))
+    park_wait(execution, wait, None, WaitHandoff::TaskResident, |_, _| {
+        Ok(())
+    })
+}
+
+#[derive(Clone, Copy)]
+enum WaitHandoff {
+    Shared,
+    TaskResident,
 }
 
 fn park_wait<G>(
     execution: &crate::context::Execution,
     wait: &WaitCell,
     deadline: Option<Instant>,
+    handoff: WaitHandoff,
     register: impl FnOnce(vthread_stack::ParkToken, &crate::wait::WaitRegistration) -> Result<G>,
 ) -> Result<ParkOutcome> {
     let policy = &execution.data;
@@ -162,7 +182,10 @@ fn park_wait<G>(
                 None
             };
             let _external = register(token, &registration)?;
-            let _publication = execution.publish_wait(token, registration)?;
+            let _publication = match handoff {
+                WaitHandoff::Shared => Some(execution.publish_wait(token, registration)?),
+                WaitHandoff::TaskResident => None,
+            };
             let suspension = vthread_stack::Suspension::Park(request);
             if let Err(error) = vthread_stack::suspend(suspension) {
                 wait.rollback(token);

@@ -8,9 +8,9 @@ pub(crate) use wake::{enqueue_local_wake, unregister_local_wake};
 mod pending;
 
 use std::{
-    cell::{Cell, RefCell, RefMut},
+    cell::{Cell, RefCell},
     rc::Rc,
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 use crate::{
@@ -35,7 +35,7 @@ struct ExecutionCold {
     local: Rc<LocalCarrier>,
     pending_wait: RefCell<Option<pending::PendingWait>>,
     readiness_wait: RefCell<Option<crate::wait::WaitCell>>,
-    synchronization_wait: RefCell<Option<crate::wait::WaitCell>>,
+    synchronization_wait: OnceLock<crate::wait::WaitCell>,
 }
 
 impl Execution {
@@ -61,7 +61,7 @@ impl Execution {
                 local,
                 pending_wait: RefCell::new(None),
                 readiness_wait: RefCell::new(None),
-                synchronization_wait: RefCell::new(None),
+                synchronization_wait: OnceLock::new(),
             }),
         }
     }
@@ -115,18 +115,25 @@ impl Execution {
         })
     }
 
-    pub(crate) fn synchronization_wait(&self) -> Result<RefMut<'_, crate::wait::WaitCell>> {
-        let mut cached = self.cold.synchronization_wait.borrow_mut();
-        let wait = cached.get_or_insert_with(crate::wait::WaitCell::new);
+    pub(crate) fn synchronization_wait(&self) -> Result<&crate::wait::WaitCell> {
+        let wait = self
+            .cold
+            .synchronization_wait
+            .get_or_init(crate::wait::WaitCell::new);
         if !wait.recycle() {
             return Err(Error::fault(
                 crate::error::FaultComponent::Scheduler,
                 "cached synchronization wait remained active",
             ));
         }
-        Ok(RefMut::map(cached, |wait| {
-            wait.as_mut().expect("initialized synchronization wait")
-        }))
+        Ok(wait)
+    }
+
+    pub(crate) fn owns_synchronization_wait(&self, wait: &crate::wait::WaitCell) -> bool {
+        self.cold
+            .synchronization_wait
+            .get()
+            .is_some_and(|owned| owned.same_cell(wait))
     }
 
     pub(crate) fn recycle(&mut self) -> bool {

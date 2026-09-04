@@ -7,7 +7,8 @@ pub(super) struct ParkedTask {
     pub(super) token: ParkToken,
     pub(super) task: TaskKey,
     pub(super) has_deadline: bool,
-    pub(super) registration: WaitRegistration,
+    // `None` is valid only for this task's exact resident synchronization generation.
+    pub(super) registration: Option<WaitRegistration>,
 }
 
 pub(super) struct ParkedTasks {

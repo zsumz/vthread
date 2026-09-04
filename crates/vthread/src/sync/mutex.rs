@@ -7,7 +7,6 @@ use crate::{
     wait::{ResourceSelection, WaitCell},
 };
 use std::{
-    cell::RefMut,
     collections::VecDeque,
     marker::PhantomData,
     ops::{Deref, DerefMut},
@@ -27,7 +26,7 @@ struct MutexGate {
 
 struct Ticket<'gate, 'wait> {
     gate: &'gate MutexGate,
-    wait: Option<RefMut<'wait, WaitCell>>,
+    wait: Option<&'wait WaitCell>,
 }
 
 /// A FIFO virtual mutex whose gate keeps the native value lock uncontended.
@@ -227,7 +226,7 @@ impl MutexGate {
 }
 
 impl<'gate, 'wait> Ticket<'gate, 'wait> {
-    fn subscribe(gate: &'gate MutexGate, wait: RefMut<'wait, WaitCell>) -> Result<Option<Self>> {
+    fn subscribe(gate: &'gate MutexGate, wait: &'wait WaitCell) -> Result<Option<Self>> {
         gate.reserve()?;
         let mut entries = lock(&gate.entries);
         let previous = gate
@@ -256,11 +255,11 @@ impl<'gate, 'wait> Ticket<'gate, 'wait> {
     }
 
     fn wait_cell(&self) -> &WaitCell {
-        self.wait.as_deref().expect("live mutex ticket")
+        self.wait.expect("live mutex ticket")
     }
 
     fn complete(&mut self) {
-        drop(self.wait.take().expect("live mutex ticket"));
+        assert!(self.wait.take().is_some(), "live mutex ticket");
         self.gate.retire();
     }
 }
@@ -272,7 +271,7 @@ impl Drop for Ticket<'_, '_> {
         };
         let (queued, selection) = {
             let mut entries = lock(&self.gate.entries);
-            match entries.iter().position(|entry| entry.same_cell(&wait)) {
+            match entries.iter().position(|entry| entry.same_cell(wait)) {
                 Some(index) => {
                     drop(entries.remove(index).expect("mutex ticket position"));
                     if entries.is_empty() {
