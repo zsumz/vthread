@@ -2,7 +2,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::{Weak, atomic::Ordering},
+    sync::Weak,
 };
 
 use super::Node;
@@ -200,7 +200,7 @@ impl Graph {
                 node.cancelled = true;
                 if let Some(flag) = &node.flag {
                     if let Some(node) = flag.upgrade() {
-                        node.cancelled.store(true, Ordering::Release);
+                        node.state.cancel();
                         cancelled.push(node);
                     }
                 } else {
