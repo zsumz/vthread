@@ -52,3 +52,25 @@ fn outstanding_tickets_remain_bounded() {
     queue.release(&value, owner);
     assert!(value.try_lock().is_some());
 }
+
+#[test]
+fn selected_ticket_remains_part_of_the_wait_bound() {
+    let queue = MutexQueue::new(1).unwrap();
+    let value = ExclusiveCell::new(0);
+    let owner = value.try_lock().expect("first owner");
+    let selected_wait = WaitCell::new();
+    let Subscription::Waiting(selected) = queue.subscribe(&value, &selected_wait).unwrap() else {
+        panic!("locked mutex admitted a new owner");
+    };
+
+    queue.release(&value, owner);
+    let rejected_wait = WaitCell::new();
+    assert!(matches!(
+        queue.subscribe(&value, &rejected_wait),
+        Err(Error::Capacity { limit: 1, .. })
+    ));
+
+    drop(selected);
+    assert!(value.try_lock().is_some());
+    assert_eq!(queue.waiting(), 0);
+}
