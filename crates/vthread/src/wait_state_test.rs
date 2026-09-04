@@ -19,6 +19,19 @@ fn state_word_preserves_independent_generation_flags_and_resource() {
 }
 
 #[test]
+fn recycle_mask_only_tracks_stored_permits_and_resources() {
+    assert!(!WaitWord::initial().needs_recycle());
+    assert!(WaitWord::initial().with_permit(true).needs_recycle());
+    assert!(
+        WaitWord::initial()
+            .with_resource(Some(ResourceSelection::Permit))
+            .needs_recycle()
+    );
+    assert!(!WaitWord::initial().with_closed(true).needs_recycle());
+    assert!(!WaitWord::initial().with_fallback_hub(true).needs_recycle());
+}
+
+#[test]
 fn every_winner_has_distinct_claimed_and_published_phases() {
     for cause in [
         WakeCause::Ready,

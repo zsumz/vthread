@@ -72,6 +72,10 @@ impl WaitWord {
         self.0 & PERMIT != 0
     }
 
+    pub(super) const fn needs_recycle(self) -> bool {
+        self.0 & (PERMIT | RESOURCE_MASK) != 0
+    }
+
     pub(super) const fn is_closed(self) -> bool {
         self.0 & CLOSED != 0
     }
