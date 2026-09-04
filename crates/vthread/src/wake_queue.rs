@@ -1,6 +1,6 @@
 //! Fixed-capacity MPSC wake routing with one owner-carrier consumer.
 
-use std::sync::atomic::{AtomicU8, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use vthread_stack::ParkToken;
 
@@ -14,8 +14,7 @@ struct Slot {
     next: AtomicUsize,
     task: AtomicU64,
     wait: AtomicU64,
-    generation: AtomicU64,
-    cause: AtomicU8,
+    selection: AtomicU64,
 }
 
 #[repr(align(64))]
@@ -33,8 +32,7 @@ impl Slot {
             next: AtomicUsize::new(0),
             task: AtomicU64::new(0),
             wait: AtomicU64::new(0),
-            generation: AtomicU64::new(0),
-            cause: AtomicU8::new(0),
+            selection: AtomicU64::new(0),
         }
     }
 }
@@ -80,10 +78,10 @@ impl WakeQueue {
         }
         slot.task.store(notice.task.get(), Ordering::Relaxed);
         slot.wait.store(notice.token.wait(), Ordering::Relaxed);
-        slot.generation
-            .store(notice.token.generation(), Ordering::Relaxed);
-        slot.cause
-            .store(encode_cause(notice.cause), Ordering::Relaxed);
+        slot.selection.store(
+            encode_selection(notice.token.generation(), notice.cause),
+            Ordering::Relaxed,
+        );
         before_publish();
 
         let mut head = self.head.0.load(Ordering::Acquire);
@@ -109,23 +107,24 @@ impl WakeQueue {
             if self.head.0.load(Ordering::Acquire) & Self::INDEX_MASK == 0 {
                 return None;
             }
-            index = self.reverse(self.head.0.swap(0, Ordering::AcqRel) & Self::INDEX_MASK);
+            index = self.head.0.swap(0, Ordering::Acquire) & Self::INDEX_MASK;
             if index == 0 {
                 return None;
+            }
+            if self.slots[index].next.load(Ordering::Relaxed) != 0 {
+                index = self.reverse(index);
             }
         }
         let slot = &self.slots[index];
         self.consumer
             .0
             .store(slot.next.load(Ordering::Relaxed), Ordering::Relaxed);
+        let (generation, cause) = decode_selection(slot.selection.load(Ordering::Relaxed));
         let notice = WakeNotice {
-            token: ParkToken::new(
-                slot.wait.load(Ordering::Relaxed),
-                slot.generation.load(Ordering::Relaxed),
-            ),
+            token: ParkToken::new(slot.wait.load(Ordering::Relaxed), generation),
             task: TaskId::new(slot.task.load(Ordering::Relaxed)),
             route: TaskKey::from_encoded(index),
-            cause: decode_cause(slot.cause.load(Ordering::Relaxed)),
+            cause,
         };
         slot.task.store(0, Ordering::Release);
         Some(notice)
@@ -184,25 +183,31 @@ impl WakeQueue {
     }
 }
 
-fn encode_cause(cause: WakeCause) -> u8 {
-    match cause {
+fn encode_selection(generation: u64, cause: WakeCause) -> u64 {
+    let cause = match cause {
         WakeCause::Ready => 1,
         WakeCause::TimedOut => 2,
         WakeCause::Cancelled => 3,
         WakeCause::InheritedCancelled => 4,
         WakeCause::Closed => 5,
-    }
+    };
+    assert!(
+        generation <= u64::MAX >> 3,
+        "wake generation exceeds packed representation"
+    );
+    (generation << 3) | cause
 }
 
-fn decode_cause(cause: u8) -> WakeCause {
-    match cause {
+fn decode_selection(selection: u64) -> (u64, WakeCause) {
+    let cause = match selection & 0x07 {
         1 => WakeCause::Ready,
         2 => WakeCause::TimedOut,
         3 => WakeCause::Cancelled,
         4 => WakeCause::InheritedCancelled,
         5 => WakeCause::Closed,
         _ => unreachable!("invalid queued wake cause"),
-    }
+    };
+    (selection >> 3, cause)
 }
 
 #[cfg(test)]

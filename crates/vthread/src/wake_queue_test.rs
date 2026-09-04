@@ -25,6 +25,11 @@ fn producer_and_consumer_cursors_do_not_share_a_cache_line() {
 }
 
 #[test]
+fn wake_slots_fit_two_per_cache_line() {
+    assert_eq!(std::mem::size_of::<super::Slot>(), 32);
+}
+
+#[test]
 fn distinct_routes_from_concurrent_producers_are_delivered_once() {
     let queue = Arc::new(WakeQueue::new(8));
     thread::scope(|scope| {
@@ -38,4 +43,24 @@ fn distinct_routes_from_concurrent_producers_are_delivered_once() {
         assert!(delivered.insert(notice.route.encoded()));
     }
     assert_eq!(delivered.len(), 8);
+}
+
+#[test]
+fn a_consumed_route_can_be_republished_while_an_older_batch_remains() {
+    let queue = WakeQueue::new(2);
+    queue.push(notice(0), || {}).unwrap();
+    queue.push(notice(1), || {}).unwrap();
+
+    assert_eq!(queue.pop().unwrap().route, TaskKey::owned(0));
+    let replacement = WakeNotice {
+        token: ParkToken::new(3, 2),
+        task: TaskId::new(3),
+        route: TaskKey::owned(0),
+        cause: WakeCause::Cancelled,
+    };
+    queue.push(replacement, || {}).unwrap();
+
+    assert_eq!(queue.pop().unwrap().route, TaskKey::owned(1));
+    assert_eq!(queue.pop(), Some(replacement));
+    assert!(queue.pop().is_none());
 }
