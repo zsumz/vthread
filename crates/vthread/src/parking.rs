@@ -96,7 +96,7 @@ impl Parker {
         &self,
         execution: &crate::context::Execution,
     ) -> Result<ParkOutcome> {
-        self.park_execution(execution, None, |_, _| Ok(()))
+        park_wait(execution, &self.wait, None, |_, _| Ok(()))
     }
 
     pub(crate) fn park_registered<G>(
@@ -114,56 +114,63 @@ impl Parker {
         let mounted = context::current().ok_or(Error::OutsideVThread)?;
         let execution = mounted.execution()?;
         execution.data.check()?;
-        self.park_execution(execution, deadline, register)
+        park_wait(execution, &self.wait, deadline, register)
     }
+}
 
-    fn park_execution<G>(
-        &self,
-        execution: &crate::context::Execution,
-        deadline: Option<Instant>,
-        register: impl FnOnce(vthread_stack::ParkToken, &crate::wait::WaitRegistration) -> Result<G>,
-    ) -> Result<ParkOutcome> {
-        let policy = &execution.data;
-        let unmasked = policy.masked() == 0;
-        let inherited_deadline = policy.deadline().filter(|_| unmasked);
-        let inherited_timeout = inherited_deadline
-            .is_some_and(|inherited| deadline.is_none_or(|explicit| inherited <= explicit));
-        let deadline = deadline.into_iter().chain(inherited_deadline).min();
-        match self.wait.begin(
-            execution.id,
-            execution.task_key(),
-            execution.hub(),
-            deadline,
-        )? {
-            WaitBegin::Immediate(cause) => selected(cause, inherited_timeout),
-            WaitBegin::Park {
-                request,
-                registration,
-            } => {
-                let token = request.token();
-                let mut generation = self.wait.guard(token);
-                let _subscription = if unmasked {
-                    match policy.cancellation().register(token, &registration) {
-                        Ok(subscription) => Some(subscription),
-                        Err(error) => {
-                            self.wait.rollback(token);
-                            return Err(error);
-                        }
+pub(crate) fn park_wait_after_checkpoint(
+    wait: &WaitCell,
+    execution: &crate::context::Execution,
+) -> Result<ParkOutcome> {
+    park_wait(execution, wait, None, |_, _| Ok(()))
+}
+
+fn park_wait<G>(
+    execution: &crate::context::Execution,
+    wait: &WaitCell,
+    deadline: Option<Instant>,
+    register: impl FnOnce(vthread_stack::ParkToken, &crate::wait::WaitRegistration) -> Result<G>,
+) -> Result<ParkOutcome> {
+    let policy = &execution.data;
+    let unmasked = policy.masked() == 0;
+    let inherited_deadline = policy.deadline().filter(|_| unmasked);
+    let inherited_timeout = inherited_deadline
+        .is_some_and(|inherited| deadline.is_none_or(|explicit| inherited <= explicit));
+    let deadline = deadline.into_iter().chain(inherited_deadline).min();
+    match wait.begin(
+        execution.id,
+        execution.task_key(),
+        execution.hub(),
+        deadline,
+    )? {
+        WaitBegin::Immediate(cause) => selected(cause, inherited_timeout),
+        WaitBegin::Park {
+            request,
+            registration,
+        } => {
+            let token = request.token();
+            let mut generation = wait.guard(token);
+            let _subscription = if unmasked {
+                match policy.cancellation().register(token, &registration) {
+                    Ok(subscription) => Some(subscription),
+                    Err(error) => {
+                        wait.rollback(token);
+                        return Err(error);
                     }
-                } else {
-                    None
-                };
-                let _external = register(token, &registration)?;
-                let _publication = execution.publish_wait(token, registration)?;
-                let suspension = vthread_stack::Suspension::Park(request);
-                if let Err(error) = vthread_stack::suspend(suspension) {
-                    self.wait.rollback(token);
-                    return Err(Error::from(error));
                 }
-                let cause = self.wait.finish(token)?;
-                generation.disarm();
-                selected(cause, inherited_timeout)
+            } else {
+                None
+            };
+            let _external = register(token, &registration)?;
+            let _publication = execution.publish_wait(token, registration)?;
+            let suspension = vthread_stack::Suspension::Park(request);
+            if let Err(error) = vthread_stack::suspend(suspension) {
+                wait.rollback(token);
+                return Err(Error::from(error));
             }
+            let cause = wait.finish(token)?;
+            generation.disarm();
+            selected(cause, inherited_timeout)
         }
     }
 }
