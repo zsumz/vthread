@@ -24,6 +24,20 @@ taskset -c 0 benchmarks/target/release/vthread-benchmarks vthread wake-tail 1000
 taskset -c 0 benchmarks/target/release/vthread-benchmarks may wake-tail 10000 1 2 11
 ```
 
+Exercise sustained four-carrier handoffs on four pinned CPUs with enough tasks to keep every
+carrier active:
+
+```sh
+taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread park 20000 4 64 11
+taskset -c 0-3 benchmarks/target/release/vthread-benchmarks may park 20000 4 64 11
+taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread mutex 2000 4 64 11
+taskset -c 0-3 benchmarks/target/release/vthread-benchmarks may mutex 2000 4 64 11
+taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread channel 20000 4 64 11
+taskset -c 0-3 benchmarks/target/release/vthread-benchmarks may channel 20000 4 64 11
+taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread wake-tail 10000 4 64 11
+taskset -c 0-3 benchmarks/target/release/vthread-benchmarks may wake-tail 10000 4 64 11
+```
+
 The scenarios have deliberately narrow operation contracts:
 
 | Scenario | Reported operation |
@@ -34,12 +48,12 @@ The scenarios have deliberately narrow operation contracts:
 | `mutex` | One contended lock acquisition and release |
 | `channel` | One message handoff in a paired bounded-channel exchange |
 | `tcp` | One write/read echo round trip on a task-owned connection |
-| `wake-tail` | One forced single-carrier wake-to-resume handoff |
+| `wake-tail` | One timestamped wake-to-resume handoff |
 
-`park`, `channel`, and `wake-tail` require an even task count of at least two. `wake-tail` requires
-one worker. With one worker, the mutex benchmark yields while holding the lock to force FIFO
-handoffs. With multiple workers, it performs the same 32 black-box operations in each engine's
-critical section so native contention is exercised without an all-task startup deadlock.
+`park`, `channel`, and `wake-tail` require an even task count of at least two. With one worker, the
+mutex benchmark yields while holding the lock to force FIFO handoffs. With multiple workers, it
+performs the same 32 black-box operations in each engine's critical section so native contention is
+exercised without an all-task startup deadlock.
 
 The round report includes median, p95, p99, maximum, and every whole-round sample. `tcp` and
 `wake-tail` additionally aggregate individual operation latencies across measured rounds and print
@@ -47,12 +61,17 @@ their median, p95, p99, and maximum. The TCP case uses a native loopback echo pe
 its per-operation distribution is more useful than its whole-round total, which also includes peer
 startup and shutdown. Use a quiet machine and compare distributions as well as medians. Carrier
 placement, frequency scaling, and host scheduling make short and multi-worker samples noisy.
+May can move coroutines through work stealing; vthread deliberately keeps every started task on its
+owner carrier. The harness therefore compares the complete runtime contracts, not identical
+scheduling policies.
 
 For a readiness comparison, local socket creation must be permitted:
 
 ```sh
 taskset -c 0 benchmarks/target/release/vthread-benchmarks vthread tcp 1000 1 1 11
 taskset -c 0 benchmarks/target/release/vthread-benchmarks may tcp 1000 1 1 11
+taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread tcp 500 4 8 11
+taskset -c 0-3 benchmarks/target/release/vthread-benchmarks may tcp 500 4 8 11
 ```
 
 For attributed vthread lifecycle timings, rebuild with the opt-in profiling feature:

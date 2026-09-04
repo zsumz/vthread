@@ -31,7 +31,7 @@ impl Condvar {
     /// the predicate is true; callers must loop and recheck it.
     pub fn wait<'a, T>(&self, guard: MutexGuard<'a, T>) -> Result<MutexGuard<'a, T>> {
         let wait = Wait::enter(SuspensionReason::Condvar)?;
-        let ticket = self.gate.subscribe()?;
+        let ticket = self.gate.subscribe(&wait)?;
         let mutex = guard.mutex;
         drop(guard);
         ticket.wait(&wait)?;

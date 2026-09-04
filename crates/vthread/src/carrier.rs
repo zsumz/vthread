@@ -13,6 +13,7 @@ pub(crate) fn run(shared: Arc<Shared>, id: CarrierId) {
     // A cleanup fault must retain affine stacks rather than run fallible field drops
     // during unwinding. Such stacks are never resumed and remain allocated until exit.
     let mut kernel = ManuallyDrop::new(Box::new(Kernel::new(Arc::clone(&shared), id)));
+    let _carrier_route = crate::context::mount_carrier(&kernel.inbox.hub, &kernel.local);
     let result = catch_unwind(AssertUnwindSafe(|| finish(&mut kernel, &shared)));
     shared.inboxes[id.0]
         .scheduler_stopped

@@ -11,7 +11,7 @@ use super::super::{WaitBegin, WaitCell, WaitHub, WakeCause};
 fn selected_timeout_emits_the_registered_task_identity() {
     let cell = WaitCell::new();
     let hub = Arc::new(WaitHub::new(64, Arc::default()));
-    let request = match cell
+    let (request, registration) = match cell
         .begin(
             TaskId::new(9),
             &hub,
@@ -19,10 +19,12 @@ fn selected_timeout_emits_the_registered_task_identity() {
         )
         .expect("begin wait")
     {
-        WaitBegin::Park(request) => request,
+        WaitBegin::Park {
+            request,
+            registration,
+        } => (request, registration),
         WaitBegin::Immediate(cause) => panic!("unexpected immediate wake: {cause:?}"),
     };
-    let registration = cell.registration();
     assert!(
         registration
             .select_timeout(request.token())
@@ -39,11 +41,14 @@ fn concurrent_ready_timeout_cancel_and_close_select_exactly_one_notice() {
     for _ in 0..64 {
         let cell = WaitCell::new();
         let hub = Arc::new(WaitHub::new(1, Arc::default()));
-        let WaitBegin::Park(request) = cell.begin(TaskId::new(9), &hub, None).expect("park") else {
+        let WaitBegin::Park {
+            request,
+            registration,
+        } = cell.begin(TaskId::new(9), &hub, None).expect("park")
+        else {
             panic!("expected a park");
         };
         let token = request.token();
-        let registration = cell.registration();
         let barrier = Barrier::new(4);
         thread::scope(|threads| {
             threads.spawn(|| {
@@ -77,14 +82,20 @@ fn concurrent_ready_timeout_cancel_and_close_select_exactly_one_notice() {
 fn stale_native_ready_and_close_never_select_or_store_for_a_new_generation() {
     let cell = WaitCell::new();
     let hub = Arc::new(WaitHub::new(1, Arc::default()));
-    let WaitBegin::Park(first) = cell.begin(TaskId::new(1), &hub, None).unwrap() else {
+    let WaitBegin::Park {
+        request: first,
+        registration,
+    } = cell.begin(TaskId::new(1), &hub, None).unwrap()
+    else {
         panic!("park");
     };
-    let registration = cell.registration();
     assert!(registration.select_cancelled(first.token()));
     hub.pop_wake().unwrap();
     cell.finish(first.token()).unwrap();
-    let WaitBegin::Park(second) = cell.begin(TaskId::new(1), &hub, None).unwrap() else {
+    let WaitBegin::Park {
+        request: second, ..
+    } = cell.begin(TaskId::new(1), &hub, None).unwrap()
+    else {
         panic!("park");
     };
     assert!(!registration.select_ready(first.token()));
@@ -94,7 +105,8 @@ fn stale_native_ready_and_close_never_select_or_store_for_a_new_generation() {
     assert!(!registration.select_closed(second.token()));
     hub.pop_wake().unwrap();
     cell.finish(second.token()).unwrap();
-    let WaitBegin::Park(third) = cell.begin(TaskId::new(1), &hub, None).unwrap() else {
+    let WaitBegin::Park { request: third, .. } = cell.begin(TaskId::new(1), &hub, None).unwrap()
+    else {
         panic!("late events must not store permits");
     };
     cell.rollback(third.token());

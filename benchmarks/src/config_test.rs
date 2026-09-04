@@ -11,9 +11,9 @@ fn paired_scenarios_require_even_task_counts() {
 }
 
 #[test]
-fn wake_tail_requires_one_worker_and_pairs() {
+fn wake_tail_accepts_multiple_workers_but_still_requires_pairs() {
     assert!(parse(&["vthread", "wake-tail", "10", "1", "2", "3"]).is_ok());
-    assert!(parse(&["may", "wake-tail", "10", "2", "2", "3"]).is_err());
+    assert!(parse(&["may", "wake-tail", "10", "2", "2", "3"]).is_ok());
     assert!(parse(&["may", "wake-tail", "10", "1", "3", "3"]).is_err());
 }
 

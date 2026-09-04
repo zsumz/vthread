@@ -2,6 +2,7 @@
 
 #[path = "context_wake.rs"]
 mod wake;
+pub(crate) use wake::mount_carrier;
 pub(crate) use wake::{enqueue_local_wake, unregister_local_wake};
 #[path = "context_pending.rs"]
 mod pending;
@@ -33,6 +34,7 @@ struct ExecutionCold {
     local: Rc<LocalCarrier>,
     pending_wait: RefCell<Option<pending::PendingWait>>,
     readiness_wait: RefCell<Option<crate::wait::WaitCell>>,
+    synchronization_wait: RefCell<Option<crate::wait::WaitCell>>,
 }
 
 impl Execution {
@@ -57,6 +59,7 @@ impl Execution {
                 local,
                 pending_wait: RefCell::new(None),
                 readiness_wait: RefCell::new(None),
+                synchronization_wait: RefCell::new(None),
             }),
         }
     }
@@ -88,6 +91,18 @@ impl Execution {
             return Err(Error::fault(
                 crate::error::FaultComponent::Readiness,
                 "cached readiness wait remained active",
+            ));
+        }
+        Ok(crate::Parker { wait: wait.clone() })
+    }
+
+    pub(crate) fn synchronization_parker(&self) -> Result<crate::Parker> {
+        let mut cached = self.cold.synchronization_wait.borrow_mut();
+        let wait = cached.get_or_insert_with(crate::wait::WaitCell::new);
+        if !wait.recycle() {
+            return Err(Error::fault(
+                crate::error::FaultComponent::Scheduler,
+                "cached synchronization wait remained active",
             ));
         }
         Ok(crate::Parker { wait: wait.clone() })

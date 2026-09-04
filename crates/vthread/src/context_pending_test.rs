@@ -11,12 +11,13 @@ fn a_published_wait_is_taken_once_by_exact_generation() {
                     let mounted = current().unwrap();
                     let execution = mounted.execution().unwrap();
                     let wait = WaitCell::new();
-                    let WaitBegin::Park(request) =
-                        wait.begin(execution.id, execution.hub(), None).unwrap()
+                    let WaitBegin::Park {
+                        request,
+                        registration,
+                    } = wait.begin(execution.id, execution.hub(), None).unwrap()
                     else {
                         panic!("expected a park request");
                     };
-                    let registration = wait.registration();
                     let expected = registration.state.clone();
                     let publication = execution
                         .publish_wait(request.token(), registration)
@@ -41,13 +42,15 @@ fn dropping_a_publication_clears_the_pending_handoff() {
                     let mounted = current().unwrap();
                     let execution = mounted.execution().unwrap();
                     let wait = WaitCell::new();
-                    let WaitBegin::Park(request) =
-                        wait.begin(execution.id, execution.hub(), None).unwrap()
+                    let WaitBegin::Park {
+                        request,
+                        registration,
+                    } = wait.begin(execution.id, execution.hub(), None).unwrap()
                     else {
                         panic!("expected a park request");
                     };
                     let publication = execution
-                        .publish_wait(request.token(), wait.registration())
+                        .publish_wait(request.token(), registration)
                         .unwrap();
                     drop(publication);
                     assert!(execution.take_wait(request.token()).is_err());

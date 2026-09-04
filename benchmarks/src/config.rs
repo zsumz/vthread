@@ -75,9 +75,6 @@ impl Config {
         if matches!(scenario, Scenario::Mutex { .. }) && tasks < 2 {
             return Err("mutex requires at least two contending tasks".into());
         }
-        if matches!(scenario, Scenario::WakeTail { .. }) && workers != 1 {
-            return Err("wake-tail requires exactly one worker".into());
-        }
         if args.next().is_some() {
             return Err(usage());
         }
@@ -135,7 +132,7 @@ fn positive(args: &mut impl Iterator<Item = String>, name: &str) -> Result<usize
 }
 
 fn usage() -> String {
-    "usage: vthread-benchmarks <vthread|may> yield <yields-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> spawn <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> park <parks-per-task> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> mutex <locks-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> channel <messages-per-task> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> tcp <round-trips-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> wake-tail <wakes-per-task> 1 <even-tasks> <odd-samples>".into()
+    "usage: vthread-benchmarks <vthread|may> yield <yields-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> spawn <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> park <parks-per-task> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> mutex <locks-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> channel <messages-per-task> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> tcp <round-trips-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> wake-tail <wakes-per-task> <workers> <even-tasks> <odd-samples>".into()
 }
 
 #[cfg(test)]

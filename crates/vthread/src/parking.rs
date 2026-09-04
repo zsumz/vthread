@@ -131,10 +131,12 @@ impl Parker {
         let deadline = deadline.into_iter().chain(inherited_deadline).min();
         match self.wait.begin(execution.id, execution.hub(), deadline)? {
             WaitBegin::Immediate(cause) => selected(cause, inherited_timeout),
-            WaitBegin::Park(request) => {
+            WaitBegin::Park {
+                request,
+                registration,
+            } => {
                 let token = request.token();
                 let mut generation = self.wait.guard(token);
-                let registration = self.wait.registration();
                 let _subscription = if unmasked {
                     match policy.cancellation().register(token, &registration) {
                         Ok(subscription) => Some(subscription),

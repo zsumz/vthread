@@ -187,9 +187,10 @@ impl Graph {
         }
     }
 
-    pub(super) fn cancel(&mut self, id: usize) {
+    pub(super) fn cancel_nodes(&mut self, id: usize) -> Vec<std::sync::Arc<Node>> {
         let mut pending = vec![id];
         let mut changed_relays = Vec::new();
+        let mut cancelled = Vec::new();
         while let Some(id) = pending.pop() {
             let children = {
                 let node = self.nodes.get_mut(&id).expect("live cancellation path");
@@ -200,6 +201,7 @@ impl Graph {
                 if let Some(flag) = &node.flag {
                     if let Some(node) = flag.upgrade() {
                         node.cancelled.store(true, Ordering::Release);
+                        cancelled.push(node);
                     }
                 } else {
                     changed_relays.push(id);
@@ -209,8 +211,15 @@ impl Graph {
             pending.extend(children);
         }
         self.normalize(changed_relays.into_iter().map(RelayWork::known));
+        cancelled
     }
 
+    #[cfg(test)]
+    pub(super) fn cancel(&mut self, id: usize) {
+        drop(self.cancel_nodes(id));
+    }
+
+    #[cfg(test)]
     pub(super) fn is_cancelled(&self, id: usize) -> bool {
         self.nodes[&id].cancelled
     }

@@ -8,7 +8,7 @@ mod wait_select;
 use crate::signal::lock;
 pub(crate) use crate::wait_hub::WaitHub;
 use wait_evidence::SelectionRejection;
-pub(crate) use wait_select::NotifyResult;
+pub(crate) use wait_select::{NotifyResult, ResourceSelection};
 
 use std::{
     sync::{
@@ -33,21 +33,6 @@ pub(crate) enum WakeCause {
     Closed,
 }
 
-#[cfg(feature = "runtime-evidence")]
-impl WakeCause {
-    pub(crate) fn evidence(self) -> crate::diagnostics::evidence::EvidenceWakeCause {
-        match self {
-            Self::Ready => crate::diagnostics::evidence::EvidenceWakeCause::Ready,
-            Self::TimedOut => crate::diagnostics::evidence::EvidenceWakeCause::TimedOut,
-            Self::Cancelled => crate::diagnostics::evidence::EvidenceWakeCause::Cancelled,
-            Self::InheritedCancelled => {
-                crate::diagnostics::evidence::EvidenceWakeCause::InheritedCancelled
-            }
-            Self::Closed => crate::diagnostics::evidence::EvidenceWakeCause::Closed,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct WakeNotice {
     pub(crate) token: ParkToken,
@@ -57,7 +42,10 @@ pub(crate) struct WakeNotice {
 
 pub(crate) enum WaitBegin {
     Immediate(WakeCause),
-    Park(ParkRequest),
+    Park {
+        request: ParkRequest,
+        registration: WaitRegistration,
+    },
 }
 
 #[derive(Clone)]
@@ -103,16 +91,14 @@ impl Default for WaitCell {
 struct ActiveWait {
     token: ParkToken,
     task: TaskId,
-    hub: Weak<WaitHub>,
+    hub: Arc<WaitHub>,
     #[cfg(feature = "runtime-evidence")]
     evidence: Option<crate::diagnostics::evidence::Emitter>,
 }
 
 impl Drop for ActiveWait {
     fn drop(&mut self) {
-        if let Some(hub) = self.hub.upgrade() {
-            hub.release();
-        }
+        self.hub.release();
     }
 }
 
@@ -123,6 +109,7 @@ pub(crate) struct WaitState {
     closed: bool,
     active: Option<ActiveWait>,
     selected: Option<WakeCause>,
+    resource: Option<ResourceSelection>,
 }
 
 impl WaitCell {
@@ -150,9 +137,11 @@ impl WaitCell {
         }
         state.permit = false;
         state.selected = None;
+        state.resource = None;
         true
     }
 
+    #[cfg(test)]
     pub(crate) fn registration(&self) -> WaitRegistration {
         #[cfg(feature = "runtime-evidence")]
         let state = lock(&self.state);
@@ -181,6 +170,7 @@ impl WaitCell {
                 closed: false,
                 active: None,
                 selected: None,
+                resource: None,
             })),
         }
     }
@@ -216,7 +206,7 @@ impl WaitCell {
         state.active = Some(ActiveWait {
             token,
             task,
-            hub: Arc::downgrade(hub),
+            hub: Arc::clone(hub),
             #[cfg(feature = "runtime-evidence")]
             evidence: hub.evidence(),
         });
@@ -229,8 +219,18 @@ impl WaitCell {
                 has_deadline: deadline.is_some(),
             },
         );
+        let registration = WaitRegistration {
+            state: Arc::downgrade(&self.state),
+            #[cfg(feature = "runtime-evidence")]
+            task: Some(task),
+            #[cfg(feature = "runtime-evidence")]
+            evidence: hub.evidence(),
+        };
         drop(state);
-        Ok(WaitBegin::Park(ParkRequest::new(token, deadline)))
+        Ok(WaitBegin::Park {
+            request: ParkRequest::new(token, deadline),
+            registration,
+        })
     }
 
     pub(crate) fn finish(&self, token: ParkToken) -> Result<WakeCause> {
@@ -275,15 +275,13 @@ impl WaitCell {
             if active.token != token {
                 return;
             }
-            let hub = active.hub.upgrade();
+            let hub = Arc::clone(&active.hub);
             state.active = None;
             state.selected = None;
             hub
         };
-        if let Some(hub) = hub {
-            crate::context::unregister_local_wake(&hub, token);
-            hub.discard_notice(token);
-        }
+        crate::context::unregister_local_wake(&hub, token);
+        hub.discard_notice(token);
     }
 }
 

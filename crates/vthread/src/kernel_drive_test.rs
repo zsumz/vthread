@@ -218,7 +218,7 @@ fn reclaiming_a_selected_but_unresumed_park_releases_the_active_generation() {
         .wait
         .begin(TaskId::new(99), &kernel.inbox.hub, None)
         .expect("old generation reclaimed");
-    if let WaitBegin::Park(request) = next {
+    if let WaitBegin::Park { request, .. } = next {
         parker.wait.rollback(request.token());
     } else {
         panic!("expected a fresh generation");

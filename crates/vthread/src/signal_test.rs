@@ -44,3 +44,28 @@ fn notification_releases_a_registered_waiter() {
 
     assert!(waiter.join().expect("waiter"));
 }
+
+#[test]
+fn predicate_notification_releases_a_registered_waiter_without_changing_epoch() {
+    let signal = Arc::new(Signal::default());
+    let ready = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let observed = signal.version();
+    let remote = Arc::clone(&signal);
+    let remote_ready = Arc::clone(&ready);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let waiter = thread::spawn(move || {
+        remote.wait_while(observed, Some(deadline), || {
+            remote_ready.load(Ordering::Acquire)
+        });
+        Instant::now() < deadline
+    });
+
+    while signal.waiters.load(Ordering::SeqCst) == 0 {
+        thread::yield_now();
+    }
+    ready.store(true, Ordering::Release);
+    signal.notify_if_waiting();
+
+    assert!(waiter.join().expect("waiter"));
+    assert_eq!(signal.version(), observed);
+}
