@@ -12,6 +12,7 @@ pub(crate) struct LocalCarrier {
     pending_starts: Cell<usize>,
     wakes: RefCell<VecDeque<WakeNotice>>,
     pending_wakes: Cell<usize>,
+    borrowed_scope_epoch: Cell<u64>,
     pub(crate) stacks: RefCell<StackPool>,
     capacity: usize,
 }
@@ -23,6 +24,7 @@ impl LocalCarrier {
             pending_starts: Cell::new(0),
             wakes: RefCell::new(VecDeque::new()),
             pending_wakes: Cell::new(0),
+            borrowed_scope_epoch: Cell::new(0),
             capacity: config.carrier_queue_capacity(),
             stacks: RefCell::new(StackPool::new(
                 config.stack_size(),
@@ -89,6 +91,19 @@ impl LocalCarrier {
 
     pub(crate) fn pending_wakes(&self) -> usize {
         self.pending_wakes.get()
+    }
+
+    pub(crate) fn borrowed_scope_epoch(&self) -> u64 {
+        self.borrowed_scope_epoch.get()
+    }
+
+    pub(crate) fn publish_borrowed_scope_exit(&self) {
+        self.borrowed_scope_epoch.set(
+            self.borrowed_scope_epoch
+                .get()
+                .checked_add(1)
+                .expect("borrowed scope epoch exhausted"),
+        );
     }
 }
 

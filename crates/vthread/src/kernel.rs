@@ -53,6 +53,7 @@ pub(crate) struct Kernel {
     pub(super) timers: TimerQueue,
     pub(super) stats: RuntimeStats,
     pub(super) has_borrowed: bool,
+    observed_borrowed_scope_epoch: u64,
     yield_pressure: u32,
     unpublished_transitions: Cell<u8>,
     #[cfg(test)]
@@ -80,6 +81,7 @@ impl Kernel {
             timers: TimerQueue::new(),
             stats: RuntimeStats::default(),
             has_borrowed: false,
+            observed_borrowed_scope_epoch: 0,
             yield_pressure: 0,
             unpublished_transitions: Cell::new(0),
             #[cfg(test)]
