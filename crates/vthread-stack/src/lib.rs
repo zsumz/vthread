@@ -4,9 +4,9 @@
 //! runtime integration hooks and must succeed. A persistent mount failure during lexical
 //! scope exit aborts: borrowed executable stacks cannot safely escape their environment.
 //!
-//! Two context engines exist while the native engine is qualified. The default keeps
-//! corosensei switching contexts on vthread-owned mappings; building with
-//! `--cfg vthread_stack_engine="native"` selects the native engine instead.
+//! The native context engine is the default. For one release candidate the interim
+//! corosensei engine stays available behind `--cfg vthread_stack_engine="corosensei"` so
+//! both engines can be qualified against the same suite before it is removed.
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
@@ -35,20 +35,20 @@ mod stack_unix;
 mod suspension;
 
 // Both engines always compile so every target keeps checking both; only one is selected.
-#[cfg_attr(not(vthread_stack_engine = "native"), allow(dead_code))]
+#[cfg_attr(vthread_stack_engine = "corosensei", allow(dead_code))]
 mod arch;
-#[cfg_attr(not(vthread_stack_engine = "native"), allow(dead_code))]
+#[cfg_attr(vthread_stack_engine = "corosensei", allow(dead_code))]
 mod context;
-#[cfg_attr(vthread_stack_engine = "native", allow(dead_code))]
+#[cfg_attr(not(vthread_stack_engine = "corosensei"), allow(dead_code))]
 mod engine_corosensei;
-#[cfg_attr(not(vthread_stack_engine = "native"), allow(dead_code))]
+#[cfg_attr(vthread_stack_engine = "corosensei", allow(dead_code))]
 mod entry;
-#[cfg_attr(not(vthread_stack_engine = "native"), allow(dead_code))]
+#[cfg_attr(vthread_stack_engine = "corosensei", allow(dead_code))]
 mod native;
 
-#[cfg(not(vthread_stack_engine = "native"))]
+#[cfg(vthread_stack_engine = "corosensei")]
 use engine_corosensei as engine;
-#[cfg(vthread_stack_engine = "native")]
+#[cfg(not(vthread_stack_engine = "corosensei"))]
 use native as engine;
 
 pub use fiber::Fiber;

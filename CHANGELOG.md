@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Replaced the corosensei context switch with a native stack engine for Linux x86_64 and
+  macOS ARM64 that owns guard-page-backed stack mappings, stack identities, and forced
+  reclamation of suspended stacks. The interim corosensei engine remains available for one
+  release candidate behind `--cfg vthread_stack_engine="corosensei"`.
+
 ## 0.0.2-rc.1 - 2026-09-01
 
 - Added opt-in bounded runtime evidence with sequenced task, stack, wait, timer, queue, scope,
