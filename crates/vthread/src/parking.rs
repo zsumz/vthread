@@ -100,7 +100,7 @@ impl Parker {
         } else {
             WaitHandoff::Shared
         };
-        park_wait::<false, _>(execution, &self.wait, None, handoff, |_, _| Ok(()))
+        park_wait::<false, false, _>(execution, &self.wait, None, handoff, |_, _| Ok(()))
     }
 
     pub(crate) fn park_registered<G>(
@@ -118,7 +118,7 @@ impl Parker {
         let mounted = context::current().ok_or(Error::OutsideVThread)?;
         let execution = mounted.execution()?;
         execution.data.check()?;
-        park_wait::<true, _>(
+        park_wait::<true, false, _>(
             execution,
             &self.wait,
             deadline,
@@ -128,13 +128,17 @@ impl Parker {
     }
 }
 
-pub(crate) fn park_wait_after_checkpoint<const PLAIN_READY: bool>(
+pub(crate) fn park_wait_after_checkpoint<const PLAIN_READY: bool, const PERMIT_READY: bool>(
     wait: &WaitCell,
     execution: &Execution,
 ) -> Result<ParkOutcome> {
-    park_wait::<PLAIN_READY, _>(execution, wait, None, WaitHandoff::TaskResident, |_, _| {
-        Ok(())
-    })
+    park_wait::<PLAIN_READY, PERMIT_READY, _>(
+        execution,
+        wait,
+        None,
+        WaitHandoff::TaskResident,
+        |_, _| Ok(()),
+    )
 }
 #[derive(Clone, Copy)]
 enum WaitHandoff {
@@ -142,7 +146,7 @@ enum WaitHandoff {
     TaskResident,
 }
 
-fn park_wait<const PLAIN_READY: bool, G>(
+fn park_wait<const PLAIN_READY: bool, const PERMIT_READY: bool, G>(
     execution: &Execution,
     wait: &WaitCell,
     deadline: Option<Instant>,
@@ -211,6 +215,8 @@ fn park_wait<const PLAIN_READY: bool, G>(
             }
             let cause = if PLAIN_READY {
                 wait.finish_plain_ready(token)?
+            } else if PERMIT_READY {
+                wait.finish_permit_ready(token)?
             } else {
                 wait.finish(token)?
             };

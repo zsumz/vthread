@@ -144,7 +144,7 @@ impl MutexQueue {
 
 impl<T> Ticket<'_, '_, T> {
     pub(super) fn wait(mut self, wait: &Wait) -> Result<Ownership> {
-        wait.park_wait(self.wait_cell())?;
+        wait.park_permit(self.wait_cell())?;
         let ownership = self.queue.handoff.take().ok_or_else(ownership_fault)?;
         self.complete();
         Ok(ownership)
