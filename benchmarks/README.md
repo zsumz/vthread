@@ -64,7 +64,7 @@ performs the same 32 black-box operations in each engine's critical section so n
 exercised without an all-task startup deadlock.
 
 The round report includes median, p95, p99, maximum, and every whole-round sample. `tcp` and
-`wake-tail` additionally aggregate individual operation latencies across measured rounds and print
+`wake-tail` additionally retain per-task latency streams across measured rounds and print
 their median, p95, p99, p99.9, p99.99, and maximum. Wake timestamps move through a cache-aligned
 atomic slot so the observer does not add a native mutex to every sample. The TCP case uses a native
 loopback echo peer for both engines;
@@ -73,7 +73,9 @@ startup and shutdown. Use a quiet machine and compare distributions as well as m
 placement, frequency scaling, and host scheduling make short and multi-worker samples noisy.
 May can move coroutines through work stealing; vthread deliberately keeps every started task on its
 owner carrier. The harness therefore compares the complete runtime contracts, not identical
-scheduling policies.
+scheduling policies. Per-task and paired-tail summaries expose fairness. For vthread's paired park,
+channel, and wake-tail scenarios, the untimed warm-up also records the actual owner-carrier pair
+counts from runtime diagnostics before drain; May has no immutable owner route to report.
 
 For a readiness comparison, local socket creation must be permitted:
 

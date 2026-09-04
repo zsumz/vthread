@@ -10,6 +10,7 @@ mod may_engine;
 mod report;
 mod tcp_peer;
 mod vthread_engine;
+mod vthread_placement;
 mod wake_clock;
 
 use config::{Config, Engine};
