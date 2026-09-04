@@ -13,7 +13,8 @@ fn capacity_is_reserved_before_parking_and_released_on_rollback() {
     let hub = Arc::new(WaitHub::new(1, Arc::default()));
     let first = WaitCell::new();
     let second = WaitCell::new();
-    let WaitBegin::Park(request) = first.begin(TaskId::new(1), &hub, None).expect("first") else {
+    let WaitBegin::Park { request, .. } = first.begin(TaskId::new(1), &hub, None).expect("first")
+    else {
         panic!("expected a park");
     };
     assert_eq!(hub.reserved(), 1);
@@ -26,7 +27,11 @@ fn capacity_is_reserved_before_parking_and_released_on_rollback() {
     ));
     first.rollback(request.token());
     assert_eq!(hub.reserved(), 0);
-    let WaitBegin::Park(second_request) = second.begin(TaskId::new(2), &hub, None).unwrap() else {
+    let WaitBegin::Park {
+        request: second_request,
+        ..
+    } = second.begin(TaskId::new(2), &hub, None).unwrap()
+    else {
         panic!("expected a second park");
     };
     second.rollback(second_request.token());
@@ -60,7 +65,7 @@ fn duplicates_and_stale_generations_cannot_fill_the_inbox() {
 }
 
 #[test]
-fn queued_wakes_coalesce_notifications_until_drained() {
+fn queued_wakes_release_predicate_waiters_without_advancing_the_epoch() {
     let signal = Arc::default();
     let hub = WaitHub::new(2, Arc::clone(&signal));
     let first = ParkToken::new(1, 1);
@@ -69,7 +74,9 @@ fn queued_wakes_coalesce_notifications_until_drained() {
     hub.reserve().expect("second reservation");
     let empty = signal.version();
     std::thread::scope(|threads| {
-        threads.spawn(|| signal.wait(empty, None));
+        threads.spawn(|| {
+            signal.wait_while(empty, None, || hub.pending_for_wait() != 0);
+        });
         while signal.waiting() == 0 {
             std::thread::yield_now();
         }
@@ -80,7 +87,7 @@ fn queued_wakes_coalesce_notifications_until_drained() {
         });
     });
     let queued = signal.version();
-    assert_ne!(queued, empty);
+    assert_eq!(queued, empty);
     hub.enqueue(WakeNotice {
         token: second,
         task: TaskId::new(2),

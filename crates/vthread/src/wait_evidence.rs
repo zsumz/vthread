@@ -1,6 +1,21 @@
 //! Evidence emitted at exact wait-winner linearization points.
 
 use super::{ActiveWait, WaitRegistration, WakeCause};
+
+#[cfg(feature = "runtime-evidence")]
+impl WakeCause {
+    pub(crate) fn evidence(self) -> crate::diagnostics::evidence::EvidenceWakeCause {
+        match self {
+            Self::Ready => crate::diagnostics::evidence::EvidenceWakeCause::Ready,
+            Self::TimedOut => crate::diagnostics::evidence::EvidenceWakeCause::TimedOut,
+            Self::Cancelled => crate::diagnostics::evidence::EvidenceWakeCause::Cancelled,
+            Self::InheritedCancelled => {
+                crate::diagnostics::evidence::EvidenceWakeCause::InheritedCancelled
+            }
+            Self::Closed => crate::diagnostics::evidence::EvidenceWakeCause::Closed,
+        }
+    }
+}
 use vthread_stack::ParkToken;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

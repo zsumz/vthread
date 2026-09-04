@@ -23,6 +23,10 @@ impl Wait {
         parker.park_after_checkpoint(&self.execution)?;
         self.execution.data.check()
     }
+
+    pub(crate) fn parker(&self) -> Result<Parker> {
+        self.execution.synchronization_parker()
+    }
 }
 
 impl Drop for Wait {

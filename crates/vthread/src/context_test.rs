@@ -81,3 +81,25 @@ fn one_execution_reuses_its_lazy_readiness_wait() {
         })
         .unwrap();
 }
+
+#[test]
+fn one_execution_reuses_its_lazy_synchronization_wait() {
+    let runtime = crate::Runtime::new().unwrap();
+    runtime
+        .run_scope(|scope| {
+            scope
+                .spawn("synchronization-wait", || {
+                    let mounted = current().unwrap();
+                    let execution = mounted.execution().unwrap();
+                    let first = execution.synchronization_parker().unwrap();
+                    let identity = first.wait.identity();
+                    drop(first);
+                    assert_eq!(
+                        execution.synchronization_parker().unwrap().wait.identity(),
+                        identity
+                    );
+                })?
+                .join()
+        })
+        .unwrap();
+}

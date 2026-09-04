@@ -1,7 +1,11 @@
 //! FIFO permit selection with bounded, cancellation-safe outstanding tickets.
 
 use super::wait::Wait;
-use crate::{Error, Parker, Result, SuspensionReason, signal::lock, wait::WaitCell};
+use crate::{
+    Error, Parker, Result, SuspensionReason,
+    signal::lock,
+    wait::{ResourceSelection, WaitCell},
+};
 use std::{
     collections::VecDeque,
     sync::{
@@ -12,19 +16,17 @@ use std::{
 
 struct Entry {
     wait: WaitCell,
-    // Some(true) returns a selected permit when abandoned; broadcast wakes do not.
-    granted: Option<bool>,
 }
 
 struct State {
     entries: VecDeque<Entry>,
-    vacant: Vec<WaitCell>,
 }
 
 pub(super) struct Gate {
     maximum: usize,
     capacity: usize,
     available: AtomicUsize,
+    outstanding: AtomicUsize,
     closed: AtomicBool,
     state: Mutex<State>,
 }
@@ -46,10 +48,10 @@ impl Gate {
             maximum,
             capacity,
             available: AtomicUsize::new(available),
+            outstanding: AtomicUsize::new(0),
             closed: AtomicBool::new(false),
             state: Mutex::new(State {
                 entries: VecDeque::new(),
-                vacant: Vec::new(),
             }),
         })
     }
@@ -85,62 +87,95 @@ impl Gate {
             Err(Error::WouldBlock) => {}
             outcome => return outcome,
         }
-        self.subscribe()?.wait(&wait)
+        self.subscribe(&wait)?.wait(&wait)
     }
 
     // Registration is also used by condvars before releasing their predicate mutex.
-    pub(super) fn subscribe(&self) -> Result<Ticket<'_>> {
+    pub(super) fn subscribe(&self, wait: &Wait) -> Result<Ticket<'_>> {
+        let parker = wait.parker()?;
+        self.subscribe_parker(parker)
+    }
+
+    #[cfg(test)]
+    pub(super) fn subscribe_test(&self) -> Result<Ticket<'_>> {
+        self.subscribe_parker(Parker {
+            wait: WaitCell::new(),
+        })
+    }
+
+    fn subscribe_parker(&self, parker: Parker) -> Result<Ticket<'_>> {
+        self.reserve()?;
         let mut state = lock(&self.state);
         if self.closed.load(Ordering::Acquire) {
+            self.release();
             return Err(Error::Closed);
         }
-        if state.entries.len() == self.capacity {
-            return Err(Error::Capacity {
-                resource: crate::error::CapacityResource::Waiters,
-                limit: self.capacity,
+        if self.try_take().is_ok() {
+            if !parker.wait.offer_resource(ResourceSelection::Permit) {
+                self.store_permit();
+                self.release();
+                return Err(Error::fault(
+                    crate::error::FaultComponent::Scheduler,
+                    "synchronization wait retained a prior selection",
+                ));
+            }
+        } else {
+            state.entries.push_back(Entry {
+                wait: parker.wait.clone(),
             });
         }
-        let parker = Parker {
-            wait: state.vacant.pop().unwrap_or_default(),
-        };
-        let granted = if self.try_take().is_ok() {
-            parker.wait.notify();
-            Some(true)
-        } else {
-            None
-        };
-        state.entries.push_back(Entry {
-            wait: parker.wait.clone(),
-            granted,
-        });
         Ok(Ticket {
             gate: self,
             parker: Some(parker),
         })
     }
 
+    fn reserve(&self) -> Result<()> {
+        if self
+            .outstanding
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |outstanding| {
+                (outstanding < self.capacity).then_some(outstanding + 1)
+            })
+            .is_err()
+        {
+            return Err(Error::Capacity {
+                resource: crate::error::CapacityResource::Waiters,
+                limit: self.capacity,
+            });
+        }
+        Ok(())
+    }
+
+    fn release(&self) {
+        let previous = self.outstanding.fetch_sub(1, Ordering::AcqRel);
+        assert!(previous != 0, "synchronization ticket released twice");
+    }
+
     pub(super) fn signal(&self) {
-        let wake = {
+        loop {
             let mut state = lock(&self.state);
             if self.closed.load(Ordering::Acquire) {
                 return;
             }
-            self.return_permit(&mut state)
-        };
-        if let Some(wait) = wake {
-            wait.notify();
+            let Some(entry) = state.entries.front() else {
+                self.store_permit();
+                return;
+            };
+            let selected = entry.wait.offer_resource(ResourceSelection::Permit);
+            drop(
+                state
+                    .entries
+                    .pop_front()
+                    .expect("front synchronization wait"),
+            );
+            drop(state);
+            if selected {
+                return;
+            }
         }
     }
 
-    fn return_permit(&self, state: &mut State) -> Option<WaitCell> {
-        if let Some(entry) = state
-            .entries
-            .iter_mut()
-            .find(|entry| entry.granted.is_none())
-        {
-            entry.granted = Some(true);
-            return Some(entry.wait.clone());
-        }
+    fn store_permit(&self) {
         let mut available = self.available.load(Ordering::Relaxed);
         while available < self.maximum {
             match self.available.compare_exchange_weak(
@@ -153,50 +188,31 @@ impl Gate {
                 Err(observed) => available = observed,
             }
         }
-        None
     }
 
     pub(super) fn broadcast(&self) {
-        let wakes = {
-            let mut state = lock(&self.state);
-            state
-                .entries
-                .iter_mut()
-                .filter_map(|entry| {
-                    if entry.granted.is_some() {
-                        return None;
-                    }
-                    entry.granted = Some(false);
-                    Some(entry.wait.clone())
-                })
-                .collect::<Vec<_>>()
-        };
-        for wait in wakes {
-            wait.notify();
+        let mut state = lock(&self.state);
+        for entry in &state.entries {
+            let _ = entry.wait.offer_resource(ResourceSelection::Broadcast);
         }
+        state.entries.clear();
     }
 
     pub(super) fn close(&self) {
-        let wakes = {
-            let state = lock(&self.state);
-            self.closed.store(true, Ordering::Release);
-            self.available.store(0, Ordering::Release);
-            state
-                .entries
-                .iter()
-                .map(|entry| entry.wait.clone())
-                .collect::<Vec<_>>()
-        };
-        for wait in wakes {
-            wait.close();
+        let mut state = lock(&self.state);
+        self.closed.store(true, Ordering::Release);
+        self.available.store(0, Ordering::Release);
+        for entry in &state.entries {
+            entry.wait.close();
         }
+        state.entries.clear();
     }
 
     pub(super) fn available(&self) -> usize {
         self.available.load(Ordering::Acquire)
     }
     pub(super) fn waiting(&self) -> usize {
-        lock(&self.state).entries.len()
+        self.outstanding.load(Ordering::Acquire)
     }
     pub(super) fn wait_capacity(&self) -> usize {
         self.capacity
@@ -211,21 +227,11 @@ impl Ticket<'_> {
         let gate = self.gate;
         loop {
             wait.park(self.parker())?;
-            let mut state = lock(&gate.state);
             if gate.closed.load(Ordering::Acquire) {
                 return Err(Error::Closed);
             }
-            let index = state
-                .entries
-                .iter()
-                .position(|entry| entry.wait.same_cell(&self.parker().wait))
-                .ok_or(Error::fault(
-                    crate::error::FaultComponent::Scheduler,
-                    "missing synchronization ticket",
-                ))?;
-            if state.entries[index].granted.is_some() {
-                drop(state.entries.remove(index));
-                self.recycle(&mut state);
+            if self.parker().wait.take_resource().is_some() {
+                self.complete();
                 return Ok(());
             }
         }
@@ -235,11 +241,9 @@ impl Ticket<'_> {
         self.parker.as_ref().expect("live synchronization ticket")
     }
 
-    fn recycle(&mut self, state: &mut State) {
-        let parker = self.parker.take().expect("live synchronization ticket");
-        if parker.wait.recycle() {
-            state.vacant.push(parker.wait);
-        }
+    fn complete(&mut self) {
+        drop(self.parker.take().expect("live synchronization ticket"));
+        self.gate.release();
     }
 }
 
@@ -248,29 +252,23 @@ impl Drop for Ticket<'_> {
         let Some(parker) = self.parker.take() else {
             return;
         };
-        let wake = {
+        let selection = {
             let mut state = lock(&self.gate.state);
-            let Some(index) = state
+            match state
                 .entries
                 .iter()
                 .position(|entry| entry.wait.same_cell(&parker.wait))
-            else {
-                return;
-            };
-            let entry = state.entries.remove(index).expect("ticket position");
-            let granted = entry.granted;
-            drop(entry);
-            if parker.wait.recycle() {
-                state.vacant.push(parker.wait);
-            }
-            if granted == Some(true) && !self.gate.closed.load(Ordering::Acquire) {
-                self.gate.return_permit(&mut state)
-            } else {
-                None
+            {
+                Some(index) => {
+                    drop(state.entries.remove(index).expect("ticket position"));
+                    None
+                }
+                None => parker.wait.take_resource(),
             }
         };
-        if let Some(wait) = wake {
-            wait.notify();
+        self.gate.release();
+        if selection == Some(ResourceSelection::Permit) {
+            self.gate.signal();
         }
     }
 }

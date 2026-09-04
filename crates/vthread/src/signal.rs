@@ -35,7 +35,11 @@ impl Signal {
 
     pub(crate) fn notify_if_waiting(&self) {
         if self.waiters.load(Ordering::SeqCst) != 0 {
-            self.notify();
+            // Predicate-backed waits do not need an epoch change: the gate
+            // handoff makes the published work visible without a lost wake,
+            // and every inbox has exactly one owner carrier to notify.
+            let _gate = lock(&self.gate);
+            self.changed.notify_one();
         }
     }
 

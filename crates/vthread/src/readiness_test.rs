@@ -17,7 +17,11 @@ fn registration_is_bounded_and_remote_readiness_selects_the_exact_generation() {
     reader.set_nonblocking(true).unwrap();
     let cell = WaitCell::new();
     let hub = Arc::new(WaitHub::new(2, Arc::default()));
-    let WaitBegin::Park(request) = cell.begin(TaskId::new(1), &hub, None).unwrap() else {
+    let WaitBegin::Park {
+        request,
+        registration,
+    } = cell.begin(TaskId::new(1), &hub, None).unwrap()
+    else {
         panic!("park");
     };
     let token = request.token();
@@ -26,16 +30,11 @@ fn registration_is_bounded_and_remote_readiness_selects_the_exact_generation() {
             reader.as_fd(),
             zio::Interest::READABLE,
             token,
-            cell.registration(),
+            registration.clone(),
         )
         .unwrap();
     assert!(matches!(
-        reactor.register(
-            reader.as_fd(),
-            zio::Interest::READABLE,
-            token,
-            cell.registration()
-        ),
+        reactor.register(reader.as_fd(), zio::Interest::READABLE, token, registration),
         Err(Error::Capacity {
             resource: crate::error::CapacityResource::Readiness,
             limit: 1
@@ -65,7 +64,11 @@ fn driver_failure_closes_waits_and_rejects_later_registration() {
     let (reader, _writer) = UnixStream::pair().unwrap();
     let cell = WaitCell::new();
     let hub = Arc::new(WaitHub::new(1, Arc::default()));
-    let WaitBegin::Park(request) = cell.begin(TaskId::new(1), &hub, None).unwrap() else {
+    let WaitBegin::Park {
+        request,
+        registration,
+    } = cell.begin(TaskId::new(1), &hub, None).unwrap()
+    else {
         panic!("park");
     };
     let _lease = reactor
@@ -73,7 +76,7 @@ fn driver_failure_closes_waits_and_rejects_later_registration() {
             reader.as_fd(),
             zio::Interest::READABLE,
             request.token(),
-            cell.registration(),
+            registration,
         )
         .unwrap();
     reactor.inner.close(Some("injected failure".to_owned()));

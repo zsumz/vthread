@@ -54,21 +54,44 @@ impl WaitRegistration {
             .as_ref()
             .is_some_and(|active| active.token == token)
         {
-            let hub = state
-                .active
-                .as_ref()
-                .and_then(|active| active.hub.upgrade());
+            let hub = Arc::clone(&state.active.as_ref().expect("active wait").hub);
             state.active = None;
             state.selected = None;
             drop(state);
-            if let Some(hub) = hub {
-                hub.discard_notice(token);
-            }
+            hub.discard_notice(token);
         }
     }
 }
 
 impl WaitCell {
+    pub(crate) fn offer_resource(&self, selection: ResourceSelection) -> bool {
+        let mut state = lock(&self.state);
+        if state.closed || state.selected.is_some() || state.permit || state.resource.is_some() {
+            return false;
+        }
+        state.resource = Some(selection);
+        let Some(active) = state.active.as_ref() else {
+            state.permit = true;
+            return true;
+        };
+        super::wait_evidence::record_current(active, WakeCause::Ready);
+        let notice = WakeNotice {
+            token: active.token,
+            task: active.task,
+            cause: WakeCause::Ready,
+        };
+        state.selected = Some(WakeCause::Ready);
+        let hub = &state.active.as_ref().expect("active wait").hub;
+        if !crate::context::enqueue_local_wake(hub, notice) {
+            hub.enqueue(notice);
+        }
+        true
+    }
+
+    pub(crate) fn take_resource(&self) -> Option<ResourceSelection> {
+        lock(&self.state).resource.take()
+    }
+
     pub(crate) fn notify(&self) -> NotifyResult {
         let mut state = lock(&self.state);
         if state.closed {
@@ -85,11 +108,9 @@ impl WaitCell {
             task: active.task,
             cause: WakeCause::Ready,
         };
-        let hub = active.hub.upgrade();
         state.selected = Some(WakeCause::Ready);
-        if let Some(hub) = hub
-            && !crate::context::enqueue_local_wake(&hub, notice)
-        {
+        let hub = &state.active.as_ref().expect("active wait").hub;
+        if !crate::context::enqueue_local_wake(hub, notice) {
             hub.enqueue(notice);
         }
         NotifyResult::Woke
@@ -113,11 +134,13 @@ impl WaitCell {
                 task: active.task,
                 cause: WakeCause::Closed,
             };
-            let hub = active.hub.upgrade();
             state.selected = Some(WakeCause::Closed);
-            if let Some(hub) = hub {
-                hub.enqueue(notice);
-            }
+            state
+                .active
+                .as_ref()
+                .expect("active wait")
+                .hub
+                .enqueue(notice);
         }
         true
     }
@@ -125,6 +148,12 @@ impl WaitCell {
     pub(crate) fn is_closed(&self) -> bool {
         lock(&self.state).closed
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ResourceSelection {
+    Permit,
+    Broadcast,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -146,11 +175,13 @@ fn select_current(state: &Arc<Mutex<WaitState>>, cause: WakeCause) -> bool {
         task: active.task,
         cause,
     };
-    let hub = active.hub.upgrade();
     state.selected = Some(cause);
-    if let Some(hub) = hub {
-        hub.enqueue(notice);
-    }
+    state
+        .active
+        .as_ref()
+        .expect("active wait")
+        .hub
+        .enqueue(notice);
     true
 }
 
@@ -179,11 +210,13 @@ fn select_generation(
         task: active.task,
         cause,
     };
-    let hub = active.hub.upgrade();
     state.selected = Some(cause);
-    if let Some(hub) = hub {
-        hub.enqueue(notice);
-    }
+    state
+        .active
+        .as_ref()
+        .expect("active wait")
+        .hub
+        .enqueue(notice);
     true
 }
 

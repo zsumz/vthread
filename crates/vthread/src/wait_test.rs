@@ -16,7 +16,7 @@ fn parked(cell: &WaitCell, hub: &Arc<WaitHub>) -> vthread_stack::ParkToken {
         )
         .expect("begin wait")
     {
-        WaitBegin::Park(request) => request.token(),
+        WaitBegin::Park { request, .. } => request.token(),
         WaitBegin::Immediate(cause) => panic!("unexpected immediate wake: {cause:?}"),
     }
 }
@@ -34,7 +34,7 @@ fn one_preexisting_permit_is_bounded() {
     ));
     assert!(matches!(
         cell.begin(TaskId::new(1), &hub, None,).expect("next wait"),
-        WaitBegin::Park(_)
+        WaitBegin::Park { .. }
     ));
 }
 
@@ -44,7 +44,7 @@ fn recycled_waits_discard_internal_permits() {
     let hub = Arc::new(WaitHub::new(1, Arc::default()));
     assert_eq!(cell.notify(), NotifyResult::Stored);
     assert!(cell.recycle());
-    let WaitBegin::Park(request) = cell.begin(TaskId::new(1), &hub, None).unwrap() else {
+    let WaitBegin::Park { request, .. } = cell.begin(TaskId::new(1), &hub, None).unwrap() else {
         panic!("recycled permit leaked into the next owner");
     };
     cell.rollback(request.token());
@@ -54,7 +54,7 @@ fn recycled_waits_discard_internal_permits() {
 fn dropping_an_active_wait_releases_its_hub_reservation() {
     let hub = Arc::new(WaitHub::new(1, Arc::default()));
     let cell = WaitCell::new();
-    let WaitBegin::Park(_request) = cell.begin(TaskId::new(1), &hub, None).unwrap() else {
+    let WaitBegin::Park { .. } = cell.begin(TaskId::new(1), &hub, None).unwrap() else {
         panic!("expected an active wait");
     };
     assert_eq!(hub.reserved(), 1);

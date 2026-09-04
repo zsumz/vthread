@@ -111,7 +111,9 @@ impl WaitHub {
         // Selection is serialized by WaitState; each notice owns one reservation.
         hub.ready.push_back(notice);
         let _depth = hub.ready.len();
-        self.pending.store(_depth, Ordering::Release);
+        // Pairs with Signal's sequentially consistent waiter registration so
+        // a notifier may skip the condvar when the carrier has not armed yet.
+        self.pending.store(_depth, Ordering::SeqCst);
         #[cfg(feature = "runtime-evidence")]
         self.record_depth(_depth);
         drop(hub);

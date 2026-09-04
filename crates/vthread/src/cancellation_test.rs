@@ -124,3 +124,85 @@ fn cancellation_racing_registration_does_not_lose_the_request() {
             .unwrap();
     }
 }
+
+#[test]
+fn node_shards_wake_each_inherited_generation_exactly_once() {
+    use crate::{TaskId, wait::WaitBegin, wait::WaitCell, wait::WaitHub};
+    use std::sync::Arc;
+
+    let root = CancellationToken::root(2);
+    let children = [root.child_token(), root.child_token()];
+    let hub = Arc::new(WaitHub::new(2, Arc::default()));
+    let cells = [WaitCell::new(), WaitCell::new()];
+    let mut waits = Vec::new();
+    for (index, (child, cell)) in children.iter().zip(&cells).enumerate() {
+        let WaitBegin::Park {
+            request,
+            registration,
+        } = cell
+            .begin(TaskId::new(index as u64 + 1), &hub, None)
+            .unwrap()
+        else {
+            panic!("expected active wait");
+        };
+        let subscription = child.register(request.token(), &registration).unwrap();
+        waits.push((request.token(), subscription));
+    }
+
+    root.cancel();
+
+    let mut notices = [hub.pop_wake().unwrap(), hub.pop_wake().unwrap()];
+    notices.sort_unstable_by_key(|notice| notice.task);
+    assert_eq!(notices[0].task, TaskId::new(1));
+    assert_eq!(notices[1].task, TaskId::new(2));
+    assert!(hub.pop_wake().is_none());
+    for ((token, subscription), cell) in waits.into_iter().zip(cells) {
+        assert_eq!(
+            cell.finish(token).unwrap(),
+            crate::wait::WakeCause::InheritedCancelled
+        );
+        drop(subscription);
+    }
+}
+
+#[test]
+fn one_node_rejects_overlapping_subscriptions_and_reuses_its_slot() {
+    use crate::{TaskId, wait::WaitBegin, wait::WaitCell, wait::WaitHub};
+    use std::sync::Arc;
+
+    let root = CancellationToken::root(1);
+    let token = root.child_token();
+    let hub = Arc::new(WaitHub::new(2, Arc::default()));
+    let first = WaitCell::new();
+    let second = WaitCell::new();
+    let WaitBegin::Park {
+        request: first_request,
+        registration: first_registration,
+    } = first.begin(TaskId::new(1), &hub, None).unwrap()
+    else {
+        panic!("expected first wait");
+    };
+    let WaitBegin::Park {
+        request: second_request,
+        registration: second_registration,
+    } = second.begin(TaskId::new(2), &hub, None).unwrap()
+    else {
+        panic!("expected second wait");
+    };
+    let subscription = token
+        .register(first_request.token(), &first_registration)
+        .unwrap();
+    assert!(
+        token
+            .register(second_request.token(), &second_registration)
+            .is_err()
+    );
+
+    drop(subscription);
+    let replacement = token
+        .register(second_request.token(), &second_registration)
+        .unwrap();
+    drop(replacement);
+    first.rollback(first_request.token());
+    second.rollback(second_request.token());
+}
