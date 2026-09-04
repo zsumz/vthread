@@ -7,7 +7,7 @@ fn parked(task: TaskKey, token: ParkToken) -> ParkedTask {
         token,
         task,
         has_deadline: false,
-        registration: WaitCell::new().registration(),
+        registration: Some(WaitCell::new().registration()),
     }
 }
 

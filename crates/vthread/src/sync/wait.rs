@@ -1,7 +1,7 @@
 //! Scoped diagnostic reasons for virtual synchronization waits.
 
 use crate::{Error, Parker, Result, SuspensionReason, context};
-use std::{cell::RefMut, rc::Rc};
+use std::rc::Rc;
 
 pub(crate) struct Wait {
     execution: Rc<context::Execution>,
@@ -34,7 +34,7 @@ impl Wait {
         self.execution.synchronization_parker()
     }
 
-    pub(crate) fn synchronization_wait(&self) -> Result<RefMut<'_, crate::wait::WaitCell>> {
+    pub(crate) fn synchronization_wait(&self) -> Result<&crate::wait::WaitCell> {
         self.execution.synchronization_wait()
     }
 

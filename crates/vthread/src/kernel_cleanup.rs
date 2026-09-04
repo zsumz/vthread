@@ -76,7 +76,13 @@ impl Kernel {
             let parked = self.parked.remove(task).expect("owned park");
             let token = parked.token;
             self.local.unregister_wake(token);
-            parked.registration.abandon(token);
+            if let Some(registration) = parked.registration {
+                registration.abandon(token);
+            } else {
+                self.task(parked.task)
+                    .execution()
+                    .abandon_synchronization_wait(token);
+            }
             if self.timers.cancel(token) {
                 #[cfg(feature = "runtime-evidence")]
                 self.shared.record(

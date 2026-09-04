@@ -60,6 +60,11 @@ impl WaitRegistration {
 }
 
 impl WaitCell {
+    pub(crate) fn select_timeout(&self, token: ParkToken) -> Result<bool> {
+        let registration = WaitRegistration::cached(&self.state);
+        registration.select_timeout(token)
+    }
+
     pub(crate) fn offer_resource(&self, selection: ResourceSelection) -> bool {
         let mut word = self.state.load();
         loop {

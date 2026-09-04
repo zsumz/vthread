@@ -27,7 +27,13 @@ impl Kernel {
                     },
                 );
                 if let Some(parked) = self.parked.find_token(token) {
-                    parked.registration.select_timeout(token)?;
+                    if let Some(registration) = &parked.registration {
+                        registration.select_timeout(token)?;
+                    } else {
+                        self.task(parked.task)
+                            .execution()
+                            .select_synchronization_timeout(token)?;
+                    }
                 }
             }
             self.process_wakes()?;
