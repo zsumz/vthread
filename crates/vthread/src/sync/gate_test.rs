@@ -2,6 +2,16 @@ use super::Gate;
 use crate::{Error, signal::lock};
 
 #[test]
+fn blocking_take_rejects_an_os_caller_before_consuming_capacity() {
+    let gate = Gate::new(1, 1, 1).unwrap();
+    assert!(matches!(
+        gate.take(crate::SuspensionReason::Semaphore),
+        Err(Error::OutsideVThread)
+    ));
+    assert_eq!(gate.available(), 1);
+}
+
+#[test]
 fn selected_tickets_remain_bounded_and_abandoned_permits_follow_fifo() {
     let gate = Gate::new(0, 1, 2).unwrap();
     let first = gate.subscribe_test().unwrap();

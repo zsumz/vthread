@@ -214,6 +214,23 @@ pub fn checkpoint() -> Result<()> {
         .check()
 }
 
+#[inline]
+pub(crate) fn check_current() -> Result<()> {
+    let installed = CURRENT.with(|current| {
+        current.borrow().as_ref().map(|mounted| {
+            mounted
+                .execution()
+                .and_then(|execution| execution.data.check())
+        })
+    });
+    match installed {
+        Some(result) => result,
+        None => MOUNTED_EXECUTION
+            .with(|execution| execution.data.check())
+            .unwrap_or(Err(Error::OutsideVThread)),
+    }
+}
+
 pub(crate) fn set_carrier_runnable(runnable: bool) {
     CARRIER_RUNNABLE.set(runnable);
 }

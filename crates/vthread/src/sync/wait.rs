@@ -10,12 +10,18 @@ pub(crate) struct Wait {
 
 impl Wait {
     pub(crate) fn enter(reason: SuspensionReason) -> Result<Self> {
-        let mounted = context::current().ok_or(Error::OutsideVThread)?;
-        let execution = mounted.execution()?;
-        execution.data.check()?;
+        context::check_current()?;
+        Self::enter_after_check(reason)
+    }
+
+    pub(super) fn enter_after_check(reason: SuspensionReason) -> Result<Self> {
+        let execution = match context::current().ok_or(Error::OutsideVThread)? {
+            context::MountedTask::Execution(execution) => execution,
+            context::MountedTask::Cleanup { .. } => return Err(Error::OutsideVThread),
+        };
         Ok(Self {
             previous: execution.data.replace_reason(reason),
-            execution: Rc::clone(execution),
+            execution,
         })
     }
 

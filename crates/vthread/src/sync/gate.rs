@@ -82,11 +82,12 @@ impl Gate {
     }
 
     pub(super) fn take(&self, reason: SuspensionReason) -> Result<()> {
-        let wait = Wait::enter(reason)?;
+        crate::context::check_current()?;
         match self.try_take() {
             Err(Error::WouldBlock) => {}
             outcome => return outcome,
         }
+        let wait = Wait::enter_after_check(reason)?;
         self.subscribe(&wait)?.wait(&wait)
     }
 
