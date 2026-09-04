@@ -132,6 +132,7 @@ fn run_round(
         admission_ns,
         operation_latency_groups_ns,
         pair_owners,
+        task_migrations: Vec::new(),
         #[cfg(feature = "lifecycle-profiling")]
         lifecycle,
     })
