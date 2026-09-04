@@ -68,6 +68,45 @@ fn cancellation_racing_subscription_publication_selects_every_generation() {
 }
 
 #[test]
+fn cancellation_racing_resident_activation_selects_every_generation() {
+    for _ in 0..512 {
+        let cancellation = CancellationToken::root(1);
+        let hub = Arc::new(WaitHub::new(1, Arc::default()));
+        let wait = WaitCell::new();
+        let barrier = Arc::new(Barrier::new(2));
+
+        std::thread::scope(|threads| {
+            let remote_barrier = Arc::clone(&barrier);
+            let remote_cancellation = &cancellation;
+            let remote = threads.spawn(move || {
+                remote_barrier.wait();
+                remote_cancellation.cancel();
+            });
+            barrier.wait();
+            let WaitBegin::Park { request, .. } = wait
+                .begin_resident(TaskId::new(1), TaskKey::owned(0), &hub, None)
+                .unwrap()
+            else {
+                panic!("expected resident wait");
+            };
+            let subscription = cancellation
+                .register_resident(request.token(), &wait)
+                .unwrap();
+            remote.join().unwrap();
+
+            assert_eq!(hub.pending(), 1);
+            assert_eq!(hub.pop_wake().unwrap().token, request.token());
+            assert!(hub.pop_wake().is_none());
+            assert_eq!(
+                wait.finish(request.token()).unwrap(),
+                crate::wait::WakeCause::InheritedCancelled
+            );
+            drop(subscription);
+        });
+    }
+}
+
+#[test]
 fn resident_wait_registration_coexists_with_a_shared_primary() {
     let cancellation = CancellationToken::root(1);
     let hub = Arc::new(WaitHub::new(2, Arc::default()));
