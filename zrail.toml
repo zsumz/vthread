@@ -40,6 +40,11 @@ default_features = true
 features = []
 
 [[source.rust.feature_worlds.packages]]
+package = "vthread-sync-core"
+default_features = true
+features = []
+
+[[source.rust.feature_worlds.packages]]
 package = "vthreads"
 default_features = true
 features = []
@@ -64,6 +69,11 @@ default_features = false
 features = ["runtime-evidence"]
 
 [[source.rust.feature_worlds.packages]]
+package = "vthread-sync-core"
+default_features = true
+features = []
+
+[[source.rust.feature_worlds.packages]]
 package = "vthreads"
 default_features = false
 features = ["runtime-evidence"]
@@ -86,6 +96,11 @@ features = []
 package = "vthread-stack"
 default_features = false
 features = ["runtime-evidence"]
+
+[[source.rust.feature_worlds.packages]]
+package = "vthread-sync-core"
+default_features = true
+features = []
 
 [[source.rust.feature_worlds.packages]]
 package = "vthreads"

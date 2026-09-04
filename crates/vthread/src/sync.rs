@@ -9,6 +9,7 @@
 mod condvar;
 mod gate;
 mod mutex;
+mod mutex_queue;
 mod notify;
 mod semaphore;
 pub(crate) mod wait;

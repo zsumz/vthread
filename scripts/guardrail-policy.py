@@ -11,10 +11,18 @@ import tomllib
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PUBLIC = ROOT / "crates" / "vthread" / "src"
 STACK = ROOT / "crates" / "vthread-stack" / "src"
+SYNC_CORE = ROOT / "crates" / "vthread-sync-core" / "src"
 LAB = ROOT / "crates" / "vthread-lab" / "src"
 REFERENCE = ROOT / "reference" / "src"
 MAX_LINES = 300
-PUBLIC_DEPENDENCIES = {"crossbeam-queue", "libc", "socket2", "vthread-stack", "zio"}
+PUBLIC_DEPENDENCIES = {
+    "crossbeam-queue",
+    "libc",
+    "socket2",
+    "vthread-stack",
+    "vthread-sync-core",
+    "zio",
+}
 
 
 def rust_sources(root: pathlib.Path) -> list[pathlib.Path]:
@@ -33,7 +41,8 @@ def check_line_limits(errors: list[str]) -> None:
 
 
 def check_sibling_tests(errors: list[str]) -> None:
-    for path in rust_sources(PUBLIC) + rust_sources(STACK) + rust_sources(LAB) + rust_sources(REFERENCE):
+    roots = (PUBLIC, STACK, SYNC_CORE, LAB, REFERENCE)
+    for path in (path for root in roots for path in rust_sources(root)):
         sibling = path.with_name(f"{path.stem}_test.rs")
         if not sibling.is_file():
             errors.append(f"{relative(path)} is missing sibling test {relative(sibling)}")
@@ -50,10 +59,10 @@ def check_unsafe_boundary(errors: list[str]) -> None:
             if token.search(line) and "forbid(unsafe_code)" not in line:
                 errors.append(f"{relative(path)}:{number} contains unsafe outside stack backend")
 
-    for path in STACK.rglob("*.rs"):
+    for path in list(STACK.rglob("*.rs")) + list(SYNC_CORE.rglob("*.rs")):
         lines = path.read_text(encoding="utf-8").splitlines()
         for index, line in enumerate(lines):
-            if re.search(r"\bunsafe\s*\{", line):
+            if re.search(r"\bunsafe\s*(?:\{|impl\b)", line):
                 context = "\n".join(lines[max(0, index - 2) : index + 1])
                 if "SAFETY:" not in context:
                     errors.append(f"{relative(path)}:{index + 1} unsafe block lacks SAFETY comment")

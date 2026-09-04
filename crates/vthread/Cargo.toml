@@ -24,6 +24,7 @@ qualification = ["runtime-evidence", "lifecycle-profiling"]
 
 [dependencies]
 vthread-stack.workspace = true
+vthread-sync-core.workspace = true
 zio.workspace = true
 socket2.workspace = true
 libc.workspace = true
