@@ -2,11 +2,12 @@
 
 use super::wait::Wait;
 use crate::{
-    Error, Parker, Result, SuspensionReason,
+    Error, Result, SuspensionReason,
     signal::lock,
     wait::{ResourceSelection, WaitCell},
 };
 use std::{
+    cell::RefMut,
     collections::VecDeque,
     marker::PhantomData,
     ops::{Deref, DerefMut},
@@ -24,9 +25,9 @@ struct MutexGate {
     entries: NativeMutex<VecDeque<WaitCell>>,
 }
 
-struct Ticket<'a> {
-    gate: &'a MutexGate,
-    parker: Option<Parker>,
+struct Ticket<'gate, 'wait> {
+    gate: &'gate MutexGate,
+    wait: Option<RefMut<'wait, WaitCell>>,
 }
 
 /// A FIFO virtual mutex whose gate keeps the native value lock uncontended.
@@ -151,8 +152,8 @@ impl MutexGate {
             return Ok(());
         }
         let wait = Wait::enter_after_check(reason)?;
-        let parker = wait.parker()?;
-        let Some(ticket) = Ticket::subscribe(self, parker)? else {
+        let synchronization_wait = wait.synchronization_wait()?;
+        let Some(ticket) = Ticket::subscribe(self, synchronization_wait)? else {
             return Ok(());
         };
         ticket.wait(&wait)
@@ -225,8 +226,8 @@ impl MutexGate {
     }
 }
 
-impl<'a> Ticket<'a> {
-    fn subscribe(gate: &'a MutexGate, parker: Parker) -> Result<Option<Self>> {
+impl<'gate, 'wait> Ticket<'gate, 'wait> {
+    fn subscribe(gate: &'gate MutexGate, wait: RefMut<'wait, WaitCell>) -> Result<Option<Self>> {
         gate.reserve()?;
         let mut entries = lock(&gate.entries);
         let previous = gate
@@ -241,40 +242,37 @@ impl<'a> Ticket<'a> {
             previous & MutexGate::LOCKED != 0,
             "mutex waiter bit existed without an owner"
         );
-        entries.push_back(parker.wait.clone());
+        entries.push_back(wait.clone());
         Ok(Some(Self {
             gate,
-            parker: Some(parker),
+            wait: Some(wait),
         }))
     }
 
     fn wait(mut self, wait: &Wait) -> Result<()> {
-        wait.park(self.parker())?;
+        wait.park_wait(self.wait_cell())?;
         self.complete();
         Ok(())
     }
 
-    fn parker(&self) -> &Parker {
-        self.parker.as_ref().expect("live mutex ticket")
+    fn wait_cell(&self) -> &WaitCell {
+        self.wait.as_deref().expect("live mutex ticket")
     }
 
     fn complete(&mut self) {
-        drop(self.parker.take().expect("live mutex ticket"));
+        drop(self.wait.take().expect("live mutex ticket"));
         self.gate.retire();
     }
 }
 
-impl Drop for Ticket<'_> {
+impl Drop for Ticket<'_, '_> {
     fn drop(&mut self) {
-        let Some(parker) = self.parker.take() else {
+        let Some(wait) = self.wait.take() else {
             return;
         };
         let (queued, selection) = {
             let mut entries = lock(&self.gate.entries);
-            match entries
-                .iter()
-                .position(|entry| entry.same_cell(&parker.wait))
-            {
+            match entries.iter().position(|entry| entry.same_cell(&wait)) {
                 Some(index) => {
                     drop(entries.remove(index).expect("mutex ticket position"));
                     if entries.is_empty() {
@@ -284,7 +282,7 @@ impl Drop for Ticket<'_> {
                 }
                 None => {
                     drop(entries);
-                    (false, parker.wait.take_resource())
+                    (false, wait.take_resource())
                 }
             }
         };

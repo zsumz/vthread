@@ -8,7 +8,7 @@ pub(crate) use wake::{enqueue_local_wake, unregister_local_wake};
 mod pending;
 
 use std::{
-    cell::{Cell, RefCell},
+    cell::{Cell, RefCell, RefMut},
     rc::Rc,
     sync::Arc,
 };
@@ -110,6 +110,12 @@ impl Execution {
     }
 
     pub(crate) fn synchronization_parker(&self) -> Result<crate::Parker> {
+        Ok(crate::Parker {
+            wait: self.synchronization_wait()?.clone(),
+        })
+    }
+
+    pub(crate) fn synchronization_wait(&self) -> Result<RefMut<'_, crate::wait::WaitCell>> {
         let mut cached = self.cold.synchronization_wait.borrow_mut();
         let wait = cached.get_or_insert_with(crate::wait::WaitCell::new);
         if !wait.recycle() {
@@ -118,7 +124,9 @@ impl Execution {
                 "cached synchronization wait remained active",
             ));
         }
-        Ok(crate::Parker { wait: wait.clone() })
+        Ok(RefMut::map(cached, |wait| {
+            wait.as_mut().expect("initialized synchronization wait")
+        }))
     }
 
     pub(crate) fn recycle(&mut self) -> bool {
