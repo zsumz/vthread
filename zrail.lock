@@ -2,7 +2,7 @@
 schema = 3
 semantics = 4
 producer = "0.0.3-rc.5"
-contract_sha256 = "7f9576862e185cea2088e047411366b828bc3b4c388ed54d139106e85fc351b2"
+contract_sha256 = "fd36742cf540d1361356956503127948cd71323f78018c8aa7b7386a652007d9"
 ratchet = []
 
 [analysis]
@@ -17,15 +17,15 @@ targets = 5
 physical_rust_files = 333
 base_source_contexts = 1431
 derived_source_contexts = 0
-source_facts = 100581
-projection_queries = 1787403
+source_facts = 100709
+projection_queries = 1788360
 projected_facts = 28
 unresolved_bindings = 0
 analyzer_semantics = 4
 
 [[analysis.contract_source]]
 path = "zrail.toml"
-sha256 = "204ce5fd8f248ff041a3405f45d4bc66532f2ab5752a79bcf2330b65fc296cd6"
+sha256 = "158cfb0fc2ad8368651ad8bab83560ecdde2336459ff672dc34090e092f7f287"
 
 [[package]]
 name = "vthread"
