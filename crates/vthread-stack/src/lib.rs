@@ -23,14 +23,6 @@ const _: () = {
     compile_error!("vthread-stack 0.0.2-rc.1 supports Linux x86_64 and macOS ARM64");
 };
 
-#[cfg(all(
-    vthread_stack_engine = "native",
-    not(all(target_os = "macos", target_arch = "aarch64"))
-))]
-const _: () = {
-    compile_error!("the native vthread-stack engine currently supports macOS ARM64 only");
-};
-
 mod fiber;
 mod lease;
 mod mount;
