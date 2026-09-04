@@ -30,6 +30,11 @@ impl Wait {
         self.execution.data.check()
     }
 
+    pub(crate) fn park_notification(&self, parker: &Parker) -> Result<()> {
+        parker.park_notification_after_checkpoint(&self.execution)?;
+        self.execution.data.check()
+    }
+
     pub(crate) fn parker(&self) -> Result<Parker> {
         self.execution.synchronization_parker()
     }
@@ -39,7 +44,7 @@ impl Wait {
     }
 
     pub(crate) fn park_wait(&self, wait: &crate::wait::WaitCell) -> Result<()> {
-        crate::parking::park_wait_after_checkpoint(wait, &self.execution)?;
+        crate::parking::park_wait_after_checkpoint::<false>(wait, &self.execution)?;
         self.execution.data.check()
     }
 }

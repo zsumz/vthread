@@ -61,6 +61,24 @@ fn successful_generation_does_not_construct_runtime_faults() {
 }
 
 #[test]
+fn notification_finish_fast_path_preserves_non_ready_winners() {
+    let cell = WaitCell::new();
+    let hub = Arc::new(WaitHub::new(1, Arc::default()));
+    let ready = parked(&cell, &hub);
+    assert_eq!(cell.notify(), NotifyResult::Woke);
+    assert!(hub.pop_wake().is_some());
+    assert_eq!(cell.finish_plain_ready(ready).unwrap(), WakeCause::Ready);
+
+    let cancelled = parked(&cell, &hub);
+    assert!(cell.cancel());
+    assert!(hub.pop_wake().is_some());
+    assert_eq!(
+        cell.finish_plain_ready(cancelled).unwrap(),
+        WakeCause::Cancelled
+    );
+}
+
+#[test]
 fn completed_generations_retain_one_reusable_owner_hub() {
     let cell = WaitCell::new();
     let hub = Arc::new(WaitHub::new(1, Arc::default()));
