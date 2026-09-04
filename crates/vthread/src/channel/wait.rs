@@ -25,13 +25,6 @@ impl<T> State<T> {
         }
     }
 
-    fn vacant(&mut self, direction: Direction) -> &mut Vec<WaitCell> {
-        match direction {
-            Direction::Send => &mut self.send_vacant,
-            Direction::Recv => &mut self.recv_vacant,
-        }
-    }
-
     pub(super) fn wake_fronts(&self) {
         // These only route generation-checked metadata; no user code runs here.
         if let Some(wait) = self.send_waits.front() {
@@ -59,6 +52,13 @@ impl<'a, T> Ticket<'a, T> {
         }
     }
 
+    pub(super) fn attach(&mut self, parker: Parker) {
+        assert!(
+            self.parker.replace(parker).is_none(),
+            "channel wait attached twice"
+        );
+    }
+
     pub(super) fn turn(&self, state: &mut State<T>) -> bool {
         state
             .queue(self.direction)
@@ -76,8 +76,6 @@ impl<'a, T> Ticket<'a, T> {
                 limit: self.core.wait_capacity,
             });
         }
-        let wait = state.vacant(self.direction).pop().unwrap_or_default();
-        self.parker = Some(Parker { wait });
         state
             .queue(self.direction)
             .push_back(self.parker().wait.clone());
@@ -97,10 +95,7 @@ impl<'a, T> Ticket<'a, T> {
             drop(queue.remove(index));
         }
         self.queued = false;
-        let parker = self.parker.take().expect("queued channel ticket");
-        if parker.wait.recycle() {
-            state.vacant(self.direction).push(parker.wait);
-        }
+        drop(self.parker.take().expect("queued channel ticket"));
     }
 
     pub(super) fn parker(&self) -> &Parker {

@@ -1,28 +1,51 @@
-use super::{Direction, Ticket};
 use crate::{
     Error, Runtime, channel::bounded_with_wait_capacity, local_scope, signal::lock, yield_now,
 };
 
 #[test]
-fn removed_tickets_reuse_directional_wait_caches() {
-    let (sender, _receiver) = bounded_with_wait_capacity::<u8>(1, 2).unwrap();
-    let mut first = Ticket::new(&sender.core, Direction::Send);
-    let identity = {
-        let mut state = lock(&sender.core.state);
-        first.enqueue(&mut state).unwrap();
-        let identity = first.parker().wait.identity();
-        first.remove(&mut state);
-        assert_eq!(state.send_vacant.len(), 1);
-        assert!(state.recv_vacant.is_empty());
-        identity
-    };
-
-    let mut second = Ticket::new(&sender.core, Direction::Send);
-    let mut state = lock(&sender.core.state);
-    second.enqueue(&mut state).unwrap();
-    assert_eq!(second.parker().wait.identity(), identity);
-    second.remove(&mut state);
-    assert_eq!(state.send_vacant.len(), 1);
+fn one_task_reuses_its_resident_wait_across_channels() {
+    Runtime::new()
+        .unwrap()
+        .run_scope(|scope| {
+            scope
+                .spawn("parent", || {
+                    let (first_sender, first_receiver) = bounded_with_wait_capacity(1, 1).unwrap();
+                    let (second_sender, second_receiver) =
+                        bounded_with_wait_capacity(1, 1).unwrap();
+                    first_sender.try_send(0).unwrap();
+                    second_sender.try_send(0).unwrap();
+                    local_scope(|local| {
+                        let mut child = local.spawn("sender", || {
+                            first_sender.send(1).unwrap();
+                            second_sender.send(1).unwrap();
+                        })?;
+                        while first_sender.waiting() == 0 {
+                            yield_now()?;
+                        }
+                        let first = lock(&first_sender.core.state)
+                            .send_waits
+                            .front()
+                            .expect("first wait")
+                            .identity();
+                        assert_eq!(first_receiver.recv()?, 0);
+                        while second_sender.waiting() == 0 {
+                            yield_now()?;
+                        }
+                        let second = lock(&second_sender.core.state)
+                            .send_waits
+                            .front()
+                            .expect("second wait")
+                            .identity();
+                        assert_eq!(first, second);
+                        assert_eq!(second_receiver.recv()?, 0);
+                        child.join()?;
+                        Ok(())
+                    })
+                    .unwrap();
+                })?
+                .join()
+        })
+        .unwrap();
 }
 
 #[test]

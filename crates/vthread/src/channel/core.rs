@@ -39,7 +39,9 @@ impl<T> Core<T> {
                 }
                 if wait.is_none() {
                     drop(state);
-                    wait = Some(Wait::enter_after_check(SuspensionReason::ChannelSend)?);
+                    let entered = Wait::enter_after_check(SuspensionReason::ChannelSend)?;
+                    ticket.attach(entered.parker()?);
+                    wait = Some(entered);
                     continue;
                 }
                 ticket.enqueue(&mut state)?;
@@ -73,7 +75,9 @@ impl<T> Core<T> {
                 }
                 if wait.is_none() {
                     drop(state);
-                    wait = Some(Wait::enter_after_check(SuspensionReason::ChannelRecv)?);
+                    let entered = Wait::enter_after_check(SuspensionReason::ChannelRecv)?;
+                    ticket.attach(entered.parker()?);
+                    wait = Some(entered);
                     continue;
                 }
                 ticket.enqueue(&mut state)?;
