@@ -42,6 +42,7 @@ fn permit_fast_path_preserves_other_winners() {
     assert!(cell.offer_resource(ResourceSelection::Permit));
     assert!(hub.pop_wake().is_some());
     assert_eq!(cell.finish_permit_ready(ready).unwrap(), WakeCause::Ready);
+    assert_eq!(cell.take_resource(), None);
 
     let cancelled = parked(&cell, &hub);
     assert!(cell.cancel());
@@ -50,4 +51,24 @@ fn permit_fast_path_preserves_other_winners() {
         cell.finish_permit_ready(cancelled).unwrap(),
         WakeCause::Cancelled
     );
+}
+
+#[test]
+fn permit_slow_path_consumes_the_ownership_marker() {
+    let cell = WaitCell::new();
+    let primary = Arc::new(WaitHub::new(1, Arc::default()));
+    let alternate = Arc::new(WaitHub::new(1, Arc::default()));
+    let first = parked(&cell, &primary);
+    assert_eq!(cell.notify(), NotifyResult::Woke);
+    assert!(primary.pop_wake().is_some());
+    assert_eq!(cell.finish(first).unwrap(), WakeCause::Ready);
+
+    let selected = parked(&cell, &alternate);
+    assert!(cell.offer_resource(ResourceSelection::Permit));
+    assert!(alternate.pop_wake().is_some());
+    assert_eq!(
+        cell.finish_permit_ready(selected).unwrap(),
+        WakeCause::Ready
+    );
+    assert_eq!(cell.take_resource(), None);
 }

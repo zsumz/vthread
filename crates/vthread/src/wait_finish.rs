@@ -17,8 +17,25 @@ impl WaitCell {
         self.finish_ready(token, None)
     }
 
+    #[inline]
     pub(crate) fn finish_permit_ready(&self, token: ParkToken) -> Result<WakeCause> {
-        self.finish_ready(token, Some(ResourceSelection::Permit))
+        if token.wait() != self.state.id {
+            return Err(resumed_generation_fault());
+        }
+        let selected = wait_state::WaitWord::initial()
+            .with_generation(token.generation())
+            .with_resource(Some(ResourceSelection::Permit))
+            .with_phase(wait_state::Phase::SelectedReady);
+        if self
+            .state
+            .compare_exchange(selected, selected.with_resource(None).retire())
+            .is_ok()
+        {
+            #[cfg(feature = "runtime-evidence")]
+            self.record_resumed(selected, token, WakeCause::Ready);
+            return Ok(WakeCause::Ready);
+        }
+        self.finish_permit_slow(token)
     }
 
     #[inline]
@@ -63,6 +80,37 @@ impl WaitCell {
                 ));
             };
             if self.state.compare_exchange(word, word.retire()).is_ok() {
+                #[cfg(feature = "runtime-evidence")]
+                self.record_resumed(word, token, cause);
+                return Ok(cause);
+            }
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn finish_permit_slow(&self, token: ParkToken) -> Result<WakeCause> {
+        loop {
+            let word = self.state.load();
+            if word.generation() != token.generation() {
+                return Err(resumed_generation_fault());
+            }
+            if word.is_claimed() || word.phase() == wait_state::Phase::Binding {
+                std::hint::spin_loop();
+                continue;
+            }
+            let Some(cause) = word.selected_cause() else {
+                return Err(Error::fault(
+                    crate::error::FaultComponent::Scheduler,
+                    "resumed parker has no selected wake",
+                ));
+            };
+            let retired = if cause == WakeCause::Ready {
+                word.with_resource(None).retire()
+            } else {
+                word.retire()
+            };
+            if self.state.compare_exchange(word, retired).is_ok() {
                 #[cfg(feature = "runtime-evidence")]
                 self.record_resumed(word, token, cause);
                 return Ok(cause);
