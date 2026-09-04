@@ -50,8 +50,13 @@ impl Wait {
         self.execution.attached_synchronization_wait()
     }
 
-    pub(crate) fn park_permit(&self, wait: &crate::wait::WaitCell) -> Result<()> {
+    pub(crate) fn park_permit(
+        &self,
+        wait: &crate::wait::WaitCell,
+        selected: &mut bool,
+    ) -> Result<()> {
         crate::parking::park_wait_after_checkpoint::<false, true>(wait, &self.execution)?;
+        *selected = true;
         self.execution.data.check()
     }
 }

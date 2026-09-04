@@ -29,6 +29,7 @@ pub(super) struct Ticket<'mutex, 'wait, T> {
     queue: &'mutex MutexQueue,
     value: &'mutex ExclusiveCell<T>,
     wait: Option<&'wait WaitCell>,
+    selected: bool,
 }
 
 impl MutexQueue {
@@ -71,6 +72,7 @@ impl MutexQueue {
                     queue: self,
                     value,
                     wait: Some(wait),
+                    selected: false,
                 }))
             }
         }
@@ -144,14 +146,11 @@ impl MutexQueue {
 
 impl<T> Ticket<'_, '_, T> {
     pub(super) fn wait(mut self, wait: &Wait) -> Result<Ownership> {
-        wait.park_permit(self.wait_cell())?;
+        let wait_cell = self.wait.expect("live mutex ticket");
+        wait.park_permit(wait_cell, &mut self.selected)?;
         let ownership = self.queue.handoff.take().ok_or_else(ownership_fault)?;
         self.complete();
         Ok(ownership)
-    }
-
-    fn wait_cell(&self) -> &WaitCell {
-        self.wait.expect("live mutex ticket")
     }
 
     fn complete(&mut self) {
@@ -176,7 +175,9 @@ impl<T> Drop for Ticket<'_, '_, T> {
             }
         };
         self.queue.retire();
-        if !queued && wait.take_resource() == Some(ResourceSelection::Permit) {
+        let selected =
+            self.selected || (!queued && wait.take_resource() == Some(ResourceSelection::Permit));
+        if !queued && selected {
             let ownership = self.queue.handoff.take().expect("selected mutex owner");
             self.queue.release_ownership(self.value, ownership);
         }
