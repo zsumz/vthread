@@ -13,12 +13,12 @@ use std::{
     rc::Rc,
     sync::{
         Mutex as NativeMutex, MutexGuard as NativeMutexGuard,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicUsize, Ordering},
     },
 };
 
 struct MutexGate {
-    locked: AtomicBool,
+    state: AtomicUsize,
     outstanding: AtomicUsize,
     capacity: usize,
     entries: NativeMutex<VecDeque<WaitCell>>,
@@ -127,6 +127,9 @@ impl<T> Drop for MutexGuard<'_, T> {
 }
 
 impl MutexGate {
+    const LOCKED: usize = 1;
+    const HAS_WAITERS: usize = 1 << 1;
+
     fn new(capacity: usize) -> Result<Self> {
         if capacity == 0 {
             return Err(Error::invalid_configuration(
@@ -135,7 +138,7 @@ impl MutexGate {
             ));
         }
         Ok(Self {
-            locked: AtomicBool::new(false),
+            state: AtomicUsize::new(0),
             outstanding: AtomicUsize::new(0),
             capacity,
             entries: NativeMutex::new(VecDeque::new()),
@@ -160,15 +163,24 @@ impl MutexGate {
     }
 
     fn release(&self) {
+        if self.state.load(Ordering::Acquire) == Self::LOCKED
+            && self
+                .state
+                .compare_exchange(Self::LOCKED, 0, Ordering::Release, Ordering::Relaxed)
+                .is_ok()
+        {
+            return;
+        }
         loop {
             let entry = {
                 let mut entries = lock(&self.entries);
                 let Some(entry) = entries.pop_front() else {
-                    #[cfg(debug_assertions)]
-                    assert!(self.locked.load(Ordering::Relaxed));
-                    self.locked.store(false, Ordering::Release);
+                    self.state.store(0, Ordering::Release);
                     return;
                 };
+                if entries.is_empty() {
+                    self.state.store(Self::LOCKED, Ordering::Release);
+                }
                 entry
             };
             if entry.offer_resource(ResourceSelection::Permit) {
@@ -186,8 +198,8 @@ impl MutexGate {
     }
 
     fn try_take(&self) -> bool {
-        self.locked
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+        self.state
+            .compare_exchange(0, Self::LOCKED, Ordering::Acquire, Ordering::Relaxed)
             .is_ok()
     }
 
@@ -217,10 +229,18 @@ impl<'a> Ticket<'a> {
     fn subscribe(gate: &'a MutexGate, parker: Parker) -> Result<Option<Self>> {
         gate.reserve()?;
         let mut entries = lock(&gate.entries);
-        if gate.try_take() {
+        let previous = gate
+            .state
+            .fetch_or(MutexGate::HAS_WAITERS, Ordering::AcqRel);
+        if previous == 0 {
+            gate.state.store(MutexGate::LOCKED, Ordering::Release);
             gate.retire();
             return Ok(None);
         }
+        assert!(
+            previous & MutexGate::LOCKED != 0,
+            "mutex waiter bit existed without an owner"
+        );
         entries.push_back(parker.wait.clone());
         Ok(Some(Self {
             gate,
@@ -249,7 +269,7 @@ impl Drop for Ticket<'_> {
         let Some(parker) = self.parker.take() else {
             return;
         };
-        let handed_off = {
+        let (queued, selection) = {
             let mut entries = lock(&self.gate.entries);
             match entries
                 .iter()
@@ -257,16 +277,19 @@ impl Drop for Ticket<'_> {
             {
                 Some(index) => {
                     drop(entries.remove(index).expect("mutex ticket position"));
-                    false
+                    if entries.is_empty() {
+                        self.gate.state.store(MutexGate::LOCKED, Ordering::Release);
+                    }
+                    (true, None)
                 }
                 None => {
                     drop(entries);
-                    parker.wait.take_resource() == Some(ResourceSelection::Permit)
+                    (false, parker.wait.take_resource())
                 }
             }
         };
         self.gate.retire();
-        if handed_off {
+        if !queued && selection == Some(ResourceSelection::Permit) {
             self.gate.release();
         }
     }
