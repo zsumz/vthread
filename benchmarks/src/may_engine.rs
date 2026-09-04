@@ -20,7 +20,9 @@ pub(crate) fn run(config: &Config) -> Result<(), String> {
         .set_workers(config.workers)
         .set_stack_size(STACK_SIZE / std::mem::size_of::<usize>())
         .set_pool_capacity(config.tasks);
-    measure(config, |_| run_round(config))
+    measure(config, |observe_placement| {
+        run_round(config, observe_placement)
+    })
 }
 
 fn run_yields(iterations: usize) {
@@ -31,30 +33,48 @@ fn run_yields(iterations: usize) {
 }
 
 macro_rules! spawn_park_pairs {
-    ($scope:expr, $tasks:expr, $iterations:expr) => {
+    ($scope:expr, $tasks:expr, $iterations:expr, $observe:expr, $probes:expr) => {
         for _ in 0..$tasks / 2 {
             let a = Arc::new(OnceLock::<may::coroutine::Coroutine>::new());
             let b = Arc::new(OnceLock::<may::coroutine::Coroutine>::new());
+            let probe = $observe.then(|| Arc::new(crate::may_placement::PairProbe::new()));
+            if let Some(probe) = &probe {
+                $probes.push(Arc::clone(probe));
+            }
+            let probe_a = probe.clone();
+            let probe_b = probe;
             let own = Arc::clone(&a);
             let peer = Arc::clone(&b);
             may::go!($scope, move || {
+                let mut trace = probe_a.as_ref().map(|_| crate::may_placement::TaskTrace::start());
                 assert!(own.set(may::coroutine::current()).is_ok());
                 while peer.get().is_none() {
                     may::coroutine::yield_now();
                 }
+                trace.iter_mut().for_each(crate::may_placement::TaskTrace::observe);
                 for _ in 0..$iterations {
                     may::coroutine::park();
+                    trace.iter_mut().for_each(crate::may_placement::TaskTrace::observe);
                     peer.get().expect("peer handle published").unpark();
+                }
+                if let (Some(probe), Some(trace)) = (probe_a, trace) {
+                    probe.record(0, trace);
                 }
             });
             may::go!($scope, move || {
+                let mut trace = probe_b.as_ref().map(|_| crate::may_placement::TaskTrace::start());
                 assert!(b.set(may::coroutine::current()).is_ok());
                 while a.get().is_none() {
                     may::coroutine::yield_now();
                 }
+                trace.iter_mut().for_each(crate::may_placement::TaskTrace::observe);
                 for _ in 0..$iterations {
                     a.get().expect("peer handle published").unpark();
                     may::coroutine::park();
+                    trace.iter_mut().for_each(crate::may_placement::TaskTrace::observe);
+                }
+                if let (Some(probe), Some(trace)) = (probe_b, trace) {
+                    probe.record(1, trace);
                 }
             });
         }
@@ -168,7 +188,7 @@ macro_rules! spawn_wake_tail_pairs {
     }};
 }
 
-fn run_round(config: &Config) -> Result<Round, String> {
+fn run_round(config: &Config, observe_placement: bool) -> Result<Round, String> {
     let peer = match config.scenario {
         Scenario::Tcp { per_task } => {
             Some(crate::tcp_peer::EchoServer::start(config.tasks, per_task)?)
@@ -178,6 +198,7 @@ fn run_round(config: &Config) -> Result<Round, String> {
     let address = peer.as_ref().map(crate::tcp_peer::EchoServer::address);
     let mut admission_ns = 0;
     let mut operation_latency_groups_ns = Vec::new();
+    let mut placement_probes = Vec::new();
     may::coroutine::scope(|scope| {
         let started = Instant::now();
         match config.scenario {
@@ -191,7 +212,13 @@ fn run_round(config: &Config) -> Result<Round, String> {
                     may::go!(scope, || ());
                 }
             }
-            Scenario::Park { per_task } => spawn_park_pairs!(scope, config.tasks, per_task),
+            Scenario::Park { per_task } => spawn_park_pairs!(
+                scope,
+                config.tasks,
+                per_task,
+                observe_placement,
+                placement_probes
+            ),
             Scenario::Mutex {
                 per_task,
                 contended,
@@ -235,10 +262,12 @@ fn run_round(config: &Config) -> Result<Round, String> {
     if let Some(peer) = peer {
         peer.finish()?;
     }
+    let (pair_owners, task_migrations) = crate::may_placement::summarize(&placement_probes);
     Ok(Round {
         admission_ns,
         operation_latency_groups_ns,
-        pair_owners: Vec::new(),
+        pair_owners,
+        task_migrations,
         #[cfg(feature = "lifecycle-profiling")]
         lifecycle: None,
     })

@@ -5,6 +5,7 @@ pub(crate) struct Round {
     pub(crate) admission_ns: u128,
     pub(crate) operation_latency_groups_ns: Vec<Vec<u64>>,
     pub(crate) pair_owners: Vec<(usize, usize)>,
+    pub(crate) task_migrations: Vec<bool>,
     #[cfg(feature = "lifecycle-profiling")]
     pub(crate) lifecycle: Option<vthread::diagnostics::LifecycleProfile>,
 }
@@ -19,6 +20,7 @@ pub(crate) fn measure(
     let mut drain_samples = Vec::with_capacity(config.samples);
     let mut operation_latency_groups = Vec::new();
     let pair_owners = warmup.pair_owners;
+    let task_migrations = warmup.task_migrations;
     #[cfg(feature = "allocation-probe")]
     let mut allocation_samples = Vec::with_capacity(config.samples);
     #[cfg(feature = "lifecycle-profiling")]
@@ -41,6 +43,10 @@ pub(crate) fn measure(
         assert!(
             round.pair_owners.is_empty(),
             "measured rounds must not collect placement diagnostics"
+        );
+        assert!(
+            round.task_migrations.is_empty(),
+            "measured rounds must not collect migration diagnostics"
         );
         #[cfg(feature = "lifecycle-profiling")]
         if let Some(profile) = round.lifecycle {
@@ -117,6 +123,17 @@ pub(crate) fn measure(
     }
     if !pair_owners.is_empty() {
         print_placement(config, &pair_owners);
+    }
+    if !task_migrations.is_empty() {
+        let migrated = task_migrations.iter().filter(|migrated| **migrated).count();
+        println!(
+            "engine={} operation={} phase=migration migrated_tasks={} stable_tasks={} task_observations={}",
+            config.engine_name(),
+            config.operation(),
+            migrated,
+            task_migrations.len() - migrated,
+            task_migrations.len(),
+        );
     }
     #[cfg(feature = "allocation-probe")]
     crate::allocation_probe::print_medians(config, &mut allocation_samples);
