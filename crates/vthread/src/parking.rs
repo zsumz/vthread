@@ -124,7 +124,7 @@ impl Parker {
             &self.wait,
             deadline,
             WaitHandoff::Shared,
-            register,
+            |token, registration| register(token, registration.expect("shared wait registration")),
         )
     }
 }
@@ -149,7 +149,7 @@ fn park_wait<G>(
     wait: &WaitCell,
     deadline: Option<Instant>,
     handoff: WaitHandoff,
-    register: impl FnOnce(vthread_stack::ParkToken, &crate::wait::WaitRegistration) -> Result<G>,
+    register: impl FnOnce(vthread_stack::ParkToken, Option<&crate::wait::WaitRegistration>) -> Result<G>,
 ) -> Result<ParkOutcome> {
     let policy = &execution.data;
     let unmasked = policy.masked() == 0;
@@ -157,21 +157,38 @@ fn park_wait<G>(
     let inherited_timeout = inherited_deadline
         .is_some_and(|inherited| deadline.is_none_or(|explicit| inherited <= explicit));
     let deadline = deadline.into_iter().chain(inherited_deadline).min();
-    match wait.begin(
-        execution.id,
-        execution.task_key(),
-        execution.hub(),
-        deadline,
-    )? {
+    let begin = match handoff {
+        WaitHandoff::Shared => wait
+            .begin(
+                execution.id,
+                execution.task_key(),
+                execution.hub(),
+                deadline,
+            )?
+            .map_registration(Some),
+        WaitHandoff::TaskResident => wait
+            .begin_resident(
+                execution.id,
+                execution.task_key(),
+                execution.hub(),
+                deadline,
+            )?
+            .map_registration(|()| None),
+    };
+    match begin {
         WaitBegin::Immediate(cause) => selected(cause, inherited_timeout),
         WaitBegin::Park {
             request,
-            registration,
+            mut registration,
         } => {
             let token = request.token();
             let mut generation = wait.guard(token);
             let _subscription = if unmasked {
-                match policy.cancellation().register(token, &registration) {
+                let result = match registration.as_ref() {
+                    Some(registration) => policy.cancellation().register(token, registration),
+                    None => policy.cancellation().register_resident(token, wait),
+                };
+                match result {
                     Ok(subscription) => Some(subscription),
                     Err(error) => {
                         wait.rollback(token);
@@ -181,9 +198,12 @@ fn park_wait<G>(
             } else {
                 None
             };
-            let _external = register(token, &registration)?;
+            let _external = register(token, registration.as_ref())?;
             let _publication = match handoff {
-                WaitHandoff::Shared => Some(execution.publish_wait(token, registration)?),
+                WaitHandoff::Shared => Some(execution.publish_wait(
+                    token,
+                    registration.take().expect("shared wait registration"),
+                )?),
                 WaitHandoff::TaskResident => None,
             };
             let suspension = vthread_stack::Suspension::Park(request);

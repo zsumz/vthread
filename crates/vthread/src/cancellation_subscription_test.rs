@@ -66,3 +66,46 @@ fn cancellation_racing_subscription_publication_selects_every_generation() {
         });
     }
 }
+
+#[test]
+fn resident_wait_registration_coexists_with_a_shared_primary() {
+    let cancellation = CancellationToken::root(1);
+    let hub = Arc::new(WaitHub::new(2, Arc::default()));
+    let shared = WaitCell::new();
+    let WaitBegin::Park {
+        request,
+        registration,
+    } = shared
+        .begin(TaskId::new(1), TaskKey::owned(0), &hub, None)
+        .unwrap()
+    else {
+        panic!("expected shared wait");
+    };
+    drop(
+        cancellation
+            .register(request.token(), &registration)
+            .unwrap(),
+    );
+    shared.rollback(request.token());
+
+    let resident = WaitCell::new();
+    let WaitBegin::Park { request, .. } = resident
+        .begin_resident(TaskId::new(1), TaskKey::owned(0), &hub, None)
+        .unwrap()
+    else {
+        panic!("expected resident wait");
+    };
+    let subscription = cancellation
+        .register_resident(request.token(), &resident)
+        .unwrap();
+    cancellation.cancel();
+
+    assert_eq!(hub.pending(), 1);
+    assert_eq!(hub.pop_wake().unwrap().token, request.token());
+    assert!(hub.pop_wake().is_none());
+    assert_eq!(
+        resident.finish(request.token()).unwrap(),
+        crate::wait::WakeCause::InheritedCancelled
+    );
+    drop(subscription);
+}

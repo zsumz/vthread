@@ -1,7 +1,11 @@
 //! Cancellation wait routing for standalone tokens and runtime-owned domains.
 
 use super::{CancellationToken, Node};
-use crate::{Error, Result, signal::lock, wait::WaitRegistration};
+use crate::{
+    Error, Result,
+    signal::lock,
+    wait::{WaitCell, WaitRegistration},
+};
 use std::sync::{
     OnceLock, Weak,
     atomic::{AtomicU64, Ordering},
@@ -11,6 +15,7 @@ use vthread_stack::ParkToken;
 pub(super) struct WaitSlot {
     active: AtomicU64,
     primary: OnceLock<Weak<crate::wait::WaitInner>>,
+    resident: OnceLock<Weak<crate::wait::WaitInner>>,
 }
 
 #[derive(Default)]
@@ -21,11 +26,14 @@ pub(super) struct FallbackWait {
 
 impl WaitSlot {
     const FALLBACK: u64 = 1 << 63;
+    const RESIDENT: u64 = 1 << 62;
+    const KIND_MASK: u64 = Self::FALLBACK | Self::RESIDENT;
 
     pub(super) fn new() -> Self {
         Self {
             active: AtomicU64::new(0),
             primary: OnceLock::new(),
+            resident: OnceLock::new(),
         }
     }
 
@@ -40,6 +48,15 @@ impl WaitSlot {
         self.primary
             .get()
             .is_some_and(|primary| Weak::ptr_eq(primary, &wait.state))
+    }
+
+    fn is_resident(&self, wait: &WaitCell) -> bool {
+        if self.resident.get().is_none() {
+            let _ = self.resident.set(wait.weak_state());
+        }
+        self.resident
+            .get()
+            .is_some_and(|resident| wait.matches_state(resident))
     }
 
     fn claim(&self, active: u64) -> Result<()> {
@@ -64,11 +81,17 @@ impl Node {
         if active == 0 {
             return None;
         }
-        if active & WaitSlot::FALLBACK == 0 {
-            let state = self.wait.primary.get()?.upgrade()?;
+        let kind = active & WaitSlot::KIND_MASK;
+        if kind != WaitSlot::FALLBACK {
+            let state = match kind {
+                0 => self.wait.primary.get(),
+                WaitSlot::RESIDENT => self.wait.resident.get(),
+                _ => None,
+            }?
+            .upgrade()?;
             let registration = WaitRegistration::cached(&state);
             return registration
-                .token(active)
+                .token(active & !WaitSlot::KIND_MASK)
                 .map(|token| (token, registration));
         }
         let waits = lock(&self.domain.fallback_waits);
@@ -95,7 +118,7 @@ impl Node {
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |epoch| {
                 epoch
                     .checked_add(1)
-                    .filter(|next| *next < WaitSlot::FALLBACK)
+                    .filter(|next| *next < WaitSlot::RESIDENT)
             })
             .map_err(|_| fallback_generation_fault())?
             + 1;
@@ -113,6 +136,18 @@ impl Node {
             fallback.token = None;
             return Err(error);
         }
+        Ok(active)
+    }
+
+    fn register_resident_wait(&self, token: ParkToken, wait: &WaitCell) -> Result<u64> {
+        if !self.wait.is_resident(wait) {
+            return Err(resident_wait_fault());
+        }
+        let generation = token.generation();
+        #[cfg(debug_assertions)]
+        assert!(generation != 0 && generation & WaitSlot::KIND_MASK == 0);
+        let active = WaitSlot::RESIDENT | generation;
+        self.wait.claim(active)?;
         Ok(active)
     }
 
@@ -145,6 +180,21 @@ impl CancellationToken {
             active,
         })
     }
+
+    pub(crate) fn register_resident(
+        &self,
+        token: ParkToken,
+        wait: &WaitCell,
+    ) -> Result<Subscription<'_>> {
+        let active = self.0.register_resident_wait(token, wait)?;
+        if self.is_cancelled() {
+            wait.registration().select_cancelled(token);
+        }
+        Ok(Subscription {
+            node: &self.0,
+            active,
+        })
+    }
 }
 
 pub(crate) struct Subscription<'a> {
@@ -169,6 +219,13 @@ fn fallback_generation_fault() -> Error {
     Error::fault(
         crate::error::FaultComponent::Scheduler,
         "cancellation subscription generation exhausted",
+    )
+}
+
+fn resident_wait_fault() -> Error {
+    Error::fault(
+        crate::error::FaultComponent::Scheduler,
+        "task changed its resident cancellation wait",
     )
 }
 

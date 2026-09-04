@@ -19,6 +19,18 @@ impl WaitCell {
         hub: &Arc<WaitHub>,
         deadline: Option<Instant>,
     ) -> Result<WaitBegin> {
+        Ok(self
+            .begin_resident(task, route, hub, deadline)?
+            .map_registration(|()| WaitRegistration::cached(&self.state)))
+    }
+
+    pub(crate) fn begin_resident(
+        &self,
+        task: TaskId,
+        route: TaskKey,
+        hub: &Arc<WaitHub>,
+        deadline: Option<Instant>,
+    ) -> Result<WaitBegin<()>> {
         let mut word = self.state.load();
         loop {
             if word.phase() != Phase::Idle {
@@ -75,7 +87,7 @@ impl WaitCell {
         hub: &Arc<WaitHub>,
         deadline: Option<Instant>,
         generation: u64,
-    ) -> WaitBegin {
+    ) -> WaitBegin<()> {
         let token = ParkToken::new(self.state.id, generation);
         #[cfg(not(feature = "runtime-evidence"))]
         let _ = (task, hub);
@@ -89,13 +101,7 @@ impl WaitCell {
         );
         WaitBegin::Park {
             request: ParkRequest::new(token, deadline),
-            registration: WaitRegistration {
-                state: Arc::downgrade(&self.state),
-                #[cfg(feature = "runtime-evidence")]
-                task: Some(task),
-                #[cfg(feature = "runtime-evidence")]
-                evidence: hub.evidence(),
-            },
+            registration: (),
         }
     }
 }
