@@ -62,5 +62,8 @@ pub use stack::{MappedStack, STACK_ALIGNMENT};
 pub use suspension::{FiberState, ParkRequest, ParkToken, Resume, SuspendError, Suspension};
 
 #[cfg(test)]
+#[path = "differential_test.rs"]
+mod differential_test;
+#[cfg(test)]
 #[path = "lib_test.rs"]
 mod lib_test;
