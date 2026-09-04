@@ -88,6 +88,38 @@ fn panic_unlocks_and_returns_the_modified_value_without_poisoning() {
 }
 
 #[test]
+fn cancelling_a_selected_owner_hands_the_mutex_to_its_successor() {
+    Runtime::new()
+        .unwrap()
+        .run_scope(|scope| {
+            scope
+                .spawn("parent", || {
+                    let mutex = Mutex::with_wait_capacity(0, 2).unwrap();
+                    let guard = mutex.try_lock().unwrap();
+                    local_scope(|local| {
+                        let mut first = local.spawn("cancelled", || mutex.lock().map(drop))?;
+                        let mut second = local.spawn("successor", || {
+                            *mutex.lock()? = 42;
+                            Ok::<_, Error>(())
+                        })?;
+                        while mutex.waiting() != 2 {
+                            yield_now()?;
+                        }
+                        drop(guard);
+                        first.cancel();
+                        assert!(matches!(first.join()?, Err(Error::Cancelled)));
+                        second.join()??;
+                        Ok(())
+                    })
+                    .unwrap();
+                    assert_eq!(*mutex.try_lock().unwrap(), 42);
+                })?
+                .join()
+        })
+        .unwrap();
+}
+
+#[test]
 fn local_mutexes_can_protect_borrowed_non_send_values() {
     use std::{cell::Cell, rc::Rc};
     Runtime::new()
