@@ -189,6 +189,9 @@ impl WaitCell {
             if word.phase() != Phase::Idle || word.is_closed() {
                 return false;
             }
+            if !word.needs_recycle() {
+                return true;
+            }
             let recycled = word.with_permit(false).with_resource(None);
             match self.state.compare_exchange(word, recycled) {
                 Ok(()) => return true,
