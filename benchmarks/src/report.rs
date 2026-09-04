@@ -82,16 +82,20 @@ pub(crate) fn measure(
         let median = latency_quantile(&operation_latencies, 50);
         let p95 = latency_quantile(&operation_latencies, 95);
         let p99 = latency_quantile(&operation_latencies, 99);
+        let p99_9 = latency_quantile_ratio(&operation_latencies, 999, 1_000);
+        let p99_99 = latency_quantile_ratio(&operation_latencies, 9_999, 10_000);
         let maximum = *operation_latencies
             .last()
             .expect("nonempty latency samples");
         println!(
-            "engine={} operation={} phase=latency median_ns={} p95_ns={} p99_ns={} max_ns={} observations={}",
+            "engine={} operation={} phase=latency median_ns={} p95_ns={} p99_ns={} p99_9_ns={} p99_99_ns={} max_ns={} observations={}",
             config.engine_name(),
             config.operation(),
             median,
             p95,
             p99,
+            p99_9,
+            p99_99,
             maximum,
             operation_latencies.len(),
         );
@@ -109,7 +113,16 @@ fn quantile(samples: &[u128], percentile: usize) -> u128 {
 }
 
 fn latency_quantile(samples: &[u64], percentile: usize) -> u64 {
-    let index = (samples.len() * percentile).div_ceil(100) - 1;
+    latency_quantile_ratio(samples, percentile, 100)
+}
+
+fn latency_quantile_ratio(samples: &[u64], numerator: usize, denominator: usize) -> u64 {
+    assert!(!samples.is_empty(), "latency samples must not be empty");
+    assert!(numerator > 0, "quantile numerator must be positive");
+    assert!(numerator <= denominator, "quantile must not exceed one");
+    let rank =
+        ((samples.len() as u128) * (numerator as u128)).div_ceil(denominator as u128) as usize;
+    let index = rank - 1;
     samples[index]
 }
 

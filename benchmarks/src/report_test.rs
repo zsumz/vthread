@@ -1,4 +1,4 @@
-use super::{latency_quantile, quantile};
+use super::{latency_quantile, latency_quantile_ratio, quantile};
 
 #[test]
 fn quantiles_select_observed_values() {
@@ -24,4 +24,11 @@ fn high_quantiles_use_nearest_rank_for_short_samples() {
     assert_eq!(quantile(&rounds, 99), 11);
     assert_eq!(latency_quantile(&latencies, 95), 20);
     assert_eq!(latency_quantile(&latencies, 99), 21);
+}
+
+#[test]
+fn fractional_tail_quantiles_use_nearest_rank() {
+    let samples: Vec<u64> = (1..=10_000).collect();
+    assert_eq!(latency_quantile_ratio(&samples, 999, 1_000), 9_990);
+    assert_eq!(latency_quantile_ratio(&samples, 9_999, 10_000), 9_999);
 }

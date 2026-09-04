@@ -1,12 +1,13 @@
 use crate::{
     config::{Config, Scenario},
     report::{Round, measure},
+    wake_clock::{WakeClock, WakeStamp},
 };
 use std::{
     hint::black_box,
     io::{Read, Write},
     sync::{
-        Arc, Mutex, OnceLock,
+        Arc, OnceLock,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::Instant,
@@ -122,8 +123,9 @@ macro_rules! spawn_wake_tail_pairs {
         for _ in 0..$tasks / 2 {
             let a = Arc::new(OnceLock::<may::coroutine::Coroutine>::new());
             let b = Arc::new(OnceLock::<may::coroutine::Coroutine>::new());
-            let stamp_a = Arc::new(Mutex::new(None));
-            let stamp_b = Arc::new(Mutex::new(None));
+            let clock = WakeClock::new();
+            let stamp_a = Arc::new(WakeStamp::new());
+            let stamp_b = Arc::new(WakeStamp::new());
             let started = Arc::new(AtomicBool::new(false));
             let own = Arc::clone(&a);
             let peer = Arc::clone(&b);
@@ -139,8 +141,8 @@ macro_rules! spawn_wake_tail_pairs {
                 }
                 for _ in 0..$iterations {
                     may::coroutine::park();
-                    samples.push(take_elapsed(&own_stamp));
-                    set_stamp(&peer_stamp);
+                    samples.push(clock.elapsed(&own_stamp));
+                    clock.publish(&peer_stamp);
                     peer.get().expect("peer handle published").unpark();
                 }
                 samples
@@ -152,10 +154,10 @@ macro_rules! spawn_wake_tail_pairs {
                     may::coroutine::yield_now();
                 }
                 for _ in 0..$iterations {
-                    set_stamp(&stamp_a);
+                    clock.publish(&stamp_a);
                     a.get().expect("peer handle published").unpark();
                     may::coroutine::park();
-                    samples.push(take_elapsed(&stamp_b));
+                    samples.push(clock.elapsed(&stamp_b));
                 }
                 samples
             }));
@@ -229,20 +231,6 @@ fn run_round(config: &Config) -> Result<Round, String> {
         #[cfg(feature = "lifecycle-profiling")]
         lifecycle: None,
     })
-}
-
-fn set_stamp(stamp: &Mutex<Option<Instant>>) {
-    *stamp.lock().expect("wake timestamp") = Some(Instant::now());
-}
-
-fn take_elapsed(stamp: &Mutex<Option<Instant>>) -> u64 {
-    stamp
-        .lock()
-        .expect("wake timestamp")
-        .take()
-        .expect("published wake timestamp")
-        .elapsed()
-        .as_nanos() as u64
 }
 
 fn run_tcp_round_trips(
