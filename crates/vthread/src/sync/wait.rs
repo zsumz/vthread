@@ -14,7 +14,7 @@ impl Wait {
         Self::enter_after_check(reason)
     }
 
-    pub(super) fn enter_after_check(reason: SuspensionReason) -> Result<Self> {
+    pub(crate) fn enter_after_check(reason: SuspensionReason) -> Result<Self> {
         let execution = match context::current().ok_or(Error::OutsideVThread)? {
             context::MountedTask::Execution(execution) => execution,
             context::MountedTask::Cleanup { .. } => return Err(Error::OutsideVThread),
