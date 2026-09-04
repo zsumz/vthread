@@ -3,6 +3,23 @@ use crate::{Error, Runtime, local_scope, yield_now};
 use std::cell::RefCell;
 
 #[test]
+fn cancelled_task_cannot_consume_an_immediately_available_permit() {
+    Runtime::new()
+        .unwrap()
+        .run_scope(|scope| {
+            scope
+                .spawn("cancelled", || {
+                    let semaphore = Semaphore::with_wait_capacity(1, 1).unwrap();
+                    crate::cancellation_token().unwrap().cancel();
+                    assert!(matches!(semaphore.acquire(), Err(Error::Cancelled)));
+                    assert_eq!(semaphore.available_permits(), 1);
+                })?
+                .join()
+        })
+        .unwrap();
+}
+
+#[test]
 fn cancelling_a_selected_waiter_returns_its_permit_to_the_next_waiter() {
     Runtime::new()
         .unwrap()
