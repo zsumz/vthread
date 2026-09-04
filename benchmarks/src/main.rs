@@ -8,6 +8,7 @@ mod lifecycle_profile;
 mod may_bounded_channel;
 mod may_channel;
 mod may_engine;
+mod may_mutex;
 mod may_placement;
 mod report;
 mod tcp_peer;

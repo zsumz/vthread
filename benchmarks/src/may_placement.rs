@@ -8,6 +8,8 @@ pub(crate) struct PairProbe {
     tasks: [Mutex<Option<TaskTrace>>; 2],
 }
 
+pub(crate) struct TaskProbe(Mutex<Option<TaskTrace>>);
+
 #[derive(Clone)]
 pub(crate) struct TaskTrace {
     first: ThreadId,
@@ -24,6 +26,25 @@ impl PairProbe {
 
     pub(crate) fn record(&self, task: usize, trace: TaskTrace) {
         *self.tasks[task].lock().expect("placement probe poisoned") = Some(trace);
+    }
+}
+
+impl TaskProbe {
+    pub(crate) fn new() -> Self {
+        Self(Mutex::new(None))
+    }
+
+    pub(crate) fn record(&self, trace: TaskTrace) {
+        *self.0.lock().expect("placement probe poisoned") = Some(trace);
+    }
+
+    pub(crate) fn migrated(&self) -> bool {
+        self.0
+            .lock()
+            .expect("placement probe poisoned")
+            .as_ref()
+            .expect("placement trace missing")
+            .migrated
     }
 }
 
