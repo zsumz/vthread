@@ -21,6 +21,7 @@ libc = "=0.2.189"
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 unreachable_pub = "warn"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(vthread_stack_engine, values("native", "corosensei"))'] }
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
