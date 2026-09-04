@@ -190,10 +190,7 @@ impl WaitCell {
             if word.generation() != token.generation() {
                 return Err(resumed_generation_fault());
             }
-            if word.is_claimed()
-                || word.phase() == Phase::Binding
-                || (word.selected_cause().is_some() && !self.state.is_published(word.generation()))
-            {
+            if word.is_claimed() || word.phase() == Phase::Binding {
                 std::hint::spin_loop();
                 continue;
             }

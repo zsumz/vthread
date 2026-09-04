@@ -79,7 +79,6 @@ impl WaitCell {
             let next = if active {
                 word.with_resource(Some(selection))
                     .claimed(WakeCause::Ready)
-                    .publish_claim()
             } else {
                 word.with_resource(Some(selection)).with_permit(true)
             };
@@ -109,7 +108,8 @@ impl WaitCell {
     pub(crate) fn notify(&self) -> NotifyResult {
         let mut word = self.state.load();
         loop {
-            if word.phase() == Phase::Binding {
+            let phase = word.phase();
+            if phase == Phase::Binding {
                 std::hint::spin_loop();
                 word = self.state.load();
                 continue;
@@ -117,9 +117,14 @@ impl WaitCell {
             if word.is_closed() {
                 return NotifyResult::Closed;
             }
-            let active = word.phase() == Phase::Active;
+            let active = phase == Phase::Active;
+            if !active && word.is_claimed() {
+                std::hint::spin_loop();
+                word = self.state.load();
+                continue;
+            }
             let next = if active {
-                word.claimed(WakeCause::Ready).publish_claim()
+                word.claimed(WakeCause::Ready)
             } else {
                 word.with_permit(true)
             };
@@ -143,7 +148,7 @@ impl WaitCell {
     pub(crate) fn close(&self) -> bool {
         let mut word = self.state.load();
         loop {
-            if word.phase() == Phase::Binding {
+            if word.phase() == Phase::Binding || word.is_claimed() {
                 std::hint::spin_loop();
                 word = self.state.load();
                 continue;
@@ -154,7 +159,7 @@ impl WaitCell {
             let active = word.phase() == Phase::Active;
             let mut next = word.with_closed(true).with_permit(false);
             if active {
-                next = next.claimed(WakeCause::Closed).publish_claim();
+                next = next.claimed(WakeCause::Closed);
             }
             match self.state.compare_exchange(word, next) {
                 Ok(()) => {
@@ -203,10 +208,10 @@ fn select_current(state: &Arc<WaitInner>, cause: WakeCause) -> bool {
         if word.phase() != Phase::Active {
             return false;
         }
-        let selected = word.claimed(cause).publish_claim();
-        match state.compare_exchange(word, selected) {
+        let claimed = word.claimed(cause);
+        match state.compare_exchange(word, claimed) {
             Ok(()) => {
-                enqueue_selected(state, selected, cause, None, false);
+                enqueue_selected(state, claimed, cause, None, false);
                 return true;
             }
             Err(observed) => word = observed,
@@ -243,10 +248,10 @@ fn select_generation(
             registration.record_rejected(token, cause, SelectionRejection::Selected);
             return false;
         }
-        let selected = word.claimed(cause).publish_claim();
-        match state.compare_exchange(word, selected) {
+        let claimed = word.claimed(cause);
+        match state.compare_exchange(word, claimed) {
             Ok(()) => {
-                enqueue_selected(state, selected, cause, Some(registration), false);
+                enqueue_selected(state, claimed, cause, Some(registration), false);
                 return true;
             }
             Err(observed) => word = observed,
@@ -256,13 +261,13 @@ fn select_generation(
 
 fn enqueue_selected(
     state: &WaitInner,
-    selected: super::wait_state::WaitWord,
+    claimed: super::wait_state::WaitWord,
     cause: WakeCause,
     registration: Option<&WaitRegistration>,
     local: bool,
 ) {
-    let token = ParkToken::new(state.id, selected.generation());
-    state.with_target(selected, |task, route, hub| {
+    let token = ParkToken::new(state.id, claimed.generation());
+    state.with_target(claimed, |task, route, hub| {
         if let Some(registration) = registration {
             registration.record_selected(token, cause);
         } else {
@@ -278,7 +283,7 @@ fn enqueue_selected(
             hub.enqueue(notice);
         }
     });
-    state.mark_published(selected.generation());
+    state.publish_claim(claimed);
 }
 
 #[cfg(test)]

@@ -20,7 +20,6 @@ use crate::{
 pub(crate) struct WaitInner {
     pub(super) id: u64,
     state: AtomicU64,
-    published: AtomicU64,
     task: AtomicU64,
     route: AtomicUsize,
     primary_hub: OnceLock<Arc<WaitHub>>,
@@ -32,7 +31,6 @@ impl WaitInner {
         Self {
             id,
             state: AtomicU64::new(WaitWord::initial().raw()),
-            published: AtomicU64::new(0),
             task: AtomicU64::new(0),
             route: AtomicUsize::new(0),
             primary_hub: OnceLock::new(),
@@ -68,13 +66,12 @@ impl WaitInner {
     }
 
     #[inline]
-    pub(super) fn mark_published(&self, generation: u64) {
-        self.published.store(generation, Ordering::Release);
-    }
-
-    #[inline]
-    pub(super) fn is_published(&self, generation: u64) -> bool {
-        self.published.load(Ordering::Acquire) >= generation
+    pub(super) fn publish_claim(&self, claimed: WaitWord) {
+        // Claims are write-exclusive: selectors reject them, while close and
+        // permit mutation wait for the selected phase.
+        #[cfg(debug_assertions)]
+        assert!(self.load() == claimed);
+        self.store(claimed.publish_claim());
     }
 
     pub(super) fn bind_target(&self, task: TaskId, route: TaskKey, hub: &Arc<WaitHub>) -> bool {
@@ -156,10 +153,7 @@ impl WaitInner {
             if word.generation() != token.generation() || word.phase() == Phase::Idle {
                 return None;
             }
-            if word.is_claimed()
-                || word.phase() == Phase::Binding
-                || (word.selected_cause().is_some() && !self.is_published(word.generation()))
-            {
+            if word.is_claimed() || word.phase() == Phase::Binding {
                 std::hint::spin_loop();
                 continue;
             }
