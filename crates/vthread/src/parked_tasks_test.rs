@@ -25,12 +25,10 @@ fn owned_and_borrowed_routes_are_independent_and_exact() {
     assert_eq!(tasks.len(), 2);
     assert_eq!(tasks.get(owned).expect("owned route").token, owned_token);
     assert_eq!(
-        tasks
-            .find_token(borrowed_token)
-            .expect("borrowed token")
-            .task,
-        borrowed
+        tasks.get(borrowed).expect("borrowed route").token,
+        borrowed_token
     );
+    assert_eq!(tasks.get(borrowed).expect("borrowed route").task, borrowed);
 
     assert_eq!(
         tasks.remove(owned).expect("remove owned").token,

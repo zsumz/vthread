@@ -14,6 +14,8 @@ mod kernel_receive;
 mod kernel_revoked;
 #[path = "kernel_task.rs"]
 mod kernel_task;
+#[path = "kernel_timer.rs"]
+mod kernel_timer;
 #[path = "parked_tasks.rs"]
 mod parked_tasks;
 
