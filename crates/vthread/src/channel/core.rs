@@ -39,15 +39,18 @@ impl<T> Core<T> {
                 if wait.is_none() {
                     drop(state);
                     let entered = Wait::enter_after_check(SuspensionReason::ChannelSend)?;
-                    ticket.attach(entered.parker()?);
+                    ticket.attach(entered.synchronization_wait()?);
                     wait = Some(entered);
                     continue;
                 }
-                ticket.enqueue(&mut state)?;
+                ticket.enqueue(
+                    &mut state,
+                    wait.as_ref()
+                        .expect("blocking send")
+                        .attached_synchronization_wait(),
+                )?;
             }
-            wait.as_ref()
-                .expect("blocking send")
-                .park_notification(ticket.parker())?;
+            wait.as_ref().expect("blocking send").park_notification()?;
         }
     }
 
@@ -74,15 +77,20 @@ impl<T> Core<T> {
                 if wait.is_none() {
                     drop(state);
                     let entered = Wait::enter_after_check(SuspensionReason::ChannelRecv)?;
-                    ticket.attach(entered.parker()?);
+                    ticket.attach(entered.synchronization_wait()?);
                     wait = Some(entered);
                     continue;
                 }
-                ticket.enqueue(&mut state)?;
+                ticket.enqueue(
+                    &mut state,
+                    wait.as_ref()
+                        .expect("blocking receive")
+                        .attached_synchronization_wait(),
+                )?;
             }
             wait.as_ref()
                 .expect("blocking receive")
-                .park_notification(ticket.parker())?;
+                .park_notification()?;
         }
     }
 

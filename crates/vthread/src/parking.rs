@@ -103,13 +103,6 @@ impl Parker {
         park_wait::<false, _>(execution, &self.wait, None, handoff, |_, _| Ok(()))
     }
 
-    pub(crate) fn park_notification_after_checkpoint(
-        &self,
-        execution: &Execution,
-    ) -> Result<ParkOutcome> {
-        park_wait_after_checkpoint::<true>(&self.wait, execution)
-    }
-
     pub(crate) fn park_registered<G>(
         &self,
         register: impl FnOnce(ParkToken, &WaitRegistration) -> Result<G>,

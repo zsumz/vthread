@@ -129,6 +129,13 @@ impl Execution {
         Ok(wait)
     }
 
+    pub(crate) fn attached_synchronization_wait(&self) -> &crate::wait::WaitCell {
+        self.cold
+            .synchronization_wait
+            .get()
+            .expect("attached synchronization wait")
+    }
+
     pub(crate) fn owns_synchronization_wait(&self, wait: &crate::wait::WaitCell) -> bool {
         self.cold
             .synchronization_wait
