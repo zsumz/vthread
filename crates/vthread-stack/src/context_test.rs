@@ -103,3 +103,27 @@ fn the_entry_is_taken_once_and_dropped_when_unused() {
     drop(entry);
     assert_eq!(drops.get(), 1);
 }
+
+#[test]
+fn cookies_are_unique_across_carriers_and_sequential_within_one() {
+    fn cookies() -> Vec<u64> {
+        let stack = MappedStack::new(64 * 1024, 0).expect("allocate stack");
+        (0..3)
+            .map(|_| {
+                // SAFETY: each placement replaces the previous one on an idle stack.
+                let placement = unsafe { FiberCore::place(&stack, || {}) };
+                core(&placement).cookie()
+            })
+            .collect()
+    }
+    let here = cookies();
+    let there = std::thread::spawn(cookies).join().expect("carrier thread");
+    assert_eq!(here[1], here[0] + 1);
+    assert_eq!(here[2], here[1] + 1);
+    assert_eq!(there[1], there[0] + 1);
+    let mut all = [here, there].concat();
+    all.sort_unstable();
+    all.dedup();
+    assert_eq!(all.len(), 6, "cookies collided across carriers");
+    assert!(all.iter().all(|cookie| *cookie != 0));
+}
