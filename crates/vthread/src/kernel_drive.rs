@@ -1,10 +1,9 @@
-//! Owner-only mounting, generation-checked waking, and timer progression.
+//! Owner-only mounting and generation-checked waking.
 
 use super::{Kernel, ParkedTask};
 use crate::{
     CarrierStatus, Error, Result, SuspensionReason, TaskStatus, WakeReason, wait::WakeCause,
 };
-use std::time::Instant;
 use vthread_stack::{FiberState, ParkRequest, Suspension};
 
 impl Kernel {
@@ -17,25 +16,7 @@ impl Kernel {
             self.process_wakes()?;
         }
         if self.timers.active_count() != 0 {
-            for token in self.timers.pop_expired(Instant::now()) {
-                #[cfg(feature = "runtime-evidence")]
-                self.shared.record(
-                    crate::diagnostics::evidence::RuntimeEventKind::TimerRetired {
-                        wait: crate::diagnostics::evidence::WaitKey::from_token(token),
-                        carrier: self.id,
-                        reason: crate::diagnostics::evidence::TimerRetirement::Expired,
-                    },
-                );
-                if let Some(parked) = self.parked.find_token(token) {
-                    if let Some(registration) = &parked.registration {
-                        registration.select_timeout(token)?;
-                    } else {
-                        self.task(parked.task)
-                            .execution()
-                            .select_synchronization_timeout(token)?;
-                    }
-                }
-            }
+            self.expire_timers()?;
             self.process_wakes()?;
         }
         self.select_ready();
@@ -217,7 +198,7 @@ impl Kernel {
         }
         let registration = self.task(task).execution().take_wait(token)?;
         if let Some(deadline) = request.deadline()
-            && !self.timers.schedule(token, deadline)
+            && !self.timers.schedule(task, token, deadline)
         {
             return Err(Error::fault(
                 crate::error::FaultComponent::Scheduler,

@@ -51,10 +51,6 @@ impl ParkedTasks {
         Some(parked)
     }
 
-    pub(super) fn find_token(&self, token: ParkToken) -> Option<&ParkedTask> {
-        self.iter().find(|parked| parked.token == token)
-    }
-
     pub(super) fn iter(&self) -> impl Iterator<Item = &ParkedTask> {
         self.owned
             .iter()

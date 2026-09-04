@@ -1,9 +1,6 @@
-use std::{
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::sync::{Arc, Mutex};
 
-use crate::{ParkOutcome, Runtime, WakeReason, park_pair};
+use crate::{Runtime, park_pair};
 
 #[test]
 fn first_mount_publication_lag_is_bounded_by_one_batch() {
@@ -183,36 +180,6 @@ fn wake_notice_cannot_resume_a_different_task() {
     });
     assert!(kernel.process_wakes().is_err());
     kernel.abort(None, crate::TaskFailure::RuntimeStopped);
-}
-
-#[test]
-fn timeout_updates_task_and_runtime_ledgers() {
-    let runtime = Runtime::new().expect("build runtime");
-    runtime
-        .run_scope(|scope| {
-            let (parker, _unparker) = park_pair();
-            let mut task = scope.spawn("timer", move || {
-                parker
-                    .park_timeout(Duration::from_secs(1))
-                    .expect("park with timeout")
-            })?;
-            crate::support_test::until(|| scope.runtime_snapshot().parked == 1);
-            assert_eq!(task.join()?, ParkOutcome::TimedOut);
-            let snapshot = scope.runtime_snapshot();
-            let task = snapshot
-                .tasks
-                .iter()
-                .find(|task| task.name == "timer")
-                .expect("task");
-            assert_eq!(task.parks, 1);
-            assert_eq!(task.last_wake, Some(WakeReason::TimedOut));
-            assert_eq!(snapshot.stats.wakes, 1);
-            assert_eq!(snapshot.stats.timeouts, 1);
-            assert_eq!(snapshot.parked, 0);
-            assert_eq!(snapshot.timers, 0);
-            Ok(())
-        })
-        .expect("scope succeeds");
 }
 
 #[test]
