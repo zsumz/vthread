@@ -1,6 +1,18 @@
 use super::CancellationToken;
 
 #[test]
+#[cfg(target_pointer_width = "64")]
+fn node_identity_and_cancellation_flag_fit_two_words() {
+    assert_eq!(std::mem::size_of::<super::Node>(), 16);
+    let state = super::NodeState::new(7);
+    assert_eq!(state.id(), 7);
+    assert!(!state.is_cancelled());
+    state.cancel();
+    assert_eq!(state.id(), 7);
+    assert!(state.is_cancelled());
+}
+
+#[test]
 fn cancellation_flows_down_but_never_up_or_across_siblings() {
     let parent = CancellationToken::root(2);
     let left = parent.child_token();
@@ -163,6 +175,49 @@ fn node_shards_wake_each_inherited_generation_exactly_once() {
         );
         drop(subscription);
     }
+}
+
+#[test]
+fn colliding_node_shard_slots_wake_each_generation_exactly_once() {
+    use crate::{TaskId, wait::WaitBegin, wait::WaitCell, wait::WaitHub};
+    use std::sync::Arc;
+
+    let root = CancellationToken::root(66);
+    let first = root.child_token();
+    let fillers = (0..63).map(|_| root.child_token()).collect::<Vec<_>>();
+    let colliding = root.child_token();
+    let hub = Arc::new(WaitHub::new(2, Arc::default()));
+    let cells = [WaitCell::new(), WaitCell::new()];
+    let mut waits = Vec::new();
+    for (index, (child, cell)) in [first, colliding].iter().zip(&cells).enumerate() {
+        let WaitBegin::Park {
+            request,
+            registration,
+        } = cell
+            .begin(TaskId::new(index as u64 + 1), &hub, None)
+            .unwrap()
+        else {
+            panic!("expected active wait");
+        };
+        let subscription = child.register(request.token(), &registration).unwrap();
+        waits.push((request.token(), subscription));
+    }
+
+    root.cancel();
+
+    let mut notices = [hub.pop_wake().unwrap(), hub.pop_wake().unwrap()];
+    notices.sort_unstable_by_key(|notice| notice.task);
+    assert_eq!(notices[0].task, TaskId::new(1));
+    assert_eq!(notices[1].task, TaskId::new(2));
+    assert!(hub.pop_wake().is_none());
+    for ((token, subscription), cell) in waits.into_iter().zip(cells) {
+        assert_eq!(
+            cell.finish(token).unwrap(),
+            crate::wait::WakeCause::InheritedCancelled
+        );
+        drop(subscription);
+    }
+    drop(fillers);
 }
 
 #[test]

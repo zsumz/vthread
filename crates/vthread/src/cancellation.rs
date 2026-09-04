@@ -1,18 +1,21 @@
 //! Inherited cancellation with live ancestry and bounded generation subscriptions.
 
-use crate::{Error, Result, id_map::IdMap, signal::lock, wait::WaitRegistration};
+use crate::{Error, Result, signal::lock, wait::WaitRegistration};
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicU64, AtomicUsize, Ordering},
 };
 use vthread_stack::ParkToken;
 
 #[path = "cancellation_graph.rs"]
 mod graph;
+#[path = "cancellation_wait_shard.rs"]
+mod wait_shard;
+use wait_shard::WaitShard;
 
 struct Domain {
     // Admission bounds live task nodes, and each node may publish one wait.
-    waits: Box<[Mutex<IdMap<usize, WaitSlot>>]>,
+    waits: Box<[Mutex<WaitShard>]>,
     epoch: Arc<AtomicU64>,
     retired: Mutex<Vec<usize>>,
     state: Mutex<State>,
@@ -26,9 +29,41 @@ struct State {
 }
 
 struct Node {
-    id: usize,
-    cancelled: AtomicBool,
+    state: NodeState,
     domain: Arc<Domain>,
+}
+
+struct NodeState(AtomicUsize);
+
+impl NodeState {
+    const CANCELLED: usize = 1 << (usize::BITS - 1);
+
+    fn new(id: usize) -> Self {
+        assert!(id < Self::CANCELLED, "cancellation identity exhausted");
+        Self(AtomicUsize::new(id))
+    }
+
+    #[inline]
+    fn id(&self) -> usize {
+        self.0.load(Ordering::Relaxed) & !Self::CANCELLED
+    }
+
+    #[inline]
+    fn cancel(&self) {
+        self.0.fetch_or(Self::CANCELLED, Ordering::Release);
+    }
+
+    #[inline]
+    fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::Acquire) & Self::CANCELLED != 0
+    }
+}
+
+impl Node {
+    #[inline]
+    fn id(&self) -> usize {
+        self.state.id()
+    }
 }
 
 struct WaitSlot {
@@ -43,7 +78,7 @@ impl Drop for Node {
         // Graph entries contain only IDs, flags and inert ancestry signatures.
         // Narrow history splices away; high-degree history becomes a compressed
         // relay, so this drop never recursively destroys ancestor tokens.
-        self.domain.retire(self.id);
+        self.domain.retire(self.id());
     }
 }
 
@@ -89,7 +124,7 @@ impl CancellationToken {
         assert!(capacity != 0, "cancellation capacity must be positive");
         let domain = Arc::new(Domain {
             waits: (0..capacity.min(WAIT_SHARDS))
-                .map(|_| Mutex::new(IdMap::default()))
+                .map(|_| Mutex::new(WaitShard::default()))
                 .collect(),
             epoch: Arc::new(AtomicU64::new(1)),
             retired: Mutex::new(Vec::with_capacity(RETIREMENT_BATCH)),
@@ -102,39 +137,41 @@ impl CancellationToken {
         let mut state = lock(&domain.state);
         let id = state.graph.reserve();
         let node = Arc::new(Node {
-            id,
-            cancelled: AtomicBool::new(false),
+            state: NodeState::new(id),
             domain: Arc::clone(domain),
         });
         let cancelled = state.graph.insert(id, parents, Arc::downgrade(&node));
-        node.cancelled.store(cancelled, Ordering::Release);
+        if cancelled {
+            node.state.cancel();
+        }
         drop(state);
         Self(node)
     }
 
     /// Creates a child token; cancelling a child never cancels its parent.
     pub fn child_token(&self) -> Self {
-        Self::insert(&self.0.domain, &[self.0.id])
+        Self::insert(&self.0.domain, &[self.0.id()])
     }
 
     pub(crate) fn child_for_scope(&self, scope: &Self) -> Self {
         assert!(Arc::ptr_eq(&self.0.domain, &scope.0.domain));
-        Self::insert(&self.0.domain, &[self.0.id, scope.0.id])
+        Self::insert(&self.0.domain, &[self.0.id(), scope.0.id()])
     }
 
     /// Requests cancellation and wakes subscribed generations without preempting code.
     pub fn cancel(&self) {
         let cancelled = {
             let mut state = lock(&self.0.domain.state);
-            let cancelled = state.graph.cancel_nodes(self.0.id);
+            let cancelled = state.graph.cancel_nodes(self.0.id());
             self.0.domain.epoch.fetch_add(1, Ordering::Release);
             cancelled
         };
         let selected = cancelled
             .into_iter()
             .filter_map(|node| {
-                lock(node.domain.waits_for(node.id))
-                    .get(&node.id)
+                let id = node.id();
+                lock(node.domain.waits_for(id))
+                    .get(id)
                     .map(|wait| (wait.token, wait.registration.clone()))
             })
             .collect::<Vec<_>>();
@@ -147,7 +184,7 @@ impl CancellationToken {
     /// Whether this token or an ancestor has requested cancellation.
     #[inline]
     pub fn is_cancelled(&self) -> bool {
-        self.0.cancelled.load(Ordering::Acquire)
+        self.0.state.is_cancelled()
     }
 
     pub(crate) fn into_cancellation_probe(self) -> (Self, Arc<AtomicU64>) {
@@ -164,20 +201,20 @@ impl CancellationToken {
         token: ParkToken,
         wait: &WaitRegistration,
     ) -> Result<Subscription> {
-        let mut waits = lock(self.0.domain.waits_for(self.0.id));
-        if waits.contains_key(&self.0.id) {
+        let id = self.0.id();
+        let mut waits = lock(self.0.domain.waits_for(id));
+        if !waits.try_insert(
+            id,
+            WaitSlot {
+                token,
+                registration: wait.clone(),
+            },
+        ) {
             return Err(Error::fault(
                 crate::error::FaultComponent::Scheduler,
                 "task registered concurrent cancellation waits",
             ));
         }
-        waits.insert(
-            self.0.id,
-            WaitSlot {
-                token,
-                registration: wait.clone(),
-            },
-        );
         let cancelled = self.is_cancelled();
         drop(waits);
         if cancelled {
@@ -185,6 +222,7 @@ impl CancellationToken {
         }
         Ok(Subscription {
             node: Arc::clone(&self.0),
+            id,
             token,
         })
     }
@@ -211,22 +249,18 @@ impl std::fmt::Debug for CancellationToken {
 
 pub(crate) struct Subscription {
     node: Arc<Node>,
+    id: usize,
     token: ParkToken,
 }
 impl Drop for Subscription {
     fn drop(&mut self) {
-        let mut waits = lock(self.node.domain.waits_for(self.node.id));
-        let remove = waits
-            .get(&self.node.id)
-            .is_some_and(|wait| wait.token == self.token);
-        if remove {
-            drop(waits.remove(&self.node.id));
-        }
+        let mut waits = lock(self.node.domain.waits_for(self.id));
+        waits.remove(self.id, self.token);
     }
 }
 
 impl Domain {
-    fn waits_for(&self, node: usize) -> &Mutex<IdMap<usize, WaitSlot>> {
+    fn waits_for(&self, node: usize) -> &Mutex<WaitShard> {
         &self.waits[node % self.waits.len()]
     }
 }
