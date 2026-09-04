@@ -1,4 +1,15 @@
 //! The fiber lifecycle state machine over the transfer protocol.
+//!
+//! Invariants the rest of the crate relies on:
+//!
+//! - The control block and entry live on the fiber's own stack and are never touched
+//!   once the mapping leaves the execution.
+//! - A started fiber never migrates: its saved context belongs to the carrier that
+//!   resumed it.
+//! - An execution releases its mapping only when the stack holds no live frames, so a
+//!   non-terminal fiber is unwound first however it is dropped.
+//! - Forced-unwind tokens are process-unique, so a token caught and re-raised anywhere
+//!   else is an ordinary panic there.
 
 use std::{marker::PhantomData, panic::resume_unwind, ptr::NonNull};
 
