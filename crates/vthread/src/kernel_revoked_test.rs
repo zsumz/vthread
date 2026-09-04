@@ -131,7 +131,12 @@ fn revoked_parked_stacks_release_registrations_before_timer_processing() {
         kernel.has_borrowed = true;
         kernel.tick(true).unwrap();
         assert_eq!(kernel.parked.len(), 1);
+        assert_eq!(
+            kernel.revocation_inspections, 0,
+            "a live borrowed scope must not scan the ready queue every tick"
+        );
     });
+    kernel.local.publish_borrowed_scope_exit();
     kernel.tick(true).unwrap();
     let snapshot = shared.snapshot();
     assert_eq!(snapshot.active, 0);
@@ -192,6 +197,7 @@ fn revoked_synchronization_wait_releases_its_ticket() {
         assert_eq!(mutex.waiting(), 1);
     });
 
+    kernel.local.publish_borrowed_scope_exit();
     kernel.tick(true).unwrap();
     assert_eq!(mutex.waiting(), 0);
     drop(owner);

@@ -8,6 +8,11 @@ impl Kernel {
         if !self.has_borrowed {
             return;
         }
+        let epoch = self.local.borrowed_scope_epoch();
+        if epoch == self.observed_borrowed_scope_epoch {
+            return;
+        }
+        self.observed_borrowed_scope_epoch = epoch;
         for _ in 0..self.ready.len() {
             let task = self.ready.pop_front().expect("ready task");
             #[cfg(test)]

@@ -1,12 +1,23 @@
 //! Borrowed scope runners share one cancellation and reclamation boundary.
 
 use super::LocalScope;
-use crate::{Error, Result, context, control::Shared, error::ScopeRunError};
+use crate::{
+    Error, Result, context, control::Shared, error::ScopeRunError, local_carrier::LocalCarrier,
+};
 use std::{
     cell::RefCell,
     panic::{AssertUnwindSafe, catch_unwind},
+    rc::Rc,
     time::Instant,
 };
+
+struct BorrowedScopeExit(Rc<LocalCarrier>);
+
+impl Drop for BorrowedScopeExit {
+    fn drop(&mut self) {
+        self.0.publish_borrowed_scope_exit();
+    }
+}
 
 /// Runs borrowed work on the current carrier, reclaiming all children before returning.
 /// ScopeFailure preserves the body, inherited policy, cleanup and representative child
@@ -72,6 +83,7 @@ fn run_local<'env, R, E, O>(
     let execution = std::rc::Rc::clone(mounted.execution()?);
     execution.data.check()?;
     let options = execution.data.options().child(deadline);
+    let _scope_exit = BorrowedScopeExit(Rc::clone(execution.local()));
     Ok(vthread_stack::fiber_scope(
         execution.shared().config.max_vthreads(),
         |fibers| {
