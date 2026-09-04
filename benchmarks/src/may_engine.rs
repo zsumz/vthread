@@ -20,7 +20,7 @@ pub(crate) fn run(config: &Config) -> Result<(), String> {
         .set_workers(config.workers)
         .set_stack_size(STACK_SIZE / std::mem::size_of::<usize>())
         .set_pool_capacity(config.tasks);
-    measure(config, || run_round(config))
+    measure(config, |_| run_round(config))
 }
 
 fn run_yields(iterations: usize) {
@@ -175,7 +175,7 @@ fn run_round(config: &Config) -> Result<Round, String> {
     };
     let address = peer.as_ref().map(crate::tcp_peer::EchoServer::address);
     let mut admission_ns = 0;
-    let mut operation_latencies_ns = Vec::new();
+    let mut operation_latency_groups_ns = Vec::new();
     may::coroutine::scope(|scope| {
         let started = Instant::now();
         match config.scenario {
@@ -211,7 +211,7 @@ fn run_round(config: &Config) -> Result<Round, String> {
                 }
                 admission_ns = started.elapsed().as_nanos();
                 for client in clients {
-                    operation_latencies_ns.extend(client.join()?);
+                    operation_latency_groups_ns.push(client.join()?);
                 }
                 return Ok::<(), String>(());
             }
@@ -219,7 +219,7 @@ fn run_round(config: &Config) -> Result<Round, String> {
                 let tasks = spawn_wake_tail_pairs!(scope, config.tasks, per_task);
                 admission_ns = started.elapsed().as_nanos();
                 for task in tasks {
-                    operation_latencies_ns.extend(task.join());
+                    operation_latency_groups_ns.push(task.join());
                 }
                 return Ok::<(), String>(());
             }
@@ -232,7 +232,8 @@ fn run_round(config: &Config) -> Result<Round, String> {
     }
     Ok(Round {
         admission_ns,
-        operation_latencies_ns,
+        operation_latency_groups_ns,
+        pair_owners: Vec::new(),
         #[cfg(feature = "lifecycle-profiling")]
         lifecycle: None,
     })

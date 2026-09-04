@@ -26,14 +26,20 @@ pub(crate) fn run(config: &Config) -> Result<(), String> {
         .stack_cache_capacity(config.tasks)
         .build()
         .map_err(|error| error.to_string())?;
-    measure(config, || run_round(&runtime, config))?;
+    measure(config, |observe_placement| {
+        run_round(&runtime, config, observe_placement)
+    })?;
     runtime
         .shutdown()
         .map(|_| ())
         .map_err(|error| error.to_string())
 }
 
-fn run_round(runtime: &vthread::Runtime, config: &Config) -> Result<Round, String> {
+fn run_round(
+    runtime: &vthread::Runtime,
+    config: &Config,
+    observe_placement: bool,
+) -> Result<Round, String> {
     #[cfg(feature = "lifecycle-profiling")]
     let before = runtime.lifecycle_profile();
     let peer = match config.scenario {
@@ -43,7 +49,8 @@ fn run_round(runtime: &vthread::Runtime, config: &Config) -> Result<Round, Strin
         _ => None,
     };
     let address = peer.as_ref().map(crate::tcp_peer::EchoServer::address);
-    let mut operation_latencies_ns = Vec::new();
+    let mut operation_latency_groups_ns = Vec::new();
+    let mut pair_owners = Vec::new();
     let admission_ns = runtime
         .run_scope(|scope| {
             let started = Instant::now();
@@ -58,12 +65,26 @@ fn run_round(runtime: &vthread::Runtime, config: &Config) -> Result<Round, Strin
                         drop(scope.spawn("benchmark-spawn", || ())?);
                     }
                 }
-                Scenario::Park { per_task } => spawn_park_pairs(scope, config.tasks, per_task)?,
+                Scenario::Park { per_task } => {
+                    spawn_park_pairs(scope, config.tasks, per_task)?;
+                    if observe_placement {
+                        pair_owners = crate::vthread_placement::pair_owners(
+                            &scope.runtime_snapshot(),
+                            config.tasks,
+                        );
+                    }
+                }
                 Scenario::Mutex { per_task } => {
                     spawn_mutex_tasks(scope, config.tasks, per_task, config.workers)?
                 }
                 Scenario::Channel { per_task, capacity } => {
-                    spawn_channel_pairs(scope, config.tasks, per_task, capacity.unwrap_or(1))?
+                    spawn_channel_pairs(scope, config.tasks, per_task, capacity.unwrap_or(1))?;
+                    if observe_placement {
+                        pair_owners = crate::vthread_placement::pair_owners(
+                            &scope.runtime_snapshot(),
+                            config.tasks,
+                        );
+                    }
                 }
                 Scenario::Tcp { per_task } => {
                     let address = address.expect("TCP peer address");
@@ -75,15 +96,21 @@ fn run_round(runtime: &vthread::Runtime, config: &Config) -> Result<Round, Strin
                     }
                     let admission_ns = started.elapsed().as_nanos();
                     for mut client in clients {
-                        operation_latencies_ns.extend(client.join()??);
+                        operation_latency_groups_ns.push(client.join()??);
                     }
                     return Ok(admission_ns);
                 }
                 Scenario::WakeTail { per_task } => {
                     let mut tasks = spawn_wake_tail_pairs(scope, config.tasks, per_task)?;
                     let admission_ns = started.elapsed().as_nanos();
+                    if observe_placement {
+                        pair_owners = crate::vthread_placement::pair_owners(
+                            &scope.runtime_snapshot(),
+                            config.tasks,
+                        );
+                    }
                     for task in &mut tasks {
-                        operation_latencies_ns.extend(task.join()??);
+                        operation_latency_groups_ns.push(task.join()??);
                     }
                     return Ok(admission_ns);
                 }
@@ -103,7 +130,8 @@ fn run_round(runtime: &vthread::Runtime, config: &Config) -> Result<Round, Strin
     );
     Ok(Round {
         admission_ns,
-        operation_latencies_ns,
+        operation_latency_groups_ns,
+        pair_owners,
         #[cfg(feature = "lifecycle-profiling")]
         lifecycle,
     })
