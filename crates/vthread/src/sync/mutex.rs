@@ -6,16 +6,17 @@ use std::{
     marker::PhantomData,
     ops::{Deref, DerefMut},
     rc::Rc,
-    sync::Mutex as NativeMutex,
+    sync::{Mutex as NativeMutex, MutexGuard as NativeMutexGuard},
 };
 
-/// A FIFO virtual mutex that moves its protected value into the active guard.
+/// A FIFO virtual mutex whose gate keeps the native value lock uncontended.
 ///
-/// No native lock is held while user code runs or suspends. This mutex does not
-/// poison: unwinding returns the possibly modified value. Repair application
-/// invariants explicitly if a panic can leave them incomplete. It is not reentrant.
+/// The native guard stays on the task's immutable owner carrier while user code
+/// runs or suspends. This mutex does not expose poisoning: unwinding releases the
+/// possibly modified value. Repair application invariants explicitly if a panic
+/// can leave them incomplete. It is not reentrant.
 pub struct Mutex<T> {
-    value: NativeMutex<Option<T>>,
+    value: NativeMutex<T>,
     semaphore: Semaphore,
 }
 
@@ -30,7 +31,7 @@ pub struct Mutex<T> {
 #[must_use = "dropping the guard immediately unlocks the mutex"]
 pub struct MutexGuard<'a, T> {
     pub(super) mutex: &'a Mutex<T>,
-    value: Option<T>,
+    value: Option<NativeMutexGuard<'a, T>>,
     _permit: Permit<'a>,
     _affine: PhantomData<Rc<()>>,
 }
@@ -45,7 +46,7 @@ impl<T> Mutex<T> {
     /// Creates an unlocked mutex with an explicit positive waiter limit.
     pub fn with_wait_capacity(value: T, wait_capacity: usize) -> Result<Self> {
         Ok(Self {
-            value: NativeMutex::new(Some(value)),
+            value: NativeMutex::new(value),
             semaphore: Semaphore::with_wait_capacity(1, wait_capacity)?,
         })
     }
@@ -62,12 +63,9 @@ impl<T> Mutex<T> {
     }
 
     fn guard<'a>(&'a self, permit: Permit<'a>) -> MutexGuard<'a, T> {
-        let value = lock(&self.value)
-            .take()
-            .expect("mutex permit owns its value");
         MutexGuard {
             mutex: self,
-            value: Some(value),
+            value: Some(lock(&self.value)),
             _permit: permit,
             _affine: PhantomData,
         }
@@ -93,18 +91,18 @@ impl<T: Default> Default for Mutex<T> {
 impl<T> Deref for MutexGuard<'_, T> {
     type Target = T;
     fn deref(&self) -> &T {
-        self.value.as_ref().expect("live mutex guard")
+        self.value.as_deref().expect("live mutex guard")
     }
 }
 impl<T> DerefMut for MutexGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut T {
-        self.value.as_mut().expect("live mutex guard")
+        self.value.as_deref_mut().expect("live mutex guard")
     }
 }
 impl<T> Drop for MutexGuard<'_, T> {
     fn drop(&mut self) {
-        // Restore the value before the permit field wakes the next owner.
-        *lock(&self.mutex.value) = self.value.take();
+        // Release the value before the permit field wakes the next owner.
+        drop(self.value.take());
     }
 }
 
