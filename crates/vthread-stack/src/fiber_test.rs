@@ -7,8 +7,8 @@ use std::{
 
 use crate::{ContextKey, MappedStack};
 
-use super::{Fiber, FiberState, ParkRequest, ParkToken, Resume, Suspension};
 use crate::suspend;
+use crate::{Fiber, FiberState, ParkRequest, ParkToken, Resume, Suspension};
 
 static TEST_CONTEXT: ContextKey<u64> = ContextKey::new();
 

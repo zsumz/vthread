@@ -28,8 +28,13 @@ mod pool;
 mod scoped;
 mod stack;
 mod stack_unix;
+mod suspension;
 
-pub use fiber::{Fiber, FiberState, ParkRequest, ParkToken, Resume, SuspendError, Suspension};
+mod engine_corosensei;
+
+use engine_corosensei as engine;
+
+pub use fiber::Fiber;
 pub use lease::FiberLease;
 #[doc(hidden)]
 pub use mount::ContextKey;
@@ -37,6 +42,7 @@ pub use mount::suspend;
 pub use pool::{StackPool, StackPoolSnapshot};
 pub use scoped::{FiberScope, fiber_scope};
 pub use stack::{MappedStack, STACK_ALIGNMENT};
+pub use suspension::{FiberState, ParkRequest, ParkToken, Resume, SuspendError, Suspension};
 
 #[cfg(test)]
 #[path = "lib_test.rs"]

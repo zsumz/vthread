@@ -2,11 +2,10 @@
 
 use std::{cell::Cell, marker::PhantomData, ptr, sync::atomic::AtomicU8};
 
-use corosensei::Yielder;
+use crate::{Resume, SuspendError, Suspension, engine};
 
-use crate::fiber::{Resume, SuspendError, Suspension};
-
-pub(super) type RawYielder = Yielder<Resume, Suspension>;
+/// The engine-specific handle a mounted fiber suspends through.
+pub(crate) type RawYielder = engine::Yielder;
 
 /// A typed identity for context supplied while a fiber is mounted.
 ///
@@ -56,14 +55,14 @@ impl<T> Default for ContextKey<T> {
     }
 }
 
-pub(super) struct ContextSlot<'context> {
+pub(crate) struct ContextSlot<'context> {
     key: *const (),
     value: *const (),
     lifetime: PhantomData<&'context ()>,
 }
 
 impl<'context> ContextSlot<'context> {
-    pub(super) fn new<T>(key: &'static ContextKey<T>, value: &'context T) -> Self {
+    pub(crate) fn new<T>(key: &'static ContextKey<T>, value: &'context T) -> Self {
         Self {
             key: ptr::from_ref(key).cast(),
             value: ptr::from_ref(value).cast(),
@@ -89,13 +88,13 @@ thread_local! {
     static CURRENT_MOUNT: Cell<CurrentMount> = const { Cell::new(CurrentMount::EMPTY) };
 }
 
-pub(super) struct MountGuard<'mount> {
+pub(crate) struct MountGuard<'mount> {
     previous: CurrentMount,
     lifetime: PhantomData<&'mount ()>,
 }
 
 impl MountGuard<'_> {
-    pub(super) fn install<'mount>(
+    pub(crate) fn install<'mount>(
         yielder: *const RawYielder,
         context: Option<&'mount ContextSlot<'_>>,
     ) -> MountGuard<'mount> {
@@ -117,12 +116,12 @@ impl Drop for MountGuard<'_> {
     }
 }
 
-pub(super) struct YielderMount {
+pub(crate) struct YielderMount {
     previous: *const RawYielder,
 }
 
 impl YielderMount {
-    pub(super) fn install(yielder: *const RawYielder) -> Self {
+    pub(crate) fn install(yielder: *const RawYielder) -> Self {
         let previous = CURRENT_MOUNT.with(|current| {
             let mut mounted = current.get();
             let previous = mounted.yielder;
@@ -144,7 +143,7 @@ impl Drop for YielderMount {
     }
 }
 
-pub(super) fn mounted_yielder() -> *const RawYielder {
+pub(crate) fn mounted_yielder() -> *const RawYielder {
     CURRENT_MOUNT.with(|current| current.get().yielder)
 }
 
@@ -156,8 +155,8 @@ pub fn suspend(reason: Suspension) -> Result<Resume, SuspendError> {
     }
 
     // The pointer is carrier-local and restored before leaving this mount.
-    // SAFETY: it belongs to the currently mounted, non-Send coroutine.
-    unsafe { Ok((&*pointer).suspend(reason)) }
+    // SAFETY: it belongs to the currently mounted, non-Send execution of the engine.
+    unsafe { Ok(engine::suspend(pointer, reason)) }
 }
 
 #[cfg(test)]
