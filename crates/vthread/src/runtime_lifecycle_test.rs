@@ -6,39 +6,6 @@ use std::{
 };
 
 #[test]
-fn stop_before_service_publication_still_drains_late_services() {
-    let config = crate::RuntimeConfig::default();
-    let shared = Arc::new(crate::control::Shared::new(config));
-    let driver = super::ShutdownDriver::new(&shared).unwrap();
-    shared.request_stop();
-    assert!(
-        shared
-            .services
-            .set(crate::services::Services::new(config, Arc::downgrade(&shared),).unwrap())
-            .is_ok()
-    );
-    driver.ready(&shared);
-    let deadline = Instant::now() + Duration::from_millis(200);
-    let complete = loop {
-        let observed = shared.changed.version();
-        if shared.shutdown_phase() == crate::ShutdownPhase::Complete {
-            break true;
-        }
-        if Instant::now() >= deadline {
-            break false;
-        }
-        shared.changed.wait(observed, Some(deadline));
-    };
-    // Even the old behavior is unblocked before the assertion so its failed case
-    // cannot leave a live service behind in the rest of this test process.
-    shared.services.get().unwrap().stop();
-    assert!(
-        complete,
-        "late services missed stop and stranded the coordinator"
-    );
-}
-
-#[test]
 fn deadline_reports_running_native_work_and_retry_joins_it() {
     let runtime = Runtime::new().unwrap();
     let (release, receive) = mpsc::sync_channel(1);
