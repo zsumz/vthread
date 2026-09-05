@@ -35,9 +35,17 @@ fn a_failed_carrier_join_cannot_report_successful_shutdown() {
 
 #[test]
 fn dropping_an_unrelated_runtime_does_not_block_a_carrier() {
+    #[derive(Debug)]
+    enum Event {
+        InnerEntered,
+        DropReturned,
+        InnerReturned,
+    }
     let outer = Runtime::new().unwrap();
     let inner = Runtime::new().unwrap();
     let (release, gate) = mpsc::sync_channel(1);
+    let (events, receive) = mpsc::sync_channel(2);
+    let inner_event = events.clone();
     // Retain the scope through Shared while deliberately transferring the last Runtime.
     let owner = inner
         .shared
@@ -45,23 +53,37 @@ fn dropping_an_unrelated_runtime_does_not_block_a_carrier() {
         .unwrap();
     let mut job = inner
         .spawn(owner, "held carrier".into(), move || {
-            gate.recv_timeout(Duration::from_secs(5)).unwrap();
+            inner_event.send(Event::InnerEntered).unwrap();
+            let released = gate.recv_timeout(Duration::from_secs(5));
+            inner_event.send(Event::InnerReturned).unwrap();
+            released.expect("held carrier was not released");
         })
         .unwrap();
-    let shared = Arc::clone(&inner.shared);
-    crate::support_test::until(|| shared.snapshot().stats.mounts > 0);
+    let _scope_owner = Arc::clone(&inner.shared);
+    assert!(matches!(
+        receive.recv_timeout(Duration::from_secs(5)),
+        Ok(Event::InnerEntered)
+    ));
     outer
         .run_scope(|scope| {
-            let (done, receive) = mpsc::sync_channel(1);
             let mut dropper = scope.spawn("drop unrelated", move || {
                 drop(inner);
-                done.send(()).unwrap();
+                events.send(Event::DropReturned).unwrap();
             })?;
-            let progressed = receive.recv_timeout(Duration::from_millis(150)).is_ok();
-            release.send(()).unwrap();
+            // Keep the inner carrier gated until Drop returns. A blocking Drop
+            // would instead observe InnerReturned first when its watchdog fires.
+            let first = receive.recv_timeout(Duration::from_secs(5));
+            let _ = release.send(());
             dropper.join()?;
             let _ = job.join();
-            assert!(progressed, "final-owner Drop blocked a foreign carrier");
+            assert!(
+                matches!(first, Ok(Event::DropReturned)),
+                "final-owner Drop waited for a foreign carrier: {first:?}"
+            );
+            assert!(matches!(
+                receive.recv_timeout(Duration::from_secs(5)),
+                Ok(Event::InnerReturned)
+            ));
             Ok(())
         })
         .unwrap();
