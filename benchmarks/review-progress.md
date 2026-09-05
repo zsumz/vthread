@@ -183,3 +183,9 @@ exchange; no mailbox implementation or corresponding speedup is claimed here.
 The subsequent [mailbox model slice](mailbox-review.md) adds the isolated publication
 kernel and shared standard/Loom tests. The scheduler still uses the existing wake
 queue; this follow-up makes no new runtime performance claim.
+
+The [mailbox integration experiment](mailbox-integration-review.md) expands those
+models to payload reservation, overflow, lane fairness, and sleep registration.
+It fixes a modeled lost-wake race in the experimental mailbox but rejects both
+runtime candidates for slower handoffs. The composition prototype remains test-only;
+the runtime retains its original queue and stronger stale-generation regressions.

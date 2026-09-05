@@ -36,36 +36,38 @@ fn duplicates_and_stale_generations_cannot_fill_the_inbox() {
 
 #[test]
 fn queued_wakes_release_predicate_waiters_without_advancing_the_epoch() {
-    let signal = Arc::default();
-    let hub = WaitHub::new(2, Arc::clone(&signal));
-    let first = ParkToken::new(1, 1);
-    let second = ParkToken::new(2, 1);
-    let empty = signal.version();
-    std::thread::scope(|threads| {
-        threads.spawn(|| {
-            hub.wait(empty, None);
+    for route_index in [0, 31] {
+        let signal = Arc::default();
+        let hub = WaitHub::new(32, Arc::clone(&signal));
+        let first = ParkToken::new(1, 1);
+        let second = ParkToken::new(2, 1);
+        let empty = signal.version();
+        std::thread::scope(|threads| {
+            threads.spawn(|| {
+                hub.wait(empty, None);
+            });
+            while signal.waiting() == 0 {
+                std::thread::yield_now();
+            }
+            hub.enqueue(WakeNotice {
+                token: first,
+                task: TaskId::new(1),
+                route: TaskKey::owned(route_index),
+                cause: WakeCause::Ready,
+            });
         });
-        while signal.waiting() == 0 {
-            std::thread::yield_now();
-        }
+        let queued = signal.version();
+        assert_eq!(queued, empty);
         hub.enqueue(WakeNotice {
-            token: first,
-            task: TaskId::new(1),
-            route: TaskKey::owned(0),
+            token: second,
+            task: TaskId::new(2),
+            route: TaskKey::owned(1),
             cause: WakeCause::Ready,
         });
-    });
-    let queued = signal.version();
-    assert_eq!(queued, empty);
-    hub.enqueue(WakeNotice {
-        token: second,
-        task: TaskId::new(2),
-        route: TaskKey::owned(1),
-        cause: WakeCause::Ready,
-    });
-    assert_eq!(signal.version(), queued);
-    assert!(hub.pop_wake().is_some());
-    assert!(hub.pop_wake().is_some());
+        assert_eq!(signal.version(), queued);
+        assert!(hub.pop_wake().is_some());
+        assert!(hub.pop_wake().is_some());
+    }
 }
 
 #[test]

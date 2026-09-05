@@ -31,3 +31,11 @@ unimplemented = "deny"
 
 [profile.release]
 panic = "unwind"
+
+# Keep exhaustive protocol exploration practical without optimizing runtime tests
+# differently or changing any production build profile.
+[profile.test.package.loom]
+opt-level = 3
+
+[profile.test.package.generator]
+opt-level = 3

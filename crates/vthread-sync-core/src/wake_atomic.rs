@@ -3,6 +3,9 @@
 pub(crate) use std::sync::atomic::{AtomicU64, Ordering};
 
 #[cfg(test)]
+pub(crate) use std::sync::atomic::{AtomicBool, AtomicUsize};
+
+#[cfg(test)]
 pub(crate) use std::{sync::Arc, thread};
 
 #[cfg(test)]

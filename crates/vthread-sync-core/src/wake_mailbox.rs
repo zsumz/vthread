@@ -14,7 +14,7 @@ struct Owner {
     batch: AtomicU64,
 }
 
-/// An experimental bounded mailbox; it is not yet used by the runtime.
+/// An experimental bounded mailbox, not the runtime's current wake queue.
 ///
 /// Each route has **at most one outstanding publication**, including an in-progress
 /// payload read. The caller must prevent republication until the sole consumer has
@@ -52,7 +52,13 @@ impl WakeMailbox {
     /// Panics if `route` is outside `0..Self::ROUTES`.
     pub fn publish(&self, route: usize) -> bool {
         assert!(route < Self::ROUTES, "mailbox route out of bounds");
-        self.published.0.fetch_xor(1 << route, Ordering::Release) & SLEEPING != 0
+        // Discarding the old word lets x86 use one locked bitwise instruction
+        // instead of synthesizing a value-returning XOR with a CAS retry loop.
+        self.published.0.fetch_xor(1 << route, Ordering::Release);
+        // Acquire the arming Release before checking the caller's separate waiter
+        // registration. A later false observation is safe: disarming leaves the
+        // owner awake, and rearming cannot miss an unacknowledged publication.
+        self.published.0.load(Ordering::Acquire) & SLEEPING != 0
     }
 
     /// Acknowledges one route; the caller must copy its payload before releasing it.
