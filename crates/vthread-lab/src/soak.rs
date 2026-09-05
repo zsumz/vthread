@@ -7,6 +7,7 @@ use vthread::{
 
 pub(crate) struct Report {
     pub iterations: u64,
+    pub mutex_updates: u64,
     pub elapsed: Duration,
     pub stats: RuntimeStats,
     pub stacks: StackSnapshot,
@@ -71,6 +72,7 @@ pub(crate) fn run(duration: Duration, carriers: usize, tasks: usize) -> Result<R
     assert!(!snapshot.accepting());
     Ok(Report {
         iterations,
+        mutex_updates: iterations * tasks as u64 * super::workload::MUTEX_UPDATES_PER_TASK as u64,
         elapsed: start.elapsed(),
         stats: snapshot.stats(),
         stacks: snapshot.stacks(),
