@@ -20,6 +20,8 @@ release qualification or an archive of executed binaries.
 | `channel-eligibility-5048ad21.tar.gz` | [Channel eligibility](../channel-handoff-review.md) | `b15999876d4945c969c1787414985145e47dec463620ef5af273f4a154858e78` |
 | `channel-idle-1d8e9448.tar.gz` | [Channel and carrier idling](../channel-handoff-review.md) | `e61c796d888cacff8aa908d46e09ba4294d4fdfdd09c5b1cd255e6641c8da03b` |
 | `channel-latency-30bb4869.tar.gz` | [Channel endpoint latency](../channel-latency-review.md) | `631d49058c0d7df9524c26b11edabf8dca6cac33d497d40f079c019217da356a` |
+| `channel-tail-c6a2bd0a.tar.gz` | [Channel gains and burst-CPU rejection](../channel-tail-review.md) | `7cd42245ad82c5333b09b0b0c251b03ae2ba4276dc2ea83b67367983f619d861` |
+| `adaptive-idle-af71b577.tar.gz` | [Adaptive polling screen](../adaptive-idle-review.md) | `139a5e4cfc729a32ed0ce65e787238dd280f69872d40d786aaa9856357ef9f7b` |
 
 The ready-fairness bundle includes original, FIFO, cohort-32 and cohort-2 logs;
 the original failing production-queue regression; counter CSVs; native tests and
@@ -90,6 +92,22 @@ horizon. It retains four source/binary identities, all 80 measured processes and
 160 host observations, plus passing default-native workspace tests. The combined
 prototype is promising but remains shelved pending channel tails, capacity, idle CPU,
 stress and final canonical qualification. It is not a new event-word implementation.
+
+The channel-tail bundle preserves the fixed-policy follow-up: 136 throughput/tail
+processes, 24 longer lifecycle controls and 48 public-API idle/burst processes. It
+includes exact patches, both source/binary identities, the diagnostic and native
+tests, raw results, CPU/host observations and replay/analysis scripts. Fixed long
+polling is rejected for roughly 2.6x burst CPU despite channel gains; its full
+canonical and soak acceptance did not run. Adaptive pacing is a separate experiment.
+
+The adaptive-idle bundle preserves the next owner-local policy and negative control,
+all 65,536 short/long histories, three passing idle tests and 18 channel tests. It
+retains 40 screened processes plus a separately excluded/replayed two-run build-
+overlap pair, source hashes, raw tails/CPU counters, commands and analysis. The
+candidate is shelved for burst-CPU and p99.9 failures despite throughput gains.
+Its public-API burst diagnostic source is in the preceding channel-tail bundle.
+The restored baseline's separate 11-gate checkpoint receipt/logs are also included;
+that canonical result is not qualification of the adaptive runtime candidate.
 
 Extract into a fresh directory and inspect the manifests before replaying commands.
 Absolute paths in captured receipts describe the original host, not required output

@@ -17,7 +17,7 @@ out of scope. The overall May goal and stable-release qualification remain open.
 | 4 | Unexplained stall test | Actual failure state; ordered evidence replacing unproven temporal assumptions | Captured Stored watchdog permit with zero parks; ordered tests qualified; additional loaded-suite findings open |
 | 5 | Handoff publication evidence | Publisher-pause regressions and stage attribution without changing production ordering | Native/optimized probes and canonical gates pass; owner-wide dependency confirmed; repair and OS-tail attribution open |
 | 6 | Capacity/admission/idle interaction | Scan-free maintenance without rejected lifecycle/idle costs, multiple provisioned capacities | Counters and visible-ingress progress repair qualified; scan-free lifecycle penalty and quiet-host performance acceptance remain open |
-| 7 | Useful channel handoff | Notification/progress counts; reserve under lock, publish outside, cancellation/close/panic proof | Exact shared MPMC and optional endpoint-latency controls qualified; coupled eligibility/parked-idle prototype remains experimental pending tails/capacity/idle-CPU/final qualification; out-of-lock publication open |
+| 7 | Useful channel handoff | Notification/progress counts; reserve under lock, publish outside, cancellation/close/panic proof | Exact shared MPMC and endpoint-latency controls qualified; fixed/adaptive polling shelved for burst-CPU or tail failures despite channel gains; idle attribution and out-of-lock publication remain open |
 | 8 | Mutex round-trip cost | Local/remote and active/sleeping recipient attribution; exact ownership and waiter progress | Pending |
 | 9 | Incremental readiness | Bounded command processing proportional to changes/events and large-connection validation | Pending |
 | 10 | Release evidence | Durable source-keyed cross-platform correctness, stress, footprint, CPU and performance bundle | Pending |
@@ -205,3 +205,15 @@ over-notification failures, the rejected eligibility-only control and the indepe
 four-way parked-idle experiment. The combined default-native tests pass and its
 shared-channel cycles improve materially; neither runtime change has been accepted
 or pushed while the remaining performance/CPU/qualification gates are open.
+
+[channel-tail-review.md](channel-tail-review.md) records the follow-up 208-process
+throughput, endpoint-tail, lifecycle and idle/burst panel. Fixed extended polling
+is rejected: substantial channel gains come with roughly 2.6x CPU between bursts.
+Adaptive pacing is a separate candidate, not a retrospective acceptance of that
+tradeoff. The existing protocol/ownership boundaries are still unchanged.
+
+[adaptive-idle-review.md](adaptive-idle-review.md) preserves a separately modeled
+owner-local policy, 40 balanced screening runs and two retained build-overlap runs.
+Its 32-37% shared-channel cycle gains still fail the combined burst-CPU/p99.9 gate,
+so that source is also shelved. No runtime polling or channel eligibility change
+is included in these evidence checkpoints, and no May control has been rerun.
