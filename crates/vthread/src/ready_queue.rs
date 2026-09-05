@@ -64,10 +64,6 @@ impl ReadyQueue {
     pub(crate) fn is_empty(&self) -> bool {
         self.normal.is_empty() && self.wakes.is_empty()
     }
-
-    pub(crate) fn iter(&self) -> impl Iterator<Item = &TaskKey> {
-        self.wakes.iter().chain(self.normal.iter())
-    }
 }
 
 #[cfg(test)]

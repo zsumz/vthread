@@ -60,14 +60,7 @@ impl Kernel {
     }
 
     pub(super) fn refresh_borrowed(&mut self) {
-        self.has_borrowed = self
-            .in_flight
-            .is_some_and(|task| self.task(task).is_borrowed())
-            || self.ready.iter().any(|task| self.task(*task).is_borrowed())
-            || self
-                .parked
-                .iter()
-                .any(|parked| self.task(parked.task).is_borrowed());
+        self.has_borrowed = self.tasks.borrowed_count() != 0;
     }
 }
 
