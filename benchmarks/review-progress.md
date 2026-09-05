@@ -164,3 +164,10 @@ The atomic-clock wake-tail runs each collected 5,760,000 observations. Baseline/
 median was 210/210 ns, p99.9 was 142,635/142,865 ns, and p99.99 was 157,157/156,256 ns.
 Worst-pair p99.9 was 143,907/148,975 ns. These are regression observations, not a
 new performance win or a completed tail-latency qualification.
+
+## Follow-up: provisioned runtime capacity
+
+The [capacity review](capacity-review.md) records a newly exposed spare-capacity
+cliff, hardware-counter and idle-loop profiling evidence, and rejected counter,
+snapshot, and idle-polling experiments. The benchmark control is retained;
+none of those runtime changes is retained because lifecycle regression checks failed.

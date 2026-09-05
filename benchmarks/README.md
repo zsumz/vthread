@@ -17,6 +17,9 @@ taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread park 10000 4
 taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread park 10000 4 64 9 --max-vthreads 65536
 ```
 
+See [the capacity review](capacity-review.md) for measured spare-capacity effects
+and the runtime experiments rejected by lifecycle regression checks.
+
 Build once, then run each engine in a fresh process. Pin single-worker measurements to one CPU
 when `taskset` is available:
 
