@@ -1,5 +1,8 @@
 # Scheduler benchmarks
 
+See the [current checkpoint overview](checkpoint-overview.md) for measured results,
+remaining May gaps, and qualification limits.
+
 This standalone harness compares the default `vthread` scheduler with May 0.3.51. It uses
 structured scopes, 64 KiB stacks, the same worker and task counts, one untimed warm-up, and an odd
 number of measured rounds. Runtime construction is outside the measurements; scope, task,

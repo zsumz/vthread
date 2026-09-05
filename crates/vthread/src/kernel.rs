@@ -114,6 +114,9 @@ impl Kernel {
     pub(super) fn remove_in_flight(&mut self) {
         let key = self.in_flight.take().expect("in-flight task key");
         assert!(self.tasks.remove(key), "live in-flight task");
+        if key.is_borrowed() {
+            self.refresh_borrowed();
+        }
     }
 
     pub(super) fn queue_completion(&mut self, completion: CompletionUpdate) {

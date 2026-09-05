@@ -38,10 +38,6 @@ impl<'a> TaskRef<'a> {
         }
     }
 
-    pub(crate) fn is_borrowed(self) -> bool {
-        matches!(self, Self::Borrowed(_))
-    }
-
     #[cfg(test)]
     pub(crate) fn address(self) -> *const () {
         match self {
@@ -144,6 +140,10 @@ impl KernelTasks {
 
     pub(crate) fn len(&self) -> usize {
         self.owned.len() + self.borrowed.len()
+    }
+
+    pub(crate) fn borrowed_count(&self) -> usize {
+        self.borrowed.len()
     }
 
     pub(crate) fn is_empty(&self) -> bool {

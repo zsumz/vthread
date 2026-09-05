@@ -199,3 +199,19 @@ The [mutex handoff repair](mutex-handoff-repair.md) records a deterministic
 cancellation-induced ownership leak in that baseline, the selection-under-lock
 repair, and the native and modeled qualification of its publication boundary.
 It is a correctness repair, not a new claim of beating May.
+
+The [ownership-bookkeeping experiments](mutex-ownership-review.md) reject two
+follow-ups: serialized queue accounting and cell-bound publication. Both show a
+small single-carrier cycle benefit but fail to establish the required four-carrier
+improvement. Their removed source and raw measurements remain local evidence.
+
+The [borrowed occupancy checkpoint](borrowed-occupancy-review.md) replaces cached
+borrowed-task rediscovery with the existing O(1) slab count. Its isolated cycle win
+and correctness qualification are recorded separately from unresolved channel and
+uncontended-mutex regression observations. It is a requested work-in-progress
+checkpoint, not completion of the review's performance-acceptance matrix.
+
+The [refreshed workload overview](checkpoint-overview.md) compares that checkpoint
+with May in 40 serial, order-balanced invocations. It separates throughput,
+individual median latency, tails and channel contract differences; the remaining
+May goal is explicitly open.
