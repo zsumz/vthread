@@ -267,6 +267,11 @@ impl Drop for Ticket<'_> {
                 None => parker.wait.take_resource(),
             }
         };
+        if self.gate.closed.load(Ordering::Acquire) {
+            // The queue lock above joins close publication and removes this ticket
+            // from every unversioned gate selector before its task reuses the cell.
+            assert!(parker.wait.reset_closed_gate(), "retired closed gate wait");
+        }
         self.gate.release();
         if selection == Some(ResourceSelection::Permit) {
             self.gate.signal();

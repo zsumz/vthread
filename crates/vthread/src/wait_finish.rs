@@ -6,6 +6,25 @@ use super::{ResourceSelection, WaitCell, WakeCause, wait_state};
 use crate::{Error, Result};
 
 impl WaitCell {
+    /// Releases a gate's close marker after its ticket and generation retire.
+    /// The gate queue lock must first establish that no unversioned gate selector
+    /// can still reference this ticket. Public park pairs never call this reset.
+    pub(crate) fn reset_closed_gate(&self) -> bool {
+        let mut word = self.state.load();
+        loop {
+            if word.phase() != wait_state::Phase::Idle {
+                return false;
+            }
+            if !word.is_closed() {
+                return true;
+            }
+            match self.state.compare_exchange(word, word.with_closed(false)) {
+                Ok(()) => return true,
+                Err(observed) => word = observed,
+            }
+        }
+    }
+
     pub(crate) fn finish(&self, token: ParkToken) -> Result<WakeCause> {
         if token.wait() != self.state.id {
             return Err(resumed_generation_fault());

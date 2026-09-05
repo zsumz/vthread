@@ -72,3 +72,83 @@ fn permit_slow_path_consumes_the_ownership_marker() {
     );
     assert_eq!(cell.take_resource(), None);
 }
+
+#[test]
+fn gate_close_reset_changes_only_the_closed_bit_of_an_idle_word() {
+    use super::wait_state::{MAX_GENERATION, Phase, WaitWord};
+    let cell = WaitCell::new();
+    for generation in [0, 1, MAX_GENERATION] {
+        for phase in 0..=12 {
+            for closed in [false, true] {
+                for permit in [false, true] {
+                    for fallback in [false, true] {
+                        for resource in [
+                            None,
+                            Some(ResourceSelection::Permit),
+                            Some(ResourceSelection::Broadcast),
+                        ] {
+                            let word = WaitWord::from_raw(phase)
+                                .with_generation(generation)
+                                .with_closed(closed)
+                                .with_permit(permit)
+                                .with_fallback_hub(fallback)
+                                .with_resource(resource);
+                            cell.state.store(word);
+                            let idle = word.phase() == Phase::Idle;
+                            assert_eq!(cell.reset_closed_gate(), idle);
+                            let expected = if idle { word.with_closed(false) } else { word };
+                            assert_eq!(cell.state.load(), expected);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn late_selectors_cannot_reclose_or_wake_a_reused_gate_cell() {
+    use std::{sync::Barrier, thread};
+    for _ in 0..64 {
+        let cell = WaitCell::new();
+        let hub = Arc::new(WaitHub::new(1, Arc::default()));
+        let first = parked(&cell, &hub);
+        let old = cell.registration();
+        assert!(cell.close());
+        assert_eq!(hub.pop_wake().unwrap().token, first);
+        assert_eq!(cell.finish(first).unwrap(), WakeCause::Closed);
+        assert!(
+            !cell.recycle(),
+            "ordinary recycling must not reopen public pairs"
+        );
+        assert!(cell.reset_closed_gate());
+        let next = parked(&cell, &hub);
+        assert!(next.generation() > first.generation());
+        let barrier = Barrier::new(5);
+        thread::scope(|threads| {
+            threads.spawn(|| {
+                barrier.wait();
+                assert!(!old.select_ready(first));
+            });
+            threads.spawn(|| {
+                barrier.wait();
+                assert!(!old.select_cancelled(first));
+            });
+            threads.spawn(|| {
+                barrier.wait();
+                assert!(!old.select_closed(first));
+            });
+            threads.spawn(|| {
+                barrier.wait();
+                assert!(!old.select_timeout(first).unwrap());
+            });
+            barrier.wait();
+            assert_eq!(cell.notify(), NotifyResult::Woke);
+        });
+        assert_eq!(hub.pop_wake().unwrap().token, next);
+        assert!(hub.pop_wake().is_none());
+        assert_eq!(cell.finish(next).unwrap(), WakeCause::Ready);
+        assert!(!cell.is_closed());
+        assert!(cell.recycle());
+    }
+}
