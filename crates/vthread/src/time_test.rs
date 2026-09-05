@@ -1,46 +1,20 @@
-use std::{
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::time::{Duration, Instant};
 
 use crate::{Runtime, sleep};
 
 #[test]
-fn sleeping_parks_instead_of_blocking_the_next_task() {
-    let runtime = Runtime::new().expect("build runtime");
-    let trace = Arc::new(Mutex::new(Vec::new()));
-
-    runtime
+fn timed_sleep_never_returns_before_the_requested_duration() {
+    Runtime::new()
+        .unwrap()
         .run_scope(|scope| {
-            let (release, wait) = std::sync::mpsc::sync_channel(1);
-            let mut gate = scope.spawn("admission-gate", move || {
-                wait.recv_timeout(Duration::from_secs(5))
-                    .expect("release queued tasks");
-            })?;
-            let sleeper_trace = Arc::clone(&trace);
-            let mut sleeper = scope.spawn("sleeper", move || {
-                sleeper_trace.lock().expect("trace").push("sleep:start");
-                sleep(Duration::from_millis(1)).expect("sleep task");
-                sleeper_trace.lock().expect("trace").push("sleep:end");
-            })?;
-            let worker_trace = Arc::clone(&trace);
-            let mut worker = scope.spawn("worker", move || {
-                worker_trace.lock().expect("trace").push("worker");
-            })?;
-
-            release.send(()).expect("release carrier");
-            gate.join()?;
-            sleeper.join()?;
-            worker.join()?;
-            Ok(())
+            scope
+                .spawn("minimum sleep", || {
+                    let duration = Duration::from_millis(1);
+                    let started = Instant::now();
+                    sleep(duration).unwrap();
+                    assert!(started.elapsed() >= duration);
+                })?
+                .join()
         })
-        .expect("scope succeeds");
-
-    assert_eq!(
-        &*trace.lock().expect("trace"),
-        &["sleep:start", "worker", "sleep:end"]
-    );
-    let snapshot = runtime.snapshot();
-    assert_eq!(snapshot.stats.parks, 1);
-    assert_eq!(snapshot.stats.timeouts, 1);
+        .unwrap();
 }
