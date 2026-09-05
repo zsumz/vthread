@@ -63,7 +63,7 @@ fn changing_scope_flushes_completion_before_dispatch() {
 }
 
 #[test]
-fn target_waiter_forces_prompt_completion_publication() {
+fn a_still_registered_target_waiter_forces_completion_publication() {
     let config = Runtime::builder()
         .max_vthreads(2)
         .carrier_queue_capacity(2)
@@ -73,9 +73,9 @@ fn target_waiter_forces_prompt_completion_publication() {
         .config();
     let shared = Arc::new(Shared::new(config));
     let scope = shared.begin_scope().unwrap();
-    let target = shared.submit(scope, "target".into(), || ()).unwrap();
+    shared.submit(scope, "first".into(), || ()).unwrap();
+    let target = shared.submit(scope, "later target".into(), || ()).unwrap();
     let waiting_for = Arc::clone(&target.record);
-    shared.submit(scope, "sibling".into(), || ()).unwrap();
     let observer = Arc::clone(&shared);
     let (sent, received) = std::sync::mpsc::sync_channel(1);
     let waiter = std::thread::spawn(move || {
@@ -86,12 +86,18 @@ fn target_waiter_forces_prompt_completion_publication() {
     let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
     kernel.receive();
 
+    // The target runs second, so its observer must remain registered while the
+    // first completion is queued. An observer of the first task could legitimately
+    // leave after result publication but before the accounting batch is queued.
+    assert!(kernel.tick(true).unwrap());
+    let completed_while_waiting = shared.scope_report(scope).completed;
+    let remained_registered = !shared.may_defer_completion();
     assert!(kernel.tick(true).unwrap());
     received
-        .recv_timeout(Duration::from_secs(1))
+        .recv_timeout(Duration::from_secs(5))
         .expect("target completion remained batched");
-    assert_eq!(shared.scope_report(scope).completed, 1);
-    assert!(kernel.tick(true).unwrap());
     waiter.join().unwrap();
     shared.finish_scope(scope);
+    assert!(remained_registered);
+    assert_eq!(completed_while_waiting, 1);
 }
