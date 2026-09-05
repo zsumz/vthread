@@ -113,6 +113,7 @@ fn concurrent_route_reuse_never_overcounts_or_underflows_pending() {
         sync::atomic::{AtomicBool, Ordering},
         time::{Duration, Instant},
     };
+    let routes = [0, 1, 15, 30, 31, 32, 47, 63];
     let queue = WakeQueue::new(64);
     let stop = AtomicBool::new(false);
     let mut delivered = BTreeSet::new();
@@ -120,7 +121,7 @@ fn concurrent_route_reuse_never_overcounts_or_underflows_pending() {
     let mut duplicate_wakes = 0;
     let mut invalid_notice = false;
     thread::scope(|threads| {
-        for route in 0..8 {
+        for route in routes {
             let queue = &queue;
             let stop = &stop;
             threads.spawn(move || {
@@ -147,8 +148,9 @@ fn concurrent_route_reuse_never_overcounts_or_underflows_pending() {
                 let generation = wake.token.generation();
                 let mut expected = notice(route);
                 expected.token = ParkToken::new(expected.token.wait(), generation);
-                invalid_notice |=
-                    route >= 8 || !(1..=1024).contains(&generation) || wake != expected;
+                invalid_notice |= !routes.contains(&route)
+                    || !(1..=1024).contains(&generation)
+                    || wake != expected;
                 duplicate_wakes +=
                     usize::from(!delivered.insert((wake.route.encoded(), generation)));
             } else {
@@ -166,4 +168,38 @@ fn concurrent_route_reuse_never_overcounts_or_underflows_pending() {
     );
     assert_eq!(queue.pending(), 0);
     assert!(queue.pop().is_none());
+}
+
+#[test]
+fn both_route_kinds_preserve_every_wake_cause_and_packed_generation_boundary() {
+    let queue = WakeQueue::new(32);
+    for route in [
+        TaskKey::owned(0),
+        TaskKey::borrowed(0),
+        TaskKey::owned(30),
+        TaskKey::borrowed(30),
+        TaskKey::owned(31),
+        TaskKey::borrowed(31),
+    ] {
+        for cause in [
+            WakeCause::Ready,
+            WakeCause::TimedOut,
+            WakeCause::Cancelled,
+            WakeCause::InheritedCancelled,
+            WakeCause::Closed,
+        ] {
+            for generation in [1, u64::MAX >> 3] {
+                let wake = WakeNotice {
+                    token: ParkToken::new(u64::MAX, generation),
+                    task: TaskId::new(u64::MAX),
+                    route,
+                    cause,
+                };
+                assert!(queue.push(wake, || {}).is_ok());
+                assert!(queue.push(wake, || {}).is_err());
+                assert_eq!(queue.pop(), Some(wake));
+                assert_eq!(queue.pop(), None);
+            }
+        }
+    }
 }

@@ -9,6 +9,8 @@
 mod exclusive;
 mod spin_mutex;
 mod wake_atomic;
+#[cfg(test)]
+mod wake_inbox;
 mod wake_mailbox;
 
 pub use exclusive::{ExclusiveCell, ExclusiveGuard, Ownership, OwnershipSlot, QueueDecision};

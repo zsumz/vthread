@@ -1,5 +1,10 @@
 # Bounded mailbox model slice: 2026-09-05
 
+This records the initial checkpoint. The subsequent
+[integration experiment](mailbox-integration-review.md) expands the composition
+models, fixes a modeled sleep-registration race, and rejects the slower runtime
+integration. Its expanded routing prototype remains test-only.
+
 This follows the [dequeue profile](dequeue-review.md). It adds an experimental
 publication kernel in `vthread-sync-core`, **not a runtime queue replacement**.
 No scheduler, wake priority, capacity, cancellation checkpoint, task affinity,

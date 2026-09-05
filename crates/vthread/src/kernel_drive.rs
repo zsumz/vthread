@@ -257,3 +257,7 @@ impl Kernel {
 #[cfg(test)]
 #[path = "kernel_drive_test.rs"]
 mod kernel_drive_test;
+
+#[cfg(test)]
+#[path = "kernel_wake_reuse_test.rs"]
+mod kernel_wake_reuse_test;
