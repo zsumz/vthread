@@ -13,7 +13,7 @@ out of scope. The overall May goal and stable-release qualification remain open.
 | --- | --- | --- | --- |
 | 1 | ARM64 terminal result register | Real ARM64 debug/optimized completion, yield/park, panic, forced unwind, reuse and FP state | Native CI passed on both architectures/profiles; raw artifact archival pending |
 | 2 | Ready-queue bounded fairness | Old code fails mixed hot-wake/normal-work counterexample; repaired dispatch bound and measured tradeoffs | Qualified two-wake cohorts; four-selection head bound; explicit cycle/throughput/p95 costs |
-| 3 | Pending-admission fairness | Real late starts under sustained mixed park/yield/wake and borrowed work | Repair and real-kernel regressions preserved separately; qualification/performance resumed after test diagnosis |
+| 3 | Pending-admission fairness | Real late starts under sustained mixed park/yield/wake and borrowed work | Qualified check-based quota and one-start service; measured small park/cycle costs recorded |
 | 4 | Unexplained stall test | Actual failure state; ordered evidence replacing unproven temporal assumptions | Captured Stored watchdog permit with zero parks; ordered tests qualified; additional loaded-suite findings open |
 | 5 | Handoff publication evidence | Publisher-pause regressions and stage attribution without changing production ordering | Pending |
 | 6 | Capacity/admission/idle interaction | Scan-free maintenance without rejected lifecycle/idle costs, multiple provisioned capacities | Pending |
@@ -134,3 +134,20 @@ The repaired tests pass four oversubscribed runs, but the broader loaded suite s
 has separately recorded refill, join/deadline, timer, I/O retry and timing-ratio findings.
 These are open release-evidence work, not silently accepted or attributed to runtime
 defects without investigation. Admission remains a separate runtime/performance patch.
+
+## Pending-admission repair
+
+The independent admission slice now counts service opportunities in receive, once
+per carrier-loop iteration with known backlog. Yield, park, completion and discard
+cannot erase credit. At the unchanged 65,536-opportunity quota, a full ready window
+admits one additional start rather than draining the backlog. The real-kernel owned
+and borrowed regressions fail the old policy and pass the repair, with capacity,
+thread affinity and late execution checked.
+
+All 11 canonical gates, 505 default-native runtime tests and the remaining workspace
+suites, benchmark gates and 601,404 mixed-soak lifetimes pass. The repair retains
+roughly 2-3% park cost in follow-ups, +0.58% isolated park cycles and +0.11% pinned
+four-carrier cycles; it is a correctness tradeoff, not a throughput win. Full tables,
+counter evidence, spare-capacity effects and source identity are in
+[admission-fairness-review.md](admission-fairness-review.md). Wake-publication pause
+evidence is the next review slice; the production wait ordering is still unchanged.

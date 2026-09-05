@@ -6,7 +6,7 @@ use std::sync::Arc;
 use vthread_stack::Fiber;
 
 const REMOTE_READY_TARGET: usize = 64;
-const REMOTE_ADMISSION_YIELD_BOUND: u32 = 65_536;
+const REMOTE_ADMISSION_DISPATCH_BOUND: u32 = 65_536;
 // Bridge short multi-carrier admission gaps without turning an idle carrier into a poller.
 // The carrier performs at most 640 pause instructions before entering the signal wait.
 const IDLE_SIGNAL_PROBES: usize = 640;
@@ -14,6 +14,9 @@ const SPINS_PER_SIGNAL_PROBE: usize = 1;
 
 impl Kernel {
     pub(crate) fn receive(&mut self) -> bool {
+        // The carrier checks once per drive iteration while backlog remains,
+        // independent of the previous dispatch outcome. Keep this off task paths.
+        self.admission_pressure += u32::from(self.remote_pending);
         let received = self.receive_local_tasks();
         let received = self.receive_remote_tasks() || received;
         if received {
@@ -21,7 +24,7 @@ impl Kernel {
         }
         self.remote_pending = self.inbox.pending() != 0;
         if !self.remote_pending {
-            self.yield_pressure = 0;
+            self.admission_pressure = 0;
         }
         self.remote_pending
     }
@@ -64,15 +67,16 @@ impl Kernel {
         let target = REMOTE_READY_TARGET.min(capacity);
         let limit = if self.ready.len() <= target / 2 {
             target - self.ready.len()
-        // Keep completion-heavy work inside the hot window, but a carrier whose
-        // window only yields must still admit later tasks within a fixed bound.
-        } else if self.yield_pressure >= REMOTE_ADMISSION_YIELD_BOUND && self.inbox.pending() != 0 {
-            capacity
+        // Keep normal refill inside the hot window. A continuously full window
+        // still admits one start per quota, independent of dispatch outcome.
+        } else if self.admission_pressure >= REMOTE_ADMISSION_DISPATCH_BOUND {
+            1
         } else {
             return false;
         };
-        self.yield_pressure = 0;
-        self.inbox.drain_into(&mut self.incoming, limit);
+        if self.inbox.drain_into(&mut self.incoming, limit) != 0 {
+            self.admission_pressure = 0;
+        }
         let mut received = false;
         while let Some(packet) = self.incoming.pop_front() {
             self.pending = Some(packet);
@@ -176,3 +180,7 @@ impl Kernel {
 #[cfg(test)]
 #[path = "kernel_receive_test.rs"]
 mod kernel_receive_test;
+
+#[cfg(test)]
+#[path = "kernel_admission_test.rs"]
+mod kernel_admission_test;

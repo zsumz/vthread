@@ -90,8 +90,6 @@ impl Kernel {
                         });
                 }
                 self.stats.yields += 1;
-                // Receive clears this at the fixed backlog-drain bound, preventing overflow.
-                self.yield_pressure += u32::from(self.remote_pending);
                 #[cfg(feature = "runtime-evidence")]
                 self.shared
                     .record(crate::diagnostics::evidence::RuntimeEventKind::Yielded {
@@ -187,7 +185,6 @@ impl Kernel {
     }
 
     fn park_task(&mut self, request: ParkRequest) -> Result<()> {
-        self.yield_pressure = 0;
         let token = request.token();
         let task = self.in_flight.expect("parking task key");
         if self.parked.get(task).is_some() {
