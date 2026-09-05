@@ -1,4 +1,4 @@
-use super::{Kernel, REMOTE_ADMISSION_YIELD_BOUND};
+use super::{Kernel, REMOTE_ADMISSION_DISPATCH_BOUND};
 use crate::{CarrierId, Runtime, TaskFailure, control::Shared};
 use std::sync::{
     Arc,
@@ -66,7 +66,7 @@ fn yielding_window_cannot_starve_later_admissions() {
     let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
     kernel.receive();
 
-    for _ in 0..REMOTE_ADMISSION_YIELD_BOUND - 1 {
+    for _ in 0..REMOTE_ADMISSION_DISPATCH_BOUND - 1 {
         assert!(kernel.tick(true).unwrap());
         kernel.receive();
     }
@@ -111,7 +111,7 @@ fn an_empty_remote_queue_does_not_precharge_admission_pressure() {
     for _ in 0..64 {
         assert!(kernel.tick(true).unwrap());
     }
-    assert_eq!(kernel.yield_pressure, 0);
+    assert_eq!(kernel.admission_pressure, 0);
 
     shared.submit(scope, "later".into(), || ()).unwrap();
     assert!(kernel.receive());

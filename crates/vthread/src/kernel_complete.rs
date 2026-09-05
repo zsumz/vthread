@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 impl Kernel {
     pub(super) fn complete_task(&mut self) {
-        self.yield_pressure = 0;
         let task_key = self.in_flight.expect("completed task key");
         let record = Arc::clone(self.task(task_key).execution().record());
         #[cfg(feature = "lifecycle-profiling")]
