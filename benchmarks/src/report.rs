@@ -17,6 +17,7 @@ pub(crate) fn measure(
 ) -> Result<(), String> {
     let warmup = round(true)?;
     crate::channel_delivery::validate(config, warmup.channel_delivery.as_ref())?;
+    crate::channel_latency::validate(config, &warmup.operation_latency_groups_ns)?;
     let mut samples = Vec::with_capacity(config.samples);
     let mut admission_samples = Vec::with_capacity(config.samples);
     let mut drain_samples = Vec::with_capacity(config.samples);
@@ -36,6 +37,7 @@ pub(crate) fn measure(
         #[cfg(feature = "allocation-probe")]
         allocation_samples.push(crate::allocation_probe::finish());
         crate::channel_delivery::validate(config, round.channel_delivery.as_ref())?;
+        crate::channel_latency::validate(config, &round.operation_latency_groups_ns)?;
         samples.push(total);
         admission_samples.push(round.admission_ns);
         drain_samples.push(total.saturating_sub(round.admission_ns));
@@ -95,6 +97,7 @@ pub(crate) fn measure(
             drain_samples,
         );
     }
+    crate::channel_latency::print_directions(config, &operation_latency_groups);
     let (mut operation_latencies, task_medians, task_p99_9, task_maxima) =
         summarize_latency_groups(operation_latency_groups);
     if !operation_latencies.is_empty() {
@@ -154,7 +157,7 @@ fn latency_quantile(samples: &[u64], percentile: usize) -> u64 {
     latency_quantile_ratio(samples, percentile, 100)
 }
 
-fn latency_quantile_ratio(samples: &[u64], numerator: usize, denominator: usize) -> u64 {
+pub(crate) fn latency_quantile_ratio(samples: &[u64], numerator: usize, denominator: usize) -> u64 {
     assert!(!samples.is_empty(), "latency samples must not be empty");
     assert!(numerator > 0, "quantile numerator must be positive");
     assert!(numerator <= denominator, "quantile must not exceed one");
@@ -175,7 +178,9 @@ fn append_latency_groups(aggregate: &mut Vec<Vec<u64>>, mut round: Vec<Vec<u64>>
     }
 }
 
-fn summarize_latency_groups(groups: Vec<Vec<u64>>) -> (Vec<u64>, Vec<u64>, Vec<u64>, Vec<u64>) {
+pub(crate) fn summarize_latency_groups(
+    groups: Vec<Vec<u64>>,
+) -> (Vec<u64>, Vec<u64>, Vec<u64>, Vec<u64>) {
     let mut all = Vec::new();
     let mut medians = Vec::with_capacity(groups.len());
     let mut p99_9 = Vec::with_capacity(groups.len());

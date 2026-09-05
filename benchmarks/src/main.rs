@@ -3,6 +3,7 @@ use std::process::ExitCode;
 #[cfg(feature = "allocation-probe")]
 mod allocation_probe;
 mod channel_delivery;
+mod channel_latency;
 mod config;
 #[cfg(feature = "lifecycle-profiling")]
 mod lifecycle_profile;
@@ -16,6 +17,7 @@ mod report;
 mod scheduler_profile;
 mod tcp_peer;
 mod vthread_channel;
+mod vthread_channel_timed;
 mod vthread_engine;
 mod vthread_placement;
 mod vthread_setup;

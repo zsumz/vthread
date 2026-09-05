@@ -121,8 +121,30 @@ warm-up and measured round must pass exact count, identifier-range and uniquenes
 checks, performed **after elapsed timing and allocation recording stop**. Vector
 allocation and recording remain part of end-to-end timing; validation and freeing
 those vectors are outside it. Whole-process `perf stat` includes validation as well
-as warm-up and shutdown, so its cycles are not pure channel cycles. This control
-does not collect individual operation latency or claim a loaded-tail/fairness proof.
+as warm-up and shutdown, so its cycles are not pure channel cycles.
+
+Add `--sample-channel-latency` to collect one `Instant` interval around every send
+and receive API call. This is a separate `-sampled` operation label: the throughput
+denominator still counts transferred values once, while each transfer contributes
+two endpoint-call observations. Directional reports keep sender and receiver tails
+separate (p50/p90/p95/p99/p99.9/p99.99/max), with per-stream median and p99.9 spread.
+Every round, including warm-up, must supply exactly one sample per call per task.
+Streams are logical admission slots across rounds, consumers first then producers;
+they are not one persistent task identity. Warm-up observations are excluded.
+
+```sh
+taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread channel-mpmc 20000 1 4 64 9 --pin-carriers --sample-channel-latency
+```
+
+The sampled path retains sender join handles and preallocates task-local timing
+vectors inside the elapsed interval. Clock reads and recording perturb scheduling;
+clock overhead is not subtracted. Summarization and validation are outside elapsed
+timing, but included in whole-process hardware counters. Compare sampled baseline
+and candidate separately, and keep the untimed control for throughput acceptance.
+This closed-loop, fixed-quota workload measures API-call latency and per-stream
+spread, **not** message arrival-to-delivery latency, offered-load backpressure,
+maximum waiter age or a starvation/fairness bound. No extra shared measurement lock,
+affinity hint or per-operation branch is added to the plain transfer loop.
 
 The round report includes median, p95, p99, maximum, and every whole-round sample. `tcp` and
 `wake-tail` additionally retain per-task latency streams across measured rounds and print

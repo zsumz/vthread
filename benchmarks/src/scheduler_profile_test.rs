@@ -10,6 +10,7 @@ fn config() -> Config {
         samples: 3,
         max_vthreads: Some(64),
         pin_carriers: false,
+        sample_channel_latency: false,
     }
 }
 

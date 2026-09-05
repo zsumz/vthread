@@ -17,13 +17,17 @@ pub(crate) fn run(config: &Config) -> Result<(), String> {
     println!("engine=vthread phase=instrumentation scheduler_profiling=true headline=false");
     if let Scenario::ChannelMpmc { per_task, capacity } = config.scenario {
         println!(
-            "engine=vthread phase=channel-contract channels=1 producers={} consumers={} messages_per_producer={} capacity={} wait_capacity_per_direction={} validation=exact-outside-elapsed timing=end-to-end receiver_recording=inside-elapsed topology=normal-placement latency_distribution=false",
+            "engine=vthread phase=channel-contract channels=1 producers={} consumers={} messages_per_producer={} capacity={} wait_capacity_per_direction={} validation=exact-outside-elapsed timing=end-to-end receiver_recording=inside-elapsed topology=normal-placement latency_distribution={}",
             config.tasks / 2,
             config.tasks / 2,
             per_task,
             capacity,
             config.tasks / 2,
+            config.sample_channel_latency,
         );
+        if config.sample_channel_latency {
+            crate::channel_latency::print_contract();
+        }
     }
     let runtime = crate::vthread_setup::build(config)?;
     measure(config, |observe_placement| {
@@ -94,19 +98,12 @@ fn run_round(
                     }
                 }
                 Scenario::ChannelMpmc { per_task, capacity } => {
-                    let mut receivers = crate::vthread_channel::spawn_shared(
-                        scope,
-                        config.tasks,
-                        per_task,
-                        capacity,
+                    let shared = crate::vthread_channel::run_shared(
+                        scope, config, per_task, capacity, started,
                     )?;
-                    let admission_ns = started.elapsed().as_nanos();
-                    let mut received = Vec::with_capacity(receivers.len());
-                    for receiver in &mut receivers {
-                        received.push(receiver.join()??);
-                    }
-                    channel_delivery = Some(crate::channel_delivery::Delivery::new(received));
-                    return Ok(admission_ns);
+                    channel_delivery = Some(shared.delivery);
+                    operation_latency_groups_ns = shared.latency_groups_ns;
+                    return Ok(shared.admission_ns);
                 }
                 Scenario::Tcp { per_task } => {
                     let address = address.expect("TCP peer address");
