@@ -85,3 +85,49 @@ baseline. Compare its batching and polling with these preserved binaries before
 changing idle policy. Retention still requires default-build cycles, lifecycle and
 synchronization at tight and production capacities, tails, fairness and idle CPU.
 No new May comparison is claimed, and HTTP remains separate.
+
+## Follow-up: isolate the ingress repair
+
+A second, separate candidate applies the same observer-only patch to the qualified
+ingress-repair checkpoint `a4b5a96740ae426de4fbff43c00e9bf385c03472`.
+Its source SHA-256 is
+`e64748648c1c38b990e3c7ecdd83404fc2db4576b2aa12acf1bfcc919c436da1`.
+All three snapshot and all three ordered ingress tests pass. No further canonical
+qualification is claimed for this rejected runtime candidate.
+
+Four independent processes per arm and case rotate all four positions once: original,
+observer-only, ingress repair, and both changes. The 48 runs retain all observations;
+none are excluded. Their 96 endpoint host snapshots caught no compiler/test process
+or process above 10% lifetime-average CPU. This is still not dedicated-host proof.
+
+At 10,000 lifecycle tasks/capacity, the diagnostic medians are:
+
+| Metric | Original | Observer | Ingress repair | Both |
+| --- | ---: | ---: | ---: | ---: |
+| Throughput-derived ns/task | 363.52 | 434.29 | 370.06 | 435.78 |
+| Whole-process cycles, billions | 25.566 | 31.696 | 25.295 | 31.512 |
+| Mean nonempty receive batch | 13.80 | 1.012 | 14.26 | 1.010 |
+| Poll probes per admitted task | 0.524 | 17.270 | 0.445 | 16.687 |
+| Empty idle entries | 14.5 | 5,760,653.5 | 2.5 | 23.5 |
+
+The cached-ingress repair removes the repeated empty-idle behavior, but does not
+recover useful batching or the lifecycle cycle penalty. The combined candidate
+uses **24.58% more cycles** than the repaired baseline and remains rejected.
+At capacity 65,536 it still improves diagnostic lifecycle cycles by 61.61% and
+64-task park cycles by 91.47%. Those benefits do not override the regression.
+
+A separate 199-Hz cycle sample uses the combined candidate's **uninstrumented**
+binary. Of 1,757 samples, approximately 29.8% fall in the inlined carrier-entry
+symbol, 14.5% in receive and 5.6% in snapshot publication. About 71% of the entry
+symbol's samples fall immediately after the idle `pause` instruction. Sample skid
+and inlining prevent exact per-instruction cost attribution, but polling remains a
+large observed cost after repairing empty-idle reentry. Incomplete call chains are
+not used as evidence.
+
+This narrows the next capacity experiment to useful admission batching and idle
+pacing, not another shared wake counter or weaker wait atomic ordering. The combined
+source is shelved at `03c561bdc28dd9aea65a61f37648bf84f391a305`. The
+[source-keyed bundle](evidence/capacity-ingress-e6474864.tar.gz) preserves its raw
+evidence; [the index](evidence/README.md) records the archive digest. Production keeps its capacity
+scans for now. Channel eligibility work is a separate slice, not hidden in this
+attribution baseline.
