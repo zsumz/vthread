@@ -13,8 +13,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let report = soak::run(duration, carriers, tasks)?;
     writeln!(
         std::io::stdout(),
-        "{{\"schema\":1,\"workload\":\"mixed-soak\",\"connection_strategy\":\"persistent-pair\",\"carriers\":{carriers},\"tasks\":{tasks},\"iterations\":{},\"elapsed_ns\":{},\"spawned\":{},\"completed\":{},\"parks\":{},\"wakes\":{},\"stack_allocated\":{},\"stack_reused\":{}}}",
+        "{{\"schema\":1,\"workload\":\"mixed-soak\",\"connection_strategy\":\"persistent-pair\",\"carriers\":{carriers},\"tasks\":{tasks},\"iterations\":{},\"mutex_updates\":{},\"elapsed_ns\":{},\"spawned\":{},\"completed\":{},\"parks\":{},\"wakes\":{},\"stack_allocated\":{},\"stack_reused\":{}}}",
         report.iterations,
+        report.mutex_updates,
         report.elapsed.as_nanos(),
         report.stats.admitted(),
         report.stats.completed(),
