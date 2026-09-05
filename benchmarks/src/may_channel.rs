@@ -13,24 +13,22 @@ macro_rules! spawn_channel_pairs {
             let probe_a = probe.clone();
             let probe_b = probe;
             may::go!($scope, move || {
-                let mut trace = probe_a
-                    .as_ref()
-                    .map(|_| $crate::may_placement::TaskTrace::start());
+                let mut trace = $observe.then($crate::may_placement::TaskTrace::start);
                 to_b.send(0).expect("peer must remain connected");
-                trace
-                    .iter_mut()
-                    .for_each($crate::may_placement::TaskTrace::observe);
+                if $observe {
+                    trace.as_mut().expect("warm-up trace").observe();
+                }
                 for index in 0..$iterations {
                     let value = from_b.recv().expect("peer must send a value");
-                    trace
-                        .iter_mut()
-                        .for_each($crate::may_placement::TaskTrace::observe);
+                    if $observe {
+                        trace.as_mut().expect("warm-up trace").observe();
+                    }
                     std::hint::black_box(value);
                     if index + 1 != $iterations {
                         to_b.send(value + 1).expect("peer must remain connected");
-                        trace
-                            .iter_mut()
-                            .for_each($crate::may_placement::TaskTrace::observe);
+                        if $observe {
+                            trace.as_mut().expect("warm-up trace").observe();
+                        }
                     }
                 }
                 if let (Some(probe), Some(trace)) = (probe_a, trace) {
@@ -38,19 +36,17 @@ macro_rules! spawn_channel_pairs {
                 }
             });
             may::go!($scope, move || {
-                let mut trace = probe_b
-                    .as_ref()
-                    .map(|_| $crate::may_placement::TaskTrace::start());
+                let mut trace = $observe.then($crate::may_placement::TaskTrace::start);
                 for _ in 0..$iterations {
                     let value = from_a.recv().expect("peer must send a value");
-                    trace
-                        .iter_mut()
-                        .for_each($crate::may_placement::TaskTrace::observe);
+                    if $observe {
+                        trace.as_mut().expect("warm-up trace").observe();
+                    }
                     std::hint::black_box(value);
                     to_a.send(value + 1).expect("peer must remain connected");
-                    trace
-                        .iter_mut()
-                        .for_each($crate::may_placement::TaskTrace::observe);
+                    if $observe {
+                        trace.as_mut().expect("warm-up trace").observe();
+                    }
                 }
                 if let (Some(probe), Some(trace)) = (probe_b, trace) {
                     probe.record(1, trace);

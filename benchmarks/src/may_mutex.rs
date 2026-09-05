@@ -13,9 +13,7 @@ macro_rules! spawn_mutex_tasks {
                 $probes.push(std::sync::Arc::clone(probe));
             }
             may::go!($scope, move || {
-                let mut trace = probe
-                    .as_ref()
-                    .map(|_| $crate::may_placement::TaskTrace::start());
+                let mut trace = $observe.then($crate::may_placement::TaskTrace::start);
                 ready.fetch_add(1, std::sync::atomic::Ordering::Release);
                 if $contended && $config.workers == 1 {
                     while ready.load(std::sync::atomic::Ordering::Acquire) != $config.tasks {
@@ -24,9 +22,9 @@ macro_rules! spawn_mutex_tasks {
                 }
                 for _ in 0..$iterations {
                     let mut value = mutex.lock().expect("mutex must not be poisoned");
-                    trace
-                        .iter_mut()
-                        .for_each($crate::may_placement::TaskTrace::observe);
+                    if $observe {
+                        trace.as_mut().expect("warm-up trace").observe();
+                    }
                     *value += 1;
                     if $contended {
                         if $config.workers == 1 {
