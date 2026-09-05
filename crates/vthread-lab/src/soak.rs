@@ -63,6 +63,12 @@ pub(crate) fn run(duration: Duration, carriers: usize, tasks: usize) -> Result<R
     runtime.shutdown()?;
     let snapshot = runtime.snapshot();
     assert_eq!(snapshot.active(), 0);
+    assert!(
+        snapshot
+            .carriers()
+            .iter()
+            .all(|carrier| carrier.pending_wakes() == 0)
+    );
     assert_eq!(snapshot.services().readiness_waits(), 0);
     assert_eq!(snapshot.services().readiness_registered(), 0);
     assert_eq!(snapshot.services().blocking_queued(), 0);
