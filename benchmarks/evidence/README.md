@@ -15,6 +15,7 @@ release qualification or an archive of executed binaries.
 | `scheduler-profile-718e21c1.tar.gz` | [Scheduler activity](../scheduler-profile-review.md) | `7dc52997e93f3d3499eb02afa224c35a666fb25f658397c76f6a8a5598b5b397` |
 | `capacity-pacing-244bc8a1.tar.gz` | [Rejected capacity experiment](../capacity-pacing-review.md) | `93539843d126e7cc2b1b3c71293c8bf9d64cd1b21a344c1522d80b58240a41b5` |
 | `ingress-visibility-aa2fa66e.tar.gz` | [Idle ingress progress](../ingress-visibility-review.md) | `9d3d6c9ec47309922b4cb716c689f00b02ecd46d81f40ccc47faf4e59c5b1bdc` |
+| `capacity-ingress-e6474864.tar.gz` | [Four-way capacity attribution](../capacity-pacing-review.md) | `766796d6657116476b550162cfe61046f336bc74f2c2ca7ebe9cf99252ac2836` |
 
 The ready-fairness bundle includes original, FIFO, cohort-32 and cohort-2 logs;
 the original failing production-queue regression; counter CSVs; native tests and
@@ -63,6 +64,12 @@ optimized qualification, 20 one-CPU replays and 705,249 mixed soak lifetimes. It
 preserves initial and final test sources separately, along with mixed default-build
 controls, excluded contaminated rounds and endpoint host observations. Its progress
 proof passes; quiet-host multi-carrier performance/tail acceptance remains open.
+
+The capacity-ingress bundle retains the rejected combined observer/ingress source
+against `a4b5a96`, six targeted checks, 48 four-way diagnostic processes, all source
+and binary identities, and the separate uninstrumented cycle sample/annotation.
+It demonstrates that removing empty-idle reentry does not recover the lifecycle
+batching penalty. No idle policy or scan-free change is retained in production.
 
 Extract into a fresh directory and inspect the manifests before replaying commands.
 Absolute paths in captured receipts describe the original host, not required output

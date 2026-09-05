@@ -187,3 +187,10 @@ dependency on a paused notifier and its owner-local cache repair, with capacity
 scans still enabled. Native/canonical/soak proof passes; multi-carrier performance
 and tail acceptance remain open because the observations are mixed and host
 activity contaminated several runs. No new May claim is made.
+
+The next four-way profile confirms the ingress repair removes millions of empty
+idle reentries, but scan removal still increases tightly provisioned lifecycle
+cycles by 24.58%. That combined candidate is also shelved, with durable raw evidence
+in the capacity-pacing review. A separate uninstrumented sample still points at
+idle polling. Capacity-independent publication remains open; the next independent
+slice examines channel wake eligibility without changing resource publication.
