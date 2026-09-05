@@ -7,25 +7,31 @@ use std::{
 
 #[test]
 fn stop_request_does_not_execute_queued_user_destructors_on_its_caller() {
-    struct Capture(mpsc::Receiver<()>, mpsc::SyncSender<thread::ThreadId>);
+    #[derive(Debug)]
+    enum Event {
+        StopReturned,
+        CaptureDropped(thread::ThreadId),
+    }
+    struct Capture(mpsc::Receiver<()>, mpsc::SyncSender<Event>);
     impl Drop for Capture {
         fn drop(&mut self) {
-            self.1.send(thread::current().id()).unwrap();
+            self.1
+                .send(Event::CaptureDropped(thread::current().id()))
+                .unwrap();
             self.0.recv_timeout(Duration::from_secs(5)).unwrap();
         }
     }
     let runtime = Arc::new(Runtime::builder().blocking_threads(1).build().unwrap());
     let (release_job, job_gate) = mpsc::sync_channel(1);
     let (release_drop, drop_gate) = mpsc::sync_channel(1);
-    let (drop_thread, dropped) = mpsc::sync_channel(1);
-    let (stopped, stop_done) = mpsc::sync_channel(1);
+    let (events, observed) = mpsc::sync_channel(2);
     runtime
         .run_scope(|scope| {
             let mut first = scope.spawn("running", move || {
                 blocking::run(move || job_gate.recv_timeout(Duration::from_secs(5)).unwrap())
             })?;
             until(|| runtime.snapshot().services.blocking_running == 1);
-            let capture = Capture(drop_gate, drop_thread);
+            let capture = Capture(drop_gate, events.clone());
             let mut second = scope.spawn("queued", move || {
                 blocking::run(move || {
                     let _capture = capture;
@@ -36,10 +42,12 @@ fn stop_request_does_not_execute_queued_user_destructors_on_its_caller() {
             let remote = Arc::clone(&runtime);
             let stopper = thread::spawn(move || {
                 remote.shared.request_stop();
-                stopped.send(()).unwrap();
+                events.send(Event::StopReturned).unwrap();
             });
             let stopper_id = stopper.thread().id();
-            let returned = stop_done.recv_timeout(Duration::from_millis(100)).is_ok();
+            // The sole native worker remains gated. A destructor observed first
+            // therefore exposes synchronous cleanup, regardless of scheduling delay.
+            let first_event = observed.recv_timeout(Duration::from_secs(5));
             // Release both gates before asserting so the old implementation also drains.
             release_job.send(()).unwrap();
             release_drop.send(()).unwrap();
@@ -48,10 +56,15 @@ fn stop_request_does_not_execute_queued_user_destructors_on_its_caller() {
             let _ = first.join();
             let _ = second.join();
             assert!(
-                returned,
-                "stop request blocked inside a queued capture destructor"
+                matches!(first_event, Ok(Event::StopReturned)),
+                "stop request did not precede queued cleanup: {first_event:?}"
             );
-            assert_ne!(dropped.recv().unwrap(), stopper_id);
+            let Event::CaptureDropped(dropper) =
+                observed.recv_timeout(Duration::from_secs(5)).unwrap()
+            else {
+                panic!("missing queued capture cleanup");
+            };
+            assert_ne!(dropper, stopper_id);
             Ok(())
         })
         .unwrap();
