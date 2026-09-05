@@ -48,21 +48,19 @@ macro_rules! spawn_park_pairs {
             let own = Arc::clone(&a);
             let peer = Arc::clone(&b);
             may::go!($scope, move || {
-                let mut trace = probe_a
-                    .as_ref()
-                    .map(|_| crate::may_placement::TaskTrace::start());
+                let mut trace = $observe.then(crate::may_placement::TaskTrace::start);
                 assert!(own.set(may::coroutine::current()).is_ok());
                 while peer.get().is_none() {
                     may::coroutine::yield_now();
                 }
-                trace
-                    .iter_mut()
-                    .for_each(crate::may_placement::TaskTrace::observe);
+                if $observe {
+                    trace.as_mut().expect("warm-up trace").observe();
+                }
                 for _ in 0..$iterations {
                     may::coroutine::park();
-                    trace
-                        .iter_mut()
-                        .for_each(crate::may_placement::TaskTrace::observe);
+                    if $observe {
+                        trace.as_mut().expect("warm-up trace").observe();
+                    }
                     peer.get().expect("peer handle published").unpark();
                 }
                 if let (Some(probe), Some(trace)) = (probe_a, trace) {
@@ -70,22 +68,20 @@ macro_rules! spawn_park_pairs {
                 }
             });
             may::go!($scope, move || {
-                let mut trace = probe_b
-                    .as_ref()
-                    .map(|_| crate::may_placement::TaskTrace::start());
+                let mut trace = $observe.then(crate::may_placement::TaskTrace::start);
                 assert!(b.set(may::coroutine::current()).is_ok());
                 while a.get().is_none() {
                     may::coroutine::yield_now();
                 }
-                trace
-                    .iter_mut()
-                    .for_each(crate::may_placement::TaskTrace::observe);
+                if $observe {
+                    trace.as_mut().expect("warm-up trace").observe();
+                }
                 for _ in 0..$iterations {
                     a.get().expect("peer handle published").unpark();
                     may::coroutine::park();
-                    trace
-                        .iter_mut()
-                        .for_each(crate::may_placement::TaskTrace::observe);
+                    if $observe {
+                        trace.as_mut().expect("warm-up trace").observe();
+                    }
                 }
                 if let (Some(probe), Some(trace)) = (probe_b, trace) {
                     probe.record(1, trace);
