@@ -137,3 +137,7 @@ impl<T> Drop for MutexGuard<'_, T> {
 #[cfg(test)]
 #[path = "mutex_test.rs"]
 mod mutex_test;
+
+#[cfg(test)]
+#[path = "mutex_handoff_race_test.rs"]
+mod mutex_handoff_race_test;

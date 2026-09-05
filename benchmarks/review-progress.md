@@ -194,3 +194,8 @@ The [mutex placement review](mutex-placement-review.md) rejects cache-line paddi
 and adds a separately labeled, verified benchmark control for Linux carrier pinning.
 Pinning is approximately flat in the measured mutex comparison; May remains about
 2.3 times faster there. No core runtime change or new performance win is retained.
+
+The [mutex handoff repair](mutex-handoff-repair.md) records a deterministic
+cancellation-induced ownership leak in that baseline, the selection-under-lock
+repair, and the native and modeled qualification of its publication boundary.
+It is a correctness repair, not a new claim of beating May.

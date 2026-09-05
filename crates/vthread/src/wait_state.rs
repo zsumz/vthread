@@ -115,6 +115,32 @@ impl WaitWord {
         )
     }
 
+    /// Candidate for a resource offer. Binding callers retry after publication.
+    pub(super) fn resource_offer(self, selection: ResourceSelection) -> Option<Self> {
+        if self.is_closed()
+            || !matches!(self.phase(), Phase::Idle | Phase::Active)
+            || self.has_permit()
+            || self.resource().is_some()
+        {
+            return None;
+        }
+        let offered = self.with_resource(Some(selection));
+        Some(if self.phase() == Phase::Active {
+            offered.claimed(WakeCause::Ready)
+        } else {
+            offered.with_permit(true)
+        })
+    }
+
+    /// Candidate for consumption; never modifies a write-exclusive publication.
+    pub(super) fn resource_take(self) -> Option<(Self, ResourceSelection)> {
+        if self.phase() == Phase::Binding || self.is_claimed() {
+            return None;
+        }
+        self.resource()
+            .map(|resource| (self.with_resource(None), resource))
+    }
+
     pub(super) fn with_phase(self, phase: Phase) -> Self {
         Self((self.0 & !PHASE_MASK) | phase as u64)
     }

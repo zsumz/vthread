@@ -6,6 +6,8 @@ mod wait_begin;
 mod wait_evidence;
 #[path = "wait_finish.rs"]
 mod wait_finish;
+#[path = "wait_resource.rs"]
+mod wait_resource;
 #[path = "wait_select.rs"]
 mod wait_select;
 #[path = "wait_state.rs"]
