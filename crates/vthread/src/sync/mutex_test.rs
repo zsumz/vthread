@@ -145,3 +145,42 @@ fn local_mutexes_can_protect_borrowed_non_send_values() {
         })
         .unwrap();
 }
+
+#[test]
+fn a_panicking_handed_off_guard_releases_its_fifo_successor() {
+    Runtime::new()
+        .unwrap()
+        .run_scope(|scope| {
+            scope
+                .spawn("parent", || {
+                    let mutex = Mutex::with_wait_capacity(0, 2).unwrap();
+                    let owner = mutex.try_lock().unwrap();
+                    local_scope(|local| {
+                        let mut first = local.spawn("panicking successor", || {
+                            let mut guard = mutex.lock().unwrap();
+                            *guard = 42;
+                            panic!("handed off owner failed");
+                        })?;
+                        while mutex.waiting() != 1 {
+                            yield_now()?;
+                        }
+                        let mut second = local.spawn("remaining successor", || {
+                            *mutex.lock()? += 1;
+                            Ok::<_, Error>(())
+                        })?;
+                        while mutex.waiting() != 2 {
+                            yield_now()?;
+                        }
+                        drop(owner);
+                        assert!(matches!(first.join(), Err(Error::TaskPanicked { .. })));
+                        second.join()??;
+                        Ok(())
+                    })
+                    .unwrap();
+                    assert_eq!(mutex.waiting(), 0);
+                    assert_eq!(*mutex.try_lock().unwrap(), 43);
+                })?
+                .join()
+        })
+        .unwrap();
+}
