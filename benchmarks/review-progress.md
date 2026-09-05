@@ -179,3 +179,7 @@ dequeue experiment, and its complete reversed-order counter and tail evidence. I
 records May's default OS-worker pinning and strengthens the foreign-runtime Drop test
 with explicit event ordering. The next protocol experiment targets the owner wake-head
 exchange; no mailbox implementation or corresponding speedup is claimed here.
+
+The subsequent [mailbox model slice](mailbox-review.md) adds the isolated publication
+kernel and shared standard/Loom tests. The scheduler still uses the existing wake
+queue; this follow-up makes no new runtime performance claim.

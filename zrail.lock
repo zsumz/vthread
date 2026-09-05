@@ -6,19 +6,19 @@ contract_sha256 = "a395c4e70820f9ec1023520a06a8147bd5f5507c3319637f0670d13c6bbef
 ratchet = []
 
 [analysis]
-inventory_sha256 = "cb8a2b9d74bd58ea5904eeb7e1f361360f32fc1e06565f0a7b62c8a147931034"
+inventory_sha256 = "72daf461e7921d6ff7a7df52367bc9a73b80f93ff9bad3d3ee230ed815e50da5"
 exclusions_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-cargo_lock_sha256 = "c6e29ff6a0a68ba0ce9834ddefe2d39dc2dd6783ddddf7c9be876e40012f0d6c"
+cargo_lock_sha256 = "a8c1e9f4fd6dea86e22ca421b48aa8a9b3473d0518c590a2ec4bffd365dc833a"
 cargo_features_sha256 = "1bf66bee6b2ab19d0c4dd89517ee70b1cb6fdfc36d7de6247eb42680b8f5522b"
 feature_worlds_sha256 = "a095667d6185d3f60ac889aebb70faf06c59c0954023f81f69e4965f3c6cab86"
 feature_worlds = 3
 packages = 5
-targets = 6
-physical_rust_files = 361
-base_source_contexts = 1557
+targets = 7
+physical_rust_files = 366
+base_source_contexts = 1584
 derived_source_contexts = 0
-source_facts = 112003
-projection_queries = 2075856
+source_facts = 115635
+projection_queries = 2137149
 projected_facts = 29
 unresolved_bindings = 0
 analyzer_semantics = 4
@@ -140,7 +140,18 @@ requirement = "=0.2.189"
 
 [[package]]
 name = "vthread-sync-core"
-dependency = []
+
+[[package.dependency]]
+alias = "loom"
+name = "loom"
+kind = "development"
+scope = "external"
+optional = false
+default_features = true
+
+[package.dependency.source]
+kind = "registry"
+requirement = "=0.7.2"
 
 [[package]]
 name = "vthreads"
