@@ -11,7 +11,7 @@ out of scope. The overall May goal and stable-release qualification remain open.
 
 | Order | Slice | Exit evidence | State |
 | --- | --- | --- | --- |
-| 1 | ARM64 terminal result register | Real ARM64 debug/optimized completion, yield/park, panic, forced unwind, reuse and FP state | Defect confirmed in source; regression/CI preparation |
+| 1 | ARM64 terminal result register | Real ARM64 debug/optimized completion, yield/park, panic, forced unwind, reuse and FP state | One-instruction repair locally qualified; repaired ARM64 run pending |
 | 2 | Ready-queue bounded fairness | Old code fails mixed hot-wake/normal-work counterexample; repaired dispatch bound and measured tradeoffs | Pending |
 | 3 | Pending-admission fairness | Real late starts under sustained mixed park/yield/wake and borrowed work | Pending |
 | 4 | Unexplained stall test | Actual failure state; ordered evidence replacing unproven temporal assumptions | Pending |
@@ -70,3 +70,17 @@ four new terminal regressions also passed in debug. The lock refresh changes
 source inventory only, with zero new architecture grants or revocations. The
 terminal instruction is deliberately still unchanged in this first checkpoint
 so the real ARM64 CI run can serve as a negative control.
+
+The pre-repair checkpoint `7680e607a695ffc8c7f52a63137ab94b4702d106` executed in
+[native-stack run 33973334384](https://github.com/zsumz/vthread/actions/runs/33973334384).
+Both Linux profiles passed. Both ARM64 profiles passed host/triple verification
+and failed in the qualification step with exit code 101. Source-keyed artifacts
+were uploaded, but unauthenticated log/artifact downloads from this host returned
+403/401. The exact failure text has not been inspected; job failure alone is not
+reported as a reproduced runtime assertion or successful compilation.
+
+The subsequent one-instruction repair (`mov x0, x1`) passed all 11 local canonical
+gates under receipt
+`/root/.cache/zcheck/run-1788620337-573240029-2144698/receipt.json`.
+It changes no Linux assembly or runtime scheduling policy and requires no lock
+or grant change. Real ARM64 qualification of the repaired commit remains pending.

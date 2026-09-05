@@ -126,7 +126,9 @@ pub(crate) unsafe extern "C" fn context_finish(restore: usize, transfer: usize) 
         "ldp x21, x22, [sp, #16]",
         "ldp x19, x20, [sp, #0]",
         "add sp, sp, #176",
-        "mov x2, x1",
+        // The restored LR returns to context_switch's caller, whose scalar result
+        // is x0. It does not pass through context_switch's own transfer move.
+        "mov x0, x1",
         "ret",
     )
 }
