@@ -135,6 +135,12 @@ has separately recorded refill, join/deadline, timer, I/O retry and timing-ratio
 These are open release-evidence work, not silently accepted or attributed to runtime
 defects without investigation. Admission remains a separate runtime/performance patch.
 
+An additional canonical completion assertion is explained separately in
+[completion-observer-review.md](completion-observer-review.md): a target observer can
+leave before scope accounting is queued. Qualification now checks both permitted
+batching after observer retirement and mandatory flushing while a waiter remains
+registered, with no production batching change.
+
 ## Pending-admission repair
 
 The independent admission slice now counts service opportunities in receive, once

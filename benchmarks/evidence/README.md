@@ -10,6 +10,7 @@ release qualification or an archive of executed binaries.
 | `ready-fairness-bd80c2f1.tar.gz` | [Ready fairness](../ready-fairness-review.md) | `a60f5ed413af10412e64dbed83a9e8c0dcd5b02fc3735195eaa768f5b58071e8` |
 | `wait-qualification-22558d5c.tar.gz` | [Ordered wait qualification](../wait-qualification-review.md) | `eb70809ed123b79cd9d0c3b79cfaef32725b4b2520fc18dfc86d50d42b38518d` |
 | `admission-fairness-fc9156a9.tar.gz` | [Admission fairness](../admission-fairness-review.md) | `398d1233d2e195d542768037c64bb4ecb0fb21ec8c7f1c0f84f55cfd720e4850` |
+| `completion-observer-f8f1f6f5.tar.gz` | [Completion observer](../completion-observer-review.md) | `b080b4bc24ed6a274cc2755433cb928e052dbfc338c71be341e416ba7f3f4070` |
 
 The ready-fairness bundle includes original, FIFO, cohort-32 and cohort-2 logs;
 the original failing production-queue regression; counter CSVs; native tests and
@@ -28,6 +29,12 @@ quota patch against `a456324`, canonical/native/benchmark qualification, mixed
 soaks, balanced and reversed timing panels, and local/remote park counters. It
 preserves the initial default-native failure that prompted the separate ordered-
 test slice, as well as the final passing qualification after that repair.
+
+The completion-observer bundle records the naturally failed accounting assertion,
+the ordered old-assumption and disabled-flush negative controls, the test-only repair
+against `2abae58`, canonical/native/optimized qualification, and 100 one-CPU replays.
+It includes the earlier publication-source patch and rejected lock-refresh receipt
+to preserve the exact context in which the original assertion failed.
 
 Extract into a fresh directory and inspect the manifests before replaying commands.
 Absolute paths in captured receipts describe the original host, not required output

@@ -109,3 +109,52 @@ fn stall_detection_observes_each_completion() {
     assert!(shared.changed.version() > observed);
     shared.complete(&last, None);
 }
+
+#[test]
+fn a_target_observer_can_retire_before_its_completion_batch_is_queued() {
+    use crate::{CarrierId, kernel::Kernel};
+    use std::io::Write;
+
+    let config = Runtime::builder()
+        .max_vthreads(2)
+        .carrier_queue_capacity(2)
+        .stack_cache_capacity(2)
+        .build()
+        .unwrap()
+        .config();
+    let shared = Arc::new(Shared::new(config));
+    let scope = shared.begin_scope().unwrap();
+    let target = shared.reserve(scope, "target".into(), None).unwrap();
+    let sibling = shared.reserve(scope, "sibling".into(), None).unwrap();
+    let completion = std::thread::scope(|threads| {
+        // TargetWaiter registers before acquiring this lock. Hold it so the
+        // observer cannot inspect the target until its completion is visible.
+        let state = crate::signal::lock(&shared.state);
+        let observer = threads.spawn(|| shared.wait(scope, Some(&target)));
+        crate::support_test::until(|| !shared.may_defer_completion());
+        let completion = shared.prepare_completion(&target, None).unwrap();
+        target.completion().complete();
+        drop(state);
+        observer.join().unwrap().unwrap();
+        completion
+    });
+    let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
+    kernel.queue_completion(completion);
+    let observed = (
+        target.completion().done(),
+        shared.may_defer_completion(),
+        kernel.completions.len(),
+        shared.scope_report(scope).completed,
+    );
+    // Clean up before checking the disputed assertion; no reserved task remains.
+    kernel.flush_completions();
+    shared.complete(&sibling, None);
+    assert_eq!(shared.scope_report(scope).completed, 2);
+    shared.finish_scope(scope);
+    writeln!(
+        std::io::stdout().lock(),
+        "completion boundary: (target_done, may_defer, batched, scope_completed)={observed:?}"
+    )
+    .unwrap();
+    assert_eq!(observed, (true, true, 1, 0));
+}
