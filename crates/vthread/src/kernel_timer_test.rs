@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration, time::Instant};
+use std::{sync::Arc, sync::Mutex, time::Duration, time::Instant};
 
 use crate::{
     CarrierId, ParkOutcome, Runtime, RuntimeConfig, WakeReason, control::Shared, kernel::Kernel,
@@ -67,5 +67,57 @@ fn expired_timer_for_a_stale_route_cannot_select_a_live_wait() {
     assert_eq!(waker.unpark(), UnparkResult::Woke);
     assert!(kernel.tick(true).expect("resume exact wait"));
     assert!(!kernel.tick(false).expect("drained kernel"));
+    shared.finish_scope(scope);
+}
+
+#[test]
+fn sleeping_parks_instead_of_blocking_the_next_task() {
+    let shared = Arc::new(Shared::new(RuntimeConfig::default()));
+    let scope = shared.begin_scope().expect("scope");
+    let trace = Arc::new(Mutex::new(Vec::new()));
+    let sleeper_trace = Arc::clone(&trace);
+    shared
+        .submit(scope, "sleeper".into(), move || {
+            sleeper_trace.lock().expect("trace").push("sleep:start");
+            crate::sleep(Duration::from_secs(60)).expect("sleep task");
+            sleeper_trace.lock().expect("trace").push("sleep:end");
+        })
+        .expect("submit sleeper");
+    let worker_trace = Arc::clone(&trace);
+    shared
+        .submit(scope, "worker".into(), move || {
+            worker_trace.lock().expect("trace").push("worker");
+        })
+        .expect("submit worker");
+
+    let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
+    kernel.receive();
+    assert!(kernel.tick(true).expect("park sleeper"));
+    let parked = kernel
+        .parked
+        .iter()
+        .next()
+        .expect("sleep registered a park");
+    let (route, token) = (parked.task, parked.token);
+    assert!(kernel.timers.cancel(token));
+    assert!(
+        kernel
+            .tick(false)
+            .expect("run worker while sleep is pending")
+    );
+    assert_eq!(&*trace.lock().expect("trace"), &["sleep:start", "worker"]);
+
+    // Drive the existing timer generation due only after the worker has run. Host preemption
+    // must not decide whether a one-millisecond timer outranks an already-runnable task.
+    assert!(kernel.timers.schedule(route, token, Instant::now()));
+    assert!(kernel.tick(false).expect("expire and resume sleeper"));
+    assert!(!kernel.tick(false).expect("drain completed tasks"));
+    assert_eq!(
+        &*trace.lock().expect("trace"),
+        &["sleep:start", "worker", "sleep:end"]
+    );
+    assert_eq!(kernel.stats.parks, 1);
+    assert_eq!(kernel.stats.timeouts, 1);
+    shared.wait(scope, None).expect("scope succeeds");
     shared.finish_scope(scope);
 }
