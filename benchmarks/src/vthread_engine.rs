@@ -19,7 +19,7 @@ pub(crate) fn run(config: &Config) -> Result<(), String> {
         .blocking_threads(1)
         .blocking_capacity(1)
         .io_capacity(config.tasks)
-        .max_vthreads(config.tasks.max(config.workers))
+        .max_vthreads(config.vthread_capacity())
         .carrier_queue_capacity(config.tasks)
         .stack_size(STACK_SIZE)
         .stack_cache_capacity(config.tasks)

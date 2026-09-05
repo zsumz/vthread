@@ -5,6 +5,18 @@ structured scopes, 64 KiB stacks, the same worker and task counts, one untimed w
 number of measured rounds. Runtime construction is outside the measurements; scope, task,
 operation, completion, and join work is inside them.
 
+Vthread defaults its runtime admission capacity to the task count (or worker count,
+if larger). Append `--max-vthreads <capacity>` to any vthread scenario to measure
+spare provisioned capacity without changing the live workload. The configuration
+line records the effective limit. This option is rejected for May, which does not
+provide an equivalent admission bound. For example, compare 64 live tasks in tightly
+sized and default-sized vthread runtimes:
+
+```sh
+taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread park 10000 4 64 9
+taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread park 10000 4 64 9 --max-vthreads 65536
+```
+
 Build once, then run each engine in a fresh process. Pin single-worker measurements to one CPU
 when `taskset` is available:
 
