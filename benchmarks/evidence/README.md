@@ -17,6 +17,8 @@ release qualification or an archive of executed binaries.
 | `ingress-visibility-aa2fa66e.tar.gz` | [Idle ingress progress](../ingress-visibility-review.md) | `9d3d6c9ec47309922b4cb716c689f00b02ecd46d81f40ccc47faf4e59c5b1bdc` |
 | `capacity-ingress-e6474864.tar.gz` | [Four-way capacity attribution](../capacity-pacing-review.md) | `766796d6657116476b550162cfe61046f336bc74f2c2ca7ebe9cf99252ac2836` |
 | `shared-channel-control-a373785e.tar.gz` | [Shared channel contract](../shared-channel-review.md) | `1234a27e3570d54498af5a660b29619e6f37bbd84d166eb1f05610c14abe4da9` |
+| `channel-eligibility-5048ad21.tar.gz` | [Channel eligibility](../channel-handoff-review.md) | `b15999876d4945c969c1787414985145e47dec463620ef5af273f4a154858e78` |
+| `channel-idle-1d8e9448.tar.gz` | [Channel and carrier idling](../channel-handoff-review.md) | `e61c796d888cacff8aa908d46e09ba4294d4fdfdd09c5b1cd255e6641c8da03b` |
 
 The ready-fairness bundle includes original, FIFO, cohort-32 and cohort-2 logs;
 the original failing production-queue regression; counter CSVs; native tests and
@@ -76,6 +78,17 @@ The shared-channel-control bundle contains the benchmark-only patch against
 `7410285`, exact-delivery negative checks, native capacity/carrier smokes, standalone
 benchmark gates and the full canonical receipt. The new shared bounded MPMC control
 is vthread-only and does not change or replace the historical May comparisons.
+
+The channel-eligibility bundle preserves two failing native over-notification
+regressions, the guarded predicate candidate, its 160-state matrix, 18 passing channel
+tests, default controls and final-only owner-counter attribution. Eligibility alone
+is rejected because one small multi-carrier population enters much more native waiting.
+
+The channel-idle bundle independently varies a larger bounded parked-task polling
+horizon. It retains four source/binary identities, all 80 measured processes and
+160 host observations, plus passing default-native workspace tests. The combined
+prototype is promising but remains shelved pending channel tails, capacity, idle CPU,
+stress and final canonical qualification. It is not a new event-word implementation.
 
 Extract into a fresh directory and inspect the manifests before replaying commands.
 Absolute paths in captured receipts describe the original host, not required output
