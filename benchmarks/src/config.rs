@@ -43,6 +43,7 @@ pub(crate) struct Config {
     pub(crate) samples: usize,
     pub(crate) max_vthreads: Option<usize>,
     pub(crate) pin_carriers: bool,
+    pub(crate) sample_channel_latency: bool,
 }
 
 impl Config {
@@ -140,6 +141,7 @@ impl Config {
         }
         let mut max_vthreads = None;
         let mut pin_carriers = false;
+        let mut sample_channel_latency = false;
         while let Some(option) = args.next() {
             if !matches!(engine, Engine::Vthread) {
                 return Err("vthread-only option supplied to May".into());
@@ -153,6 +155,12 @@ impl Config {
                     max_vthreads = Some(capacity);
                 }
                 "--pin-carriers" if !pin_carriers => pin_carriers = true,
+                "--sample-channel-latency"
+                    if !sample_channel_latency
+                        && matches!(scenario, Scenario::ChannelMpmc { .. }) =>
+                {
+                    sample_channel_latency = true;
+                }
                 _ => return Err(usage()),
             }
         }
@@ -164,6 +172,7 @@ impl Config {
             samples,
             max_vthreads,
             pin_carriers,
+            sample_channel_latency,
         })
     }
 
@@ -195,7 +204,12 @@ impl Config {
                 ..
             } => Cow::Owned(format!("bounded-spsc-channel-{capacity}-handoff")),
             Scenario::ChannelMpmc { capacity, .. } => {
-                Cow::Owned(format!("bounded-mpmc-channel-{capacity}-transfer"))
+                let suffix = if self.sample_channel_latency {
+                    "-sampled"
+                } else {
+                    ""
+                };
+                Cow::Owned(format!("bounded-mpmc-channel-{capacity}-transfer{suffix}"))
             }
             Scenario::Tcp { .. } => Cow::Borrowed("tcp-round-trip"),
             Scenario::WakeTail { .. } => Cow::Borrowed("wake-to-resume"),
@@ -243,7 +257,7 @@ fn channel_capacity(args: &mut impl Iterator<Item = String>) -> Result<usize, St
 
 fn usage() -> String {
     format!(
-        "{}\n       vthread-benchmarks vthread channel-mpmc <messages-per-producer> <capacity> <workers> <even-tasks>=4> <odd-samples>",
+        "{}\n       vthread-benchmarks vthread channel-mpmc <messages-per-producer> <capacity> <workers> <even-tasks>=4> <odd-samples> [--sample-channel-latency]",
         common_usage(),
     )
 }
@@ -255,3 +269,7 @@ fn common_usage() -> String {
 #[cfg(test)]
 #[path = "config_test.rs"]
 mod config_test;
+
+#[cfg(test)]
+#[path = "channel_latency_config_test.rs"]
+mod channel_latency_config_test;

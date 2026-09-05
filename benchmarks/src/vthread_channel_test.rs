@@ -18,6 +18,7 @@ fn shared_channel_delivers_every_value_on_one_and_four_native_carriers() {
                 samples: 3,
                 max_vthreads: None,
                 pin_carriers: false,
+                sample_channel_latency: false,
             };
             let runtime = crate::vthread_setup::build(&config).unwrap();
             let received = runtime
@@ -49,6 +50,7 @@ fn may_cannot_run_the_vthread_only_control_even_with_a_constructed_config() {
         samples: 1,
         max_vthreads: None,
         pin_carriers: false,
+        sample_channel_latency: false,
     };
     assert!(
         crate::may_engine::run(&config)

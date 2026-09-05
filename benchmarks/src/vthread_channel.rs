@@ -1,6 +1,42 @@
 //! Paired historical controls and one shared bounded MPMC transfer workload.
 
-use std::hint::black_box;
+use std::{hint::black_box, time::Instant};
+
+pub(crate) struct SharedRound {
+    pub(crate) admission_ns: u128,
+    pub(crate) delivery: crate::channel_delivery::Delivery,
+    // Stable logical streams across rounds: consumers first, then producers.
+    pub(crate) latency_groups_ns: Vec<Vec<u64>>,
+}
+
+pub(crate) fn run_shared(
+    scope: &vthread::Scope<'_>,
+    config: &crate::config::Config,
+    iterations: usize,
+    capacity: usize,
+    started: Instant,
+) -> vthread::Result<SharedRound> {
+    if config.sample_channel_latency {
+        return crate::vthread_channel_timed::run_shared(
+            scope,
+            config.tasks,
+            iterations,
+            capacity,
+            started,
+        );
+    }
+    let mut receivers = spawn_shared(scope, config.tasks, iterations, capacity)?;
+    let admission_ns = started.elapsed().as_nanos();
+    let mut received = Vec::with_capacity(receivers.len());
+    for receiver in &mut receivers {
+        received.push(receiver.join()??);
+    }
+    Ok(SharedRound {
+        admission_ns,
+        delivery: crate::channel_delivery::Delivery::new(received),
+        latency_groups_ns: Vec::new(),
+    })
+}
 
 pub(crate) fn spawn_pairs(
     scope: &vthread::Scope<'_>,

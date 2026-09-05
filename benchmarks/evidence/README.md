@@ -19,6 +19,7 @@ release qualification or an archive of executed binaries.
 | `shared-channel-control-a373785e.tar.gz` | [Shared channel contract](../shared-channel-review.md) | `1234a27e3570d54498af5a660b29619e6f37bbd84d166eb1f05610c14abe4da9` |
 | `channel-eligibility-5048ad21.tar.gz` | [Channel eligibility](../channel-handoff-review.md) | `b15999876d4945c969c1787414985145e47dec463620ef5af273f4a154858e78` |
 | `channel-idle-1d8e9448.tar.gz` | [Channel and carrier idling](../channel-handoff-review.md) | `e61c796d888cacff8aa908d46e09ba4294d4fdfdd09c5b1cd255e6641c8da03b` |
+| `channel-latency-30bb4869.tar.gz` | [Channel endpoint latency](../channel-latency-review.md) | `631d49058c0d7df9524c26b11edabf8dca6cac33d497d40f079c019217da356a` |
 
 The ready-fairness bundle includes original, FIFO, cohort-32 and cohort-2 logs;
 the original failing production-queue regression; counter CSVs; native tests and

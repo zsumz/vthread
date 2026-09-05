@@ -13,6 +13,7 @@ fn config() -> Config {
         samples: 3,
         max_vthreads: None,
         pin_carriers: false,
+        sample_channel_latency: false,
     }
 }
 

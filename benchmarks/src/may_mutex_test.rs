@@ -5,6 +5,7 @@ fn migration_probes_cover_odd_task_counts_only_during_warmup() {
     let config = Config {
         max_vthreads: None,
         pin_carriers: false,
+        sample_channel_latency: false,
         engine: Engine::May,
         scenario: Scenario::Mutex {
             per_task: 10,
