@@ -45,6 +45,31 @@ fn paired_scenarios_require_even_task_counts() {
 }
 
 #[test]
+fn shared_mpmc_counts_transferred_values_not_both_endpoint_calls() {
+    let config = parse(&["vthread", "channel-mpmc", "10", "64", "4", "8", "3"]).unwrap();
+    assert!(matches!(
+        config.scenario,
+        Scenario::ChannelMpmc {
+            per_task: 10,
+            capacity: 64
+        }
+    ));
+    assert_eq!(config.operations(), 40);
+    assert_eq!(config.operation(), "bounded-mpmc-channel-64-transfer");
+}
+
+#[test]
+fn shared_mpmc_rejects_may_invalid_lanes_and_unaddressable_evidence() {
+    assert!(parse(&["may", "channel-mpmc", "10", "64", "4", "8", "3"]).is_err());
+    for tasks in ["1", "2", "3", "5"] {
+        assert!(parse(&["vthread", "channel-mpmc", "10", "1", "1", tasks, "3"]).is_err());
+    }
+    assert!(parse(&["vthread", "channel-mpmc", "10", "0", "4", "8", "3"]).is_err());
+    let excessive = usize::MAX.to_string();
+    assert!(parse(&["vthread", "channel-mpmc", &excessive, "1", "1", "4", "3"]).is_err());
+}
+
+#[test]
 fn bounded_spsc_channels_require_and_report_their_capacity() {
     let config = parse(&["may", "channel-bounded-spsc", "10", "64", "4", "8", "3"]).unwrap();
     assert!(matches!(

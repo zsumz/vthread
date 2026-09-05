@@ -89,16 +89,40 @@ The scenarios have deliberately narrow operation contracts:
 | `mutex-uncontended` | One immediately available lock acquisition and release |
 | `channel` | One message handoff in a paired bounded-channel exchange |
 | `channel-bounded-spsc` | One message handoff through a paired capacity-gated SPSC channel |
+| `channel-mpmc` | One value transferred through one shared bounded MPMC channel; vthread-only control |
 | `tcp` | One write/read echo round trip on a task-owned connection |
 | `wake-tail` | One timestamped wake-to-resume handoff |
 
-`park`, both channel scenarios, and `wake-tail` require an even task count of at least two. The
+`park`, the paired channel scenarios, and `wake-tail` require an even task count of at least two. The
 historical `channel` case retains vthread's capacity-one channel against May's unbounded MPSC
 channel. `channel-bounded-spsc` gives both engines the requested positive capacity; May 0.3.51 has
 no bounded channel, so its SPSC channel is capacity-gated by May's coroutine-aware semaphore. With one worker, the
 mutex benchmark yields while holding the lock to force FIFO handoffs. With multiple workers, it
 performs the same 32 black-box operations in each engine's critical section so native contention is
 exercised without an all-task startup deadlock.
+
+`channel-mpmc` is a separate **vthread-only baseline/candidate control**, not a new
+May comparison. It requires an even task count of at least four, split equally into
+producers and consumers. They share one channel and are admitted as alternating
+consumer/producer tasks under normal placement. Each producer sends the requested
+number of distinct `usize` identifiers; each consumer receives that many values.
+The operation denominator is `tasks / 2 * messages-per-producer`, counting each
+transferred value once, not both endpoint calls. For example:
+
+```sh
+taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread channel-mpmc 20000 1 4 64 9 --pin-carriers
+taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread channel-mpmc 20000 64 4 64 9 --pin-carriers
+```
+
+The channel's waiter bound is exactly the number of tasks per direction. There is
+no co-location hint, startup barrier, additional retry loop or shared measurement
+lock. Receiver-local vectors record each value during the measured interval. Every
+warm-up and measured round must pass exact count, identifier-range and uniqueness
+checks, performed **after elapsed timing and allocation recording stop**. Vector
+allocation and recording remain part of end-to-end timing; validation and freeing
+those vectors are outside it. Whole-process `perf stat` includes validation as well
+as warm-up and shutdown, so its cycles are not pure channel cycles. This control
+does not collect individual operation latency or claim a loaded-tail/fairness proof.
 
 The round report includes median, p95, p99, maximum, and every whole-round sample. `tcp` and
 `wake-tail` additionally retain per-task latency streams across measured rounds and print

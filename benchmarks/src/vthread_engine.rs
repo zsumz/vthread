@@ -15,6 +15,16 @@ use std::{
 pub(crate) fn run(config: &Config) -> Result<(), String> {
     #[cfg(feature = "scheduler-profiling")]
     println!("engine=vthread phase=instrumentation scheduler_profiling=true headline=false");
+    if let Scenario::ChannelMpmc { per_task, capacity } = config.scenario {
+        println!(
+            "engine=vthread phase=channel-contract channels=1 producers={} consumers={} messages_per_producer={} capacity={} wait_capacity_per_direction={} validation=exact-outside-elapsed timing=end-to-end receiver_recording=inside-elapsed topology=normal-placement latency_distribution=false",
+            config.tasks / 2,
+            config.tasks / 2,
+            per_task,
+            capacity,
+            config.tasks / 2,
+        );
+    }
     let runtime = crate::vthread_setup::build(config)?;
     measure(config, |observe_placement| {
         run_round(&runtime, config, observe_placement)
@@ -41,6 +51,7 @@ fn run_round(
     let address = peer.as_ref().map(crate::tcp_peer::EchoServer::address);
     let mut operation_latency_groups_ns = Vec::new();
     let mut pair_owners = Vec::new();
+    let mut channel_delivery = None;
     let admission_ns = runtime
         .run_scope(|scope| {
             let started = Instant::now();
@@ -69,13 +80,33 @@ fn run_round(
                     contended,
                 } => spawn_mutex_tasks(scope, config.tasks, per_task, config.workers, contended)?,
                 Scenario::Channel { per_task, capacity } => {
-                    spawn_channel_pairs(scope, config.tasks, per_task, capacity.unwrap_or(1))?;
+                    crate::vthread_channel::spawn_pairs(
+                        scope,
+                        config.tasks,
+                        per_task,
+                        capacity.unwrap_or(1),
+                    )?;
                     if observe_placement {
                         pair_owners = crate::vthread_placement::pair_owners(
                             &scope.runtime_snapshot(),
                             config.tasks,
                         );
                     }
+                }
+                Scenario::ChannelMpmc { per_task, capacity } => {
+                    let mut receivers = crate::vthread_channel::spawn_shared(
+                        scope,
+                        config.tasks,
+                        per_task,
+                        capacity,
+                    )?;
+                    let admission_ns = started.elapsed().as_nanos();
+                    let mut received = Vec::with_capacity(receivers.len());
+                    for receiver in &mut receivers {
+                        received.push(receiver.join()??);
+                    }
+                    channel_delivery = Some(crate::channel_delivery::Delivery::new(received));
+                    return Ok(admission_ns);
                 }
                 Scenario::Tcp { per_task } => {
                     let address = address.expect("TCP peer address");
@@ -124,6 +155,7 @@ fn run_round(
         operation_latency_groups_ns,
         pair_owners,
         task_migrations: Vec::new(),
+        channel_delivery,
         #[cfg(feature = "lifecycle-profiling")]
         lifecycle,
     })
@@ -209,36 +241,6 @@ fn spawn_mutex_tasks(
                         }
                     }
                 }
-            }
-        })?);
-    }
-    Ok(())
-}
-
-fn spawn_channel_pairs(
-    scope: &vthread::Scope<'_>,
-    tasks: usize,
-    iterations: usize,
-    capacity: usize,
-) -> vthread::Result<()> {
-    for _ in 0..tasks / 2 {
-        let (to_b, from_a) = vthread::channel::bounded(capacity)?;
-        let (to_a, from_b) = vthread::channel::bounded(capacity)?;
-        drop(scope.spawn("benchmark-channel-a", move || {
-            to_b.send(0).expect("peer must remain connected");
-            for index in 0..iterations {
-                let value = from_b.recv().expect("peer must send a value");
-                black_box(value);
-                if index + 1 != iterations {
-                    to_b.send(value + 1).expect("peer must remain connected");
-                }
-            }
-        })?);
-        drop(scope.spawn("benchmark-channel-b", move || {
-            for _ in 0..iterations {
-                let value = from_a.recv().expect("peer must send a value");
-                black_box(value);
-                to_a.send(value + 1).expect("peer must remain connected");
             }
         })?);
     }
