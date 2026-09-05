@@ -17,7 +17,7 @@ out of scope. The overall May goal and stable-release qualification remain open.
 | 4 | Unexplained stall test | Actual failure state; ordered evidence replacing unproven temporal assumptions | Captured Stored watchdog permit with zero parks; ordered tests qualified; additional loaded-suite findings open |
 | 5 | Handoff publication evidence | Publisher-pause regressions and stage attribution without changing production ordering | Native/optimized probes and canonical gates pass; owner-wide dependency confirmed; repair and OS-tail attribution open |
 | 6 | Capacity/admission/idle interaction | Scan-free maintenance without rejected lifecycle/idle costs, multiple provisioned capacities | Counters and visible-ingress progress repair qualified; scan-free lifecycle penalty and quiet-host performance acceptance remain open |
-| 7 | Useful channel handoff | Notification/progress counts; reserve under lock, publish outside, cancellation/close/panic proof | Shared MPMC benchmark control qualified; eligibility and out-of-lock publication remain separate pending changes |
+| 7 | Useful channel handoff | Notification/progress counts; reserve under lock, publish outside, cancellation/close/panic proof | Shared MPMC control qualified; eligibility plus parked-idle prototype lowers measured cycles but remains shelved pending tails/capacity/idle-CPU/final qualification; out-of-lock publication open |
 | 8 | Mutex round-trip cost | Local/remote and active/sleeping recipient attribution; exact ownership and waiter progress | Pending |
 | 9 | Incremental readiness | Bounded command processing proportional to changes/events and large-connection validation | Pending |
 | 10 | Release evidence | Durable source-keyed cross-platform correctness, stress, footprint, CPU and performance bundle | Pending |
@@ -199,3 +199,9 @@ slice examines channel wake eligibility without changing resource publication.
 baseline for that work. It adds one shared bounded MPMC channel with exact delivery
 checks outside the elapsed clock; all native smokes and qualification pass. It is
 not a new May comparison, latency distribution or channel runtime optimization.
+
+[channel-handoff-review.md](channel-handoff-review.md) records the two ordered
+over-notification failures, the rejected eligibility-only control and the independent
+four-way parked-idle experiment. The combined default-native tests pass and its
+shared-channel cycles improve materially; neither runtime change has been accepted
+or pushed while the remaining performance/CPU/qualification gates are open.
