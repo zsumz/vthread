@@ -5,6 +5,40 @@ fn parse(arguments: &[&str]) -> Result<Config, String> {
 }
 
 #[test]
+fn carrier_pinning_is_explicit_and_composes_with_capacity_in_either_order() {
+    assert!(
+        !parse(&["vthread", "mutex", "10", "4", "64", "3"])
+            .unwrap()
+            .pin_carriers
+    );
+    for options in [
+        vec!["--pin-carriers", "--max-vthreads", "128"],
+        vec!["--max-vthreads", "128", "--pin-carriers"],
+    ] {
+        let mut arguments = vec!["vthread", "mutex", "10", "4", "64", "3"];
+        arguments.extend(options);
+        let config = parse(&arguments).unwrap();
+        assert!(config.pin_carriers);
+        assert_eq!(config.max_vthreads, Some(128));
+        assert_eq!(config.operations(), 640);
+    }
+}
+
+#[test]
+fn pinning_never_silently_changes_may_or_accepts_duplicate_options() {
+    assert!(parse(&["may", "mutex", "10", "4", "64", "3", "--pin-carriers"]).is_err());
+    for options in [
+        vec!["--pin-carriers", "--pin-carriers"],
+        vec!["--max-vthreads", "128", "--max-vthreads", "128"],
+        vec!["--pin-carriers", "unknown"],
+    ] {
+        let mut arguments = vec!["vthread", "mutex", "10", "4", "64", "3"];
+        arguments.extend(options);
+        assert!(parse(&arguments).is_err());
+    }
+}
+
+#[test]
 fn paired_scenarios_require_even_task_counts() {
     assert!(parse(&["vthread", "park", "10", "1", "2", "3"]).is_ok());
     assert!(parse(&["may", "channel", "10", "1", "3", "3"]).is_err());

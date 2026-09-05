@@ -189,3 +189,8 @@ models to payload reservation, overflow, lane fairness, and sleep registration.
 It fixes a modeled lost-wake race in the experimental mailbox but rejects both
 runtime candidates for slower handoffs. The composition prototype remains test-only;
 the runtime retains its original queue and stronger stale-generation regressions.
+
+The [mutex placement review](mutex-placement-review.md) rejects cache-line padding
+and adds a separately labeled, verified benchmark control for Linux carrier pinning.
+Pinning is approximately flat in the measured mutex comparison; May remains about
+2.3 times faster there. No core runtime change or new performance win is retained.
