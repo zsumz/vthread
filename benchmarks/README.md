@@ -95,6 +95,10 @@ not identical scheduling policies. Per-task and paired-tail summaries expose fai
 park and channel workloads, a warm-up-only observer reports May's final execution-worker pairs and
 per-task migration alongside vthread's immutable owner-carrier pairs. No placement observer runs in
 the measured rounds. The mutex warm-up also reports May task migration after acquisitions.
+May 0.3.51 also pins its individual OS workers by default; vthread leaves its carriers
+unpinned within the process CPU mask. A shared `taskset` mask does not make those worker
+placement policies identical. See the [dequeue review](dequeue-review.md) for the profile,
+code-generation experiment, tail checks, and retention decision.
 These observations describe the instrumented warm-up; they are not a count of migrations during
 the measured rounds and final pair placement does not describe every handoff. Vthread's wake-tail
 warm-up also reports immutable owner-carrier pairs.
