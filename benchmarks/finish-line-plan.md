@@ -12,7 +12,7 @@ out of scope. The overall May goal and stable-release qualification remain open.
 | Order | Slice | Exit evidence | State |
 | --- | --- | --- | --- |
 | 1 | ARM64 terminal result register | Real ARM64 debug/optimized completion, yield/park, panic, forced unwind, reuse and FP state | Native CI passed on both architectures/profiles; raw artifact archival pending |
-| 2 | Ready-queue bounded fairness | Old code fails mixed hot-wake/normal-work counterexample; repaired dispatch bound and measured tradeoffs | Reproduced against the production queue; policy experiments next |
+| 2 | Ready-queue bounded fairness | Old code fails mixed hot-wake/normal-work counterexample; repaired dispatch bound and measured tradeoffs | Qualified two-wake cohorts; four-selection head bound; explicit cycle/throughput/p95 costs |
 | 3 | Pending-admission fairness | Real late starts under sustained mixed park/yield/wake and borrowed work | Pending |
 | 4 | Unexplained stall test | Actual failure state; ordered evidence replacing unproven temporal assumptions | Pending |
 | 5 | Handoff publication evidence | Publisher-pause regressions and stage attribution without changing production ordering | Pending |
@@ -109,3 +109,13 @@ alternating hot wakers and one normal task. After 34 dispatch opportunities the
 normal task ran once, but the old wake ran zero times. The queue never exceeded
 three entries. The exact failure is `normal work erased the oldest-wake quota`.
 This does not establish the cause of the historical wake p99.9 measurements.
+
+The retained two-wake cohort independently satisfies normal-head and oldest-wake
+service, within four selections. FIFO and cohort-32 controls plus final balanced
+process comparisons are recorded in [ready-fairness-review.md](ready-fairness-review.md).
+Final timestamped wake p99.9 improved from 141-143 us to 16-17 us, but median rose
+30-39 ns, p95 worsened, wake throughput cost about 4.7%, and isolated park cycles
+rose 2.16%. This is the explicit correctness/fairness tradeoff, not zero regression.
+All 11 canonical gates, default-native tests, benchmark gates and 601,197 native
+mixed-soak lifetimes passed. Raw evidence and qualification logs are committed in
+the linked source-keyed archive; full release evidence remains incomplete.
