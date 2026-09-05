@@ -108,3 +108,59 @@ including zrail, under receipt
 `cargo test --locked --workspace --all-targets` separately passed with the default
 native engine, including 475 runtime and 66 stack-engine tests. The standalone
 benchmark suite passed all 24 tests and its all-features clippy check.
+
+## Follow-up: cached public park binding
+
+A candidate retained one public `Parker` binding per execution and used the existing
+resident scheduler handoff. It reused the shared-primary cancellation lane, keeping
+the internal synchronization lane separate. All 481 candidate native runtime tests
+passed, including bounded fallback, storage reuse, and cancellation-race checks.
+The candidate was nevertheless rejected and removed.
+
+The same four-carrier A/B/B/A protocol produced baseline medians of 93.22 and 92.58
+ns/operation, versus candidate medians of 101.73 and 95.82. Whole-round maxima were
+95.61, 113.49, 160.65, and 106.26 ns/operation in that order. These are not
+per-operation latency percentiles.
+
+Three single-carrier counter repetitions (one warm-up plus three measured rounds
+each) reduced mean cycles from 13,232,818,202 to 12,066,816,198, about 8.8%. Mean
+retired instructions fell from 37,038,334,423 to 36,833,069,034. The locked-operation
+total fell by approximately 25.6 million over 25.6 million operations per invocation.
+The corresponding reversed-order four-carrier counter comparison increased cycles
+from 20,206,950,121 to 21,096,993,101, about 4.4%, despite slightly fewer instructions.
+Removing reference-count traffic did not establish the required multi-carrier win.
+
+The lifetime audit also found a separate correctness defect in the retained baseline:
+closing a semaphore or condition variable permanently closed a task's reusable wait
+cell. A subsequent contended mutex acquisition failed with a scheduler fault; the
+poisoned cell also survived execution-storage recycling. Deterministic scheduler
+tests reproduced both failures before the repair. Gate-ticket cleanup now clears
+only the private cell's closed bit, after generation retirement and synchronization
+with the gate queue. It leaves the original primitive closed and preserves generation
+identity. Word-state enumeration and racing delayed ready/cancel/timeout/close tests
+cover the reset boundary. This is a correctness repair, not a claimed speedup.
+
+The repair in `330f0d0` passed all 11 canonical gates under receipt
+`/root/.cache/zcheck/run-1788570287-814788275-1876084/receipt.json`, with no architecture
+lock changes. The separate default-native workspace suite passed, including 480
+runtime tests, 66 stack tests, 11 synchronization-core tests, and 19 lab tests.
+The 60-second four-carrier/64-worker native soak completed 264,684 lifetimes,
+1,964,032 checked mutex updates, and 2,726,667 matching parks and wakes. It overlapped
+native qualification, so its totals are correctness evidence only.
+
+Serial four-carrier regression observations gave baseline/repair medians of
+97.91/96.04 ns for park and 378.23/377.38 ns for mutex. Channel A/B/B/A medians were
+149.11/156.95/161.77/149.47 ns. Investigating that apparent channel regression found
+byte-identical `.text`, `.rodata`, and `.data.rel.ro` sections in the two benchmark
+executables, with identical load-segment layouts. The `.text` SHA-256 was
+`0565ba18406b15183b568cc70b80ad6e5231d03696d6e938b1407c72d4df6303` for both.
+The repair is absent from the benchmark's generated hot paths. Single-carrier
+channel counter means were 17,603,764,863/17,522,095,543 cycles and
+50,250,592,504/50,251,712,257 instructions. These results demonstrate why elapsed-time
+differences on this guest must not be attributed to code changes without supporting
+evidence. The section inspection occurred after the reported baseline timings.
+
+The atomic-clock wake-tail runs each collected 5,760,000 observations. Baseline/repair
+median was 210/210 ns, p99.9 was 142,635/142,865 ns, and p99.99 was 157,157/156,256 ns.
+Worst-pair p99.9 was 143,907/148,975 ns. These are regression observations, not a
+new performance win or a completed tail-latency qualification.
