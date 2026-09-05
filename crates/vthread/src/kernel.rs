@@ -19,6 +19,8 @@ mod kernel_timer;
 #[path = "parked_tasks.rs"]
 mod parked_tasks;
 
+#[cfg(feature = "scheduler-profiling")]
+use crate::scheduler_probe::SchedulerProfile;
 use crate::{
     CarrierId, CarrierSnapshot, CarrierStatus, RuntimeStats, StackSnapshot,
     control::{CompletionBatch, CompletionUpdate, Shared},
@@ -52,6 +54,8 @@ pub(crate) struct Kernel {
     pub(crate) local: Rc<LocalCarrier>,
     pub(super) timers: TimerQueue,
     pub(super) stats: RuntimeStats,
+    #[cfg(feature = "scheduler-profiling")]
+    pub(super) scheduler_profile: SchedulerProfile,
     pub(super) has_borrowed: bool,
     observed_borrowed_scope_epoch: u64,
     admission_pressure: u32,
@@ -80,6 +84,8 @@ impl Kernel {
             local: Rc::new(LocalCarrier::new(config)),
             timers: TimerQueue::new(),
             stats: RuntimeStats::default(),
+            #[cfg(feature = "scheduler-profiling")]
+            scheduler_profile: SchedulerProfile::default(),
             has_borrowed: false,
             observed_borrowed_scope_epoch: 0,
             admission_pressure: 0,
@@ -215,6 +221,8 @@ impl Kernel {
             pending_wakes: self.local.pending_wakes() + self.inbox.hub.pending(),
             stats,
             stacks: StackSnapshot::from(self.local.stacks.borrow().snapshot()),
+            #[cfg(feature = "scheduler-profiling")]
+            scheduler_profile: self.scheduler_profile,
         }
     }
 }

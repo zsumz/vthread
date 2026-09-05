@@ -60,6 +60,14 @@ impl crate::RuntimeSnapshot {
 }
 
 impl crate::CarrierSnapshot {
+    /// Opt-in carrier-local batch and idle counters, published with this snapshot.
+    /// Read after shutdown for final totals; active observations may lag. The
+    /// `scheduler-profiling` feature adds no clock reads or shared counter atomics.
+    #[cfg(feature = "scheduler-profiling")]
+    pub fn scheduler_profile(&self) -> crate::diagnostics::SchedulerProfile {
+        self.scheduler_profile
+    }
+
     /// Stable runtime-local identity.
     pub fn id(&self) -> crate::CarrierId {
         self.id

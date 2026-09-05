@@ -19,6 +19,7 @@ all-features = true
 [features]
 default = []
 lifecycle-profiling = ["vthread/lifecycle-profiling"]
+scheduler-profiling = ["vthread/scheduler-profiling"]
 runtime-evidence = ["vthread/runtime-evidence"]
 qualification = ["vthread/qualification"]
 

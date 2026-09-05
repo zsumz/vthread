@@ -11,6 +11,8 @@ mod may_engine;
 mod may_mutex;
 mod may_placement;
 mod report;
+#[cfg(feature = "scheduler-profiling")]
+mod scheduler_profile;
 mod tcp_peer;
 mod vthread_engine;
 mod vthread_placement;

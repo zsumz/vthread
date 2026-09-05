@@ -72,9 +72,14 @@ impl Kernel {
         } else if self.admission_pressure >= REMOTE_ADMISSION_DISPATCH_BOUND {
             1
         } else {
+            #[cfg(feature = "scheduler-profiling")]
+            self.scheduler_profile.record_receive(None);
             return false;
         };
-        if self.inbox.drain_into(&mut self.incoming, limit) != 0 {
+        let drained = self.inbox.drain_into(&mut self.incoming, limit);
+        #[cfg(feature = "scheduler-profiling")]
+        self.scheduler_profile.record_receive(Some(drained));
+        if drained != 0 {
             self.admission_pressure = 0;
         }
         let mut received = false;
@@ -147,6 +152,8 @@ impl Kernel {
     }
 
     pub(crate) fn wait_for_work(&mut self, observed: u64) {
+        #[cfg(feature = "scheduler-profiling")]
+        self.scheduler_profile.record_idle(self.stats.mounts);
         self.flush_completions();
         let deadline = self.timers.next_deadline();
         if deadline.is_some() {
@@ -156,10 +163,12 @@ impl Kernel {
             || self.local.pending_wakes() != 0
             || self.inbox.hub.has_pending()
         {
+            #[cfg(feature = "scheduler-profiling")]
+            self.scheduler_profile.record_early_work();
             return;
         }
         if deadline.is_none() && self.shared.config.carriers() > 1 {
-            for _ in 0..IDLE_SIGNAL_PROBES {
+            for _probe in 0..IDLE_SIGNAL_PROBES {
                 for _ in 0..SPINS_PER_SIGNAL_PROBE {
                     std::hint::spin_loop();
                 }
@@ -168,12 +177,25 @@ impl Kernel {
                     || self.inbox.hub.has_pending()
                     || self.inbox.signal.version() != observed
                 {
+                    #[cfg(feature = "scheduler-profiling")]
+                    self.scheduler_profile.record_poll(_probe + 1, true);
                     return;
                 }
             }
+            #[cfg(feature = "scheduler-profiling")]
+            self.scheduler_profile
+                .record_poll(IDLE_SIGNAL_PROBES, false);
         }
+        #[cfg(feature = "scheduler-profiling")]
+        self.scheduler_profile.record_wait(deadline.is_some());
         self.publish(CarrierStatus::Idle);
         self.inbox.hub.wait(observed, deadline);
+        #[cfg(feature = "scheduler-profiling")]
+        self.scheduler_profile.record_wait_return(
+            self.inbox.pending() != 0
+                || self.local.pending_wakes() != 0
+                || self.inbox.hub.has_pending(),
+        );
     }
 }
 

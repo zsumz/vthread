@@ -64,6 +64,8 @@ mod readiness;
 mod ready_queue;
 mod runner;
 mod runtime;
+#[cfg(feature = "scheduler-profiling")]
+mod scheduler_probe;
 mod scope;
 mod scope_failure;
 mod scope_failure_report;
