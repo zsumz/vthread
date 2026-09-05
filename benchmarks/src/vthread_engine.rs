@@ -12,19 +12,8 @@ use std::{
     time::Instant,
 };
 
-const STACK_SIZE: usize = 64 * 1024;
 pub(crate) fn run(config: &Config) -> Result<(), String> {
-    let runtime = vthread::Runtime::builder()
-        .carriers(config.workers)
-        .blocking_threads(1)
-        .blocking_capacity(1)
-        .io_capacity(config.tasks)
-        .max_vthreads(config.vthread_capacity())
-        .carrier_queue_capacity(config.tasks)
-        .stack_size(STACK_SIZE)
-        .stack_cache_capacity(config.tasks)
-        .build()
-        .map_err(|error| error.to_string())?;
+    let runtime = crate::vthread_setup::build(config)?;
     measure(config, |observe_placement| {
         run_round(&runtime, config, observe_placement)
     })?;

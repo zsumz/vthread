@@ -38,6 +38,7 @@ pub(crate) struct Config {
     pub(crate) tasks: usize,
     pub(crate) samples: usize,
     pub(crate) max_vthreads: Option<usize>,
+    pub(crate) pin_carriers: bool,
 }
 
 impl Config {
@@ -116,20 +117,24 @@ impl Config {
         {
             return Err("uncontended mutex requires exactly one task".into());
         }
-        let max_vthreads = match args.next().as_deref() {
-            None => None,
-            Some("--max-vthreads") if matches!(engine, Engine::Vthread) => {
-                let capacity = positive(&mut args, "max-vthreads")?;
-                if capacity < tasks.max(workers) {
-                    return Err("max-vthreads must cover both tasks and workers".into());
-                }
-                if args.next().is_some() {
-                    return Err(usage());
-                }
-                Some(capacity)
+        let mut max_vthreads = None;
+        let mut pin_carriers = false;
+        while let Some(option) = args.next() {
+            if !matches!(engine, Engine::Vthread) {
+                return Err("vthread-only option supplied to May".into());
             }
-            _ => return Err(usage()),
-        };
+            match option.as_str() {
+                "--max-vthreads" if max_vthreads.is_none() => {
+                    let capacity = positive(&mut args, "max-vthreads")?;
+                    if capacity < tasks.max(workers) {
+                        return Err("max-vthreads must cover both tasks and workers".into());
+                    }
+                    max_vthreads = Some(capacity);
+                }
+                "--pin-carriers" if !pin_carriers => pin_carriers = true,
+                _ => return Err(usage()),
+            }
+        }
         Ok(Self {
             engine,
             scenario,
@@ -137,6 +142,7 @@ impl Config {
             tasks,
             samples,
             max_vthreads,
+            pin_carriers,
         })
     }
 
@@ -206,7 +212,7 @@ fn channel_capacity(args: &mut impl Iterator<Item = String>) -> Result<usize, St
 }
 
 fn usage() -> String {
-    "usage: vthread-benchmarks <vthread|may> yield <yields-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> spawn <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> park <parks-per-task> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> mutex <locks-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> mutex-uncontended <locks-per-task> <workers> 1 <odd-samples>\n       vthread-benchmarks <vthread|may> channel <messages-per-task> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> channel-bounded-spsc <messages-per-task> <capacity> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> tcp <round-trips-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> wake-tail <wakes-per-task> <workers> <even-tasks> <odd-samples>\n       vthread scenarios also accept: --max-vthreads <capacity>".into()
+    "usage: vthread-benchmarks <vthread|may> yield <yields-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> spawn <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> park <parks-per-task> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> mutex <locks-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> mutex-uncontended <locks-per-task> <workers> 1 <odd-samples>\n       vthread-benchmarks <vthread|may> channel <messages-per-task> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> channel-bounded-spsc <messages-per-task> <capacity> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> tcp <round-trips-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> wake-tail <wakes-per-task> <workers> <even-tasks> <odd-samples>\n       vthread scenarios also accept: --max-vthreads <capacity> and --pin-carriers (Linux only)".into()
 }
 
 #[cfg(test)]

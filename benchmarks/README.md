@@ -20,6 +20,22 @@ taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread park 10000 4
 See [the capacity review](capacity-review.md) for measured spare-capacity effects
 and the runtime experiments rejected by lifecycle regression checks.
 
+On Linux, append `--pin-carriers` to explicitly pin each vthread carrier to a distinct
+CPU from the process's allowed mask. This requires procfs and `taskset`, runs before
+warm-up, verifies each thread's resulting mask, and fails if too few CPUs are allowed.
+Only this benchmark's carrier threads are pinned; task admission and affinity policies
+are unchanged. The printed rank orders OS thread IDs, not runtime carrier IDs.
+Without the flag, no per-carrier affinity is changed. It can be combined with
+`--max-vthreads` in either order and is rejected for May, whose defaults are unchanged.
+
+```sh
+taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread mutex 100000 4 64 9 --pin-carriers
+```
+
+Keep pinned and default results separately labeled. Pinning does not make May's
+migrating coroutines equivalent to vthread's non-migrating tasks. The
+[mutex placement review](mutex-placement-review.md) records the controlled comparison.
+
 Build once, then run each engine in a fresh process. Pin single-worker measurements to one CPU
 when `taskset` is available:
 
