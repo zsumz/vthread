@@ -65,51 +65,6 @@ impl WaitCell {
         registration.select_timeout(token)
     }
 
-    pub(crate) fn offer_resource(&self, selection: ResourceSelection) -> bool {
-        let mut word = self.state.load();
-        loop {
-            if word.phase() == Phase::Binding {
-                std::hint::spin_loop();
-                word = self.state.load();
-                continue;
-            }
-            if word.is_closed()
-                || word.phase().not_selectable()
-                || word.has_permit()
-                || word.resource().is_some()
-            {
-                return false;
-            }
-            let active = word.phase() == Phase::Active;
-            let next = if active {
-                word.with_resource(Some(selection))
-                    .claimed(WakeCause::Ready)
-            } else {
-                word.with_resource(Some(selection)).with_permit(true)
-            };
-            match self.state.compare_exchange(word, next) {
-                Ok(()) => {
-                    if active {
-                        enqueue_selected(&self.state, next, WakeCause::Ready, None, true);
-                    }
-                    return true;
-                }
-                Err(observed) => word = observed,
-            }
-        }
-    }
-
-    pub(crate) fn take_resource(&self) -> Option<ResourceSelection> {
-        let mut word = self.state.load();
-        loop {
-            let resource = word.resource()?;
-            match self.state.compare_exchange(word, word.with_resource(None)) {
-                Ok(()) => return Some(resource),
-                Err(observed) => word = observed,
-            }
-        }
-    }
-
     pub(crate) fn notify(&self) -> NotifyResult {
         let mut word = self.state.load();
         loop {
@@ -180,12 +135,6 @@ impl WaitCell {
 
     pub(crate) fn is_closed(&self) -> bool {
         self.state.load().is_closed()
-    }
-}
-
-impl Phase {
-    fn not_selectable(self) -> bool {
-        !matches!(self, Self::Idle | Self::Active)
     }
 }
 
@@ -264,7 +213,7 @@ fn select_generation(
     }
 }
 
-fn enqueue_selected(
+pub(super) fn enqueue_selected(
     state: &WaitInner,
     claimed: super::wait_state::WaitWord,
     cause: WakeCause,

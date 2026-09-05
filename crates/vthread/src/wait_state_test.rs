@@ -56,3 +56,60 @@ fn every_winner_has_distinct_claimed_and_published_phases() {
         assert_eq!(selected.resource(), Some(ResourceSelection::Broadcast));
     }
 }
+
+#[test]
+fn resource_decisions_preserve_generation_and_independent_flags() {
+    for phase in [
+        Phase::Idle,
+        Phase::Binding,
+        Phase::Active,
+        Phase::ClaimReady,
+        Phase::SelectedReady,
+        Phase::ClaimTimedOut,
+        Phase::SelectedTimedOut,
+        Phase::ClaimCancelled,
+        Phase::SelectedCancelled,
+        Phase::ClaimInheritedCancelled,
+        Phase::SelectedInheritedCancelled,
+        Phase::ClaimClosed,
+        Phase::SelectedClosed,
+    ] {
+        for resource in [
+            None,
+            Some(ResourceSelection::Permit),
+            Some(ResourceSelection::Broadcast),
+        ] {
+            for flags in 0..8 {
+                let word = WaitWord::initial()
+                    .with_generation(super::MAX_GENERATION)
+                    .with_phase(phase)
+                    .with_resource(resource)
+                    .with_permit(flags & 1 != 0)
+                    .with_closed(flags & 2 != 0)
+                    .with_fallback_hub(flags & 4 != 0);
+                let offered = word.resource_offer(ResourceSelection::Permit);
+                let eligible = matches!(phase, Phase::Idle | Phase::Active)
+                    && !word.is_closed()
+                    && !word.has_permit()
+                    && resource.is_none();
+                assert_eq!(offered.is_some(), eligible);
+                if let Some(offered) = offered {
+                    assert_eq!(offered.generation(), word.generation());
+                    assert_eq!(offered.uses_fallback_hub(), word.uses_fallback_hub());
+                    assert_eq!(offered.resource(), Some(ResourceSelection::Permit));
+                    assert_eq!(offered.is_claimed(), phase == Phase::Active);
+                    assert_eq!(offered.has_permit(), phase == Phase::Idle);
+                }
+                let taken = word.resource_take();
+                assert_eq!(
+                    taken.is_some(),
+                    resource.is_some() && phase != Phase::Binding && !word.is_claimed()
+                );
+                if let Some((next, taken)) = taken {
+                    assert_eq!(Some(taken), resource);
+                    assert_eq!(next.with_resource(resource), word);
+                }
+            }
+        }
+    }
+}

@@ -18,6 +18,8 @@ pub(super) struct MutexQueue {
     capacity: usize,
     entries: SpinMutex<VecDeque<WaitCell>>,
     handoff: OwnershipSlot,
+    #[cfg(test)]
+    pub(super) after_dequeue: std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 pub(super) enum Subscription<'mutex, 'wait, T> {
@@ -45,6 +47,8 @@ impl MutexQueue {
             capacity,
             entries: SpinMutex::new(VecDeque::new()),
             handoff: OwnershipSlot::new(),
+            #[cfg(test)]
+            after_dequeue: std::sync::Mutex::new(None),
         })
     }
 
@@ -87,7 +91,7 @@ impl MutexQueue {
 
     pub(super) fn release_ownership<T>(&self, value: &ExclusiveCell<T>, mut ownership: Ownership) {
         loop {
-            let wait = {
+            let publication = {
                 let mut entries = self.entries.lock();
                 let Some(wait) = entries.pop_front() else {
                     assert!(
@@ -105,9 +109,19 @@ impl MutexQueue {
                     self.handoff.publish(ownership).is_ok(),
                     "mutex retained two selected owners"
                 );
-                wait
+                // Cancellation cleanup takes this same queue lock. Reserve the
+                // recipient before exposing its removal, so cleanup either
+                // removes a queued ticket or observes its ownership grant.
+                wait.reserve_resource(ResourceSelection::Permit)
             };
-            if wait.offer_resource(ResourceSelection::Permit) {
+            #[cfg(test)]
+            let hook = crate::signal::lock(&self.after_dequeue).take();
+            #[cfg(test)]
+            if let Some(hook) = hook {
+                hook();
+            }
+            if let Some(publication) = publication {
+                publication.publish();
                 return;
             }
             ownership = self.handoff.take().expect("rejected mutex owner");
