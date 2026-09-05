@@ -20,7 +20,15 @@ use config::{Config, Engine};
 
 fn main() -> ExitCode {
     let result = Config::parse().and_then(|config| match config.engine {
-        Engine::Vthread => vthread_engine::run(&config),
+        Engine::Vthread => {
+            println!(
+                "engine=vthread phase=configuration max_vthreads={} workers={} tasks={}",
+                config.vthread_capacity(),
+                config.workers,
+                config.tasks,
+            );
+            vthread_engine::run(&config)
+        }
         Engine::May => may_engine::run(&config),
     });
     match result {

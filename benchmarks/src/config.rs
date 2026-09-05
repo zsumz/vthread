@@ -37,6 +37,7 @@ pub(crate) struct Config {
     pub(crate) workers: usize,
     pub(crate) tasks: usize,
     pub(crate) samples: usize,
+    pub(crate) max_vthreads: Option<usize>,
 }
 
 impl Config {
@@ -115,16 +116,32 @@ impl Config {
         {
             return Err("uncontended mutex requires exactly one task".into());
         }
-        if args.next().is_some() {
-            return Err(usage());
-        }
+        let max_vthreads = match args.next().as_deref() {
+            None => None,
+            Some("--max-vthreads") if matches!(engine, Engine::Vthread) => {
+                let capacity = positive(&mut args, "max-vthreads")?;
+                if capacity < tasks.max(workers) {
+                    return Err("max-vthreads must cover both tasks and workers".into());
+                }
+                if args.next().is_some() {
+                    return Err(usage());
+                }
+                Some(capacity)
+            }
+            _ => return Err(usage()),
+        };
         Ok(Self {
             engine,
             scenario,
             workers,
             tasks,
             samples,
+            max_vthreads,
         })
+    }
+
+    pub(crate) fn vthread_capacity(&self) -> usize {
+        self.max_vthreads.unwrap_or(self.tasks.max(self.workers))
     }
 
     pub(crate) fn engine_name(&self) -> &'static str {
@@ -189,7 +206,7 @@ fn channel_capacity(args: &mut impl Iterator<Item = String>) -> Result<usize, St
 }
 
 fn usage() -> String {
-    "usage: vthread-benchmarks <vthread|may> yield <yields-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> spawn <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> park <parks-per-task> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> mutex <locks-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> mutex-uncontended <locks-per-task> <workers> 1 <odd-samples>\n       vthread-benchmarks <vthread|may> channel <messages-per-task> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> channel-bounded-spsc <messages-per-task> <capacity> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> tcp <round-trips-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> wake-tail <wakes-per-task> <workers> <even-tasks> <odd-samples>".into()
+    "usage: vthread-benchmarks <vthread|may> yield <yields-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> spawn <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> park <parks-per-task> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> mutex <locks-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> mutex-uncontended <locks-per-task> <workers> 1 <odd-samples>\n       vthread-benchmarks <vthread|may> channel <messages-per-task> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> channel-bounded-spsc <messages-per-task> <capacity> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> tcp <round-trips-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> wake-tail <wakes-per-task> <workers> <even-tasks> <odd-samples>\n       vthread scenarios also accept: --max-vthreads <capacity>".into()
 }
 
 #[cfg(test)]

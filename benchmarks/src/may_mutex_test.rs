@@ -3,6 +3,7 @@ use crate::config::{Config, Engine, Scenario};
 #[test]
 fn migration_probes_cover_odd_task_counts_only_during_warmup() {
     let config = Config {
+        max_vthreads: None,
         engine: Engine::May,
         scenario: Scenario::Mutex {
             per_task: 10,
