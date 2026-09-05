@@ -159,10 +159,7 @@ impl Kernel {
         if deadline.is_some() {
             self.stats.timer_sleeps += 1;
         }
-        if self.inbox.pending() != 0
-            || self.local.pending_wakes() != 0
-            || self.inbox.hub.has_pending()
-        {
+        if self.observe_idle_work() {
             #[cfg(feature = "scheduler-profiling")]
             self.scheduler_profile.record_early_work();
             return;
@@ -172,11 +169,7 @@ impl Kernel {
                 for _ in 0..SPINS_PER_SIGNAL_PROBE {
                     std::hint::spin_loop();
                 }
-                if self.inbox.pending() != 0
-                    || self.local.pending_wakes() != 0
-                    || self.inbox.hub.has_pending()
-                    || self.inbox.signal.version() != observed
-                {
+                if self.observe_idle_work() || self.inbox.signal.version() != observed {
                     #[cfg(feature = "scheduler-profiling")]
                     self.scheduler_profile.record_poll(_probe + 1, true);
                     return;
@@ -196,6 +189,17 @@ impl Kernel {
                 || self.local.pending_wakes() != 0
                 || self.inbox.hub.has_pending(),
         );
+    }
+
+    fn observe_idle_work(&mut self) -> bool {
+        if self.inbox.pending() != 0 {
+            // Queue publication precedes the coalesced signal. Remember visible
+            // starts so the next drive receives them even if the notifier pauses.
+            self.remote_pending = true;
+            true
+        } else {
+            self.local.pending_wakes() != 0 || self.inbox.hub.has_pending()
+        }
     }
 }
 

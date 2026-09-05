@@ -46,6 +46,8 @@ pub(crate) struct Inbox {
     retired_tasks: RetiredTasks,
     pub(crate) signal: Arc<Signal>,
     pub(crate) hub: Arc<WaitHub>,
+    #[cfg(test)]
+    pub(crate) before_notify_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     #[cfg(feature = "runtime-evidence")]
     evidence: Option<crate::diagnostics::evidence::Emitter>,
 }
@@ -110,6 +112,8 @@ impl Inbox {
             retired_tasks: RetiredTasks(AtomicU64::new(0)),
             hub: Arc::new(hub),
             signal,
+            #[cfg(test)]
+            before_notify_hook: Mutex::new(None),
             #[cfg(feature = "runtime-evidence")]
             evidence,
         }
@@ -137,6 +141,10 @@ impl Inbox {
             self.record_depth(depth);
         }
         drop(state);
+        #[cfg(test)]
+        if let Some(hook) = lock(&self.before_notify_hook).take() {
+            hook();
+        }
         if was_empty {
             self.signal.notify();
         }
