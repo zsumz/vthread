@@ -64,6 +64,7 @@ impl Shared {
             let mut quiescent = true;
             let mut target_done = target.is_none();
             if self.config.stall_policy().timeout().is_some() {
+                let mut has_live_task = false;
                 for entry in state
                     .scopes
                     .get(&scope)
@@ -75,6 +76,7 @@ impl Shared {
                         target_done = entry.record.completion().done();
                     }
                     if !record.status.is_terminal() {
+                        has_live_task = true;
                         quiescent &= matches!(record.status, TaskStatus::Suspended(reason) if !matches!(reason,
                             SuspensionReason::IoRead | SuspensionReason::IoWrite |
                             SuspensionReason::IoAccept | SuspensionReason::IoConnect |
@@ -82,6 +84,9 @@ impl Shared {
                             && record.deadline.is_none();
                     }
                 }
+                // Terminal state precedes completion-credit retirement. That gap
+                // is pending accounting, not an indefinitely parked scope.
+                quiescent &= has_live_task;
             } else if let Some(target) = target {
                 target_done = target.completion().done();
             }

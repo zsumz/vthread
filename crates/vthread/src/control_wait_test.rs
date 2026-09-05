@@ -27,6 +27,49 @@ fn disabled_stall_detection_drains_from_scope_activity_without_record_locks() {
 }
 
 #[test]
+fn terminal_records_awaiting_credit_retirement_are_not_stalled() {
+    use crate::{StallPolicy, control::CompletionBatch, support_test::until};
+    use std::sync::Arc;
+
+    for policy in [
+        StallPolicy::ReportAfter(Duration::ZERO),
+        StallPolicy::AbortAfter(Duration::ZERO),
+    ] {
+        let config = Runtime::builder()
+            .stall_policy(policy)
+            .build()
+            .unwrap()
+            .config();
+        let shared = Arc::new(super::Shared::new(config));
+        let scope = shared.begin_scope().unwrap();
+        let record = shared.reserve(scope, "terminal".into(), None).unwrap();
+        let mut batch = CompletionBatch::new();
+        batch.push(shared.prepare_completion(&record, None).unwrap());
+        let observer = Arc::clone(&shared);
+        let waiter = std::thread::spawn(move || observer.wait(scope, None));
+
+        // Hold the legitimate terminal-to-retirement gap open until the owner waits.
+        until(|| shared.changed.waiting() != 0);
+        let abort = shared.abort_reason(scope);
+        let stall = shared.snapshot().last_stall;
+        record.completion().complete();
+        shared.publish_completions(&batch, &shared.scope_progress(scope));
+        let result = waiter.join().unwrap();
+        shared.finish_scope(scope);
+
+        assert!(
+            abort.is_none(),
+            "terminal-only scope was aborted: {policy:?}"
+        );
+        assert!(
+            stall.is_none(),
+            "terminal-only scope was reported: {policy:?}"
+        );
+        assert!(result.is_ok(), "terminal-only scope failed: {result:?}");
+    }
+}
+
+#[test]
 fn a_pending_wake_for_another_scope_does_not_mask_a_stall() {
     use crate::{
         ScopeOptions, SuspensionReason, TaskFailure, TaskStatus,
