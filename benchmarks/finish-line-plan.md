@@ -16,7 +16,7 @@ out of scope. The overall May goal and stable-release qualification remain open.
 | 3 | Pending-admission fairness | Real late starts under sustained mixed park/yield/wake and borrowed work | Qualified check-based quota and one-start service; measured small park/cycle costs recorded |
 | 4 | Unexplained stall test | Actual failure state; ordered evidence replacing unproven temporal assumptions | Captured Stored watchdog permit with zero parks; ordered tests qualified; additional loaded-suite findings open |
 | 5 | Handoff publication evidence | Publisher-pause regressions and stage attribution without changing production ordering | Native/optimized probes and canonical gates pass; owner-wide dependency confirmed; repair and OS-tail attribution open |
-| 6 | Capacity/admission/idle interaction | Scan-free maintenance without rejected lifecycle/idle costs, multiple provisioned capacities | Pending |
+| 6 | Capacity/admission/idle interaction | Scan-free maintenance without rejected lifecycle/idle costs, multiple provisioned capacities | Final-only owner-local activity counters qualified; scan-free comparison and pacing repair remain open |
 | 7 | Useful channel handoff | Notification/progress counts; reserve under lock, publish outside, cancellation/close/panic proof | Pending |
 | 8 | Mutex round-trip cost | Local/remote and active/sleeping recipient attribution; exact ownership and waiter progress | Pending |
 | 9 | Incremental readiness | Bounded command processing proportional to changes/events and large-connection validation | Pending |
@@ -170,3 +170,12 @@ their winner, and cleanup waits before old-notice disposal and route reuse.
 test-only characterization, not a liveness repair or proof of the historical tail
 cause. Production ordering is unchanged; bounded deferral or another protocol change
 requires a composition model and separate performance qualification.
+
+## Admission and idle attribution
+
+[scheduler-profile-review.md](scheduler-profile-review.md) records the opt-in
+owner-local counters and final-only benchmark reader. Canonical, native and
+benchmark qualification pass. The first lifecycle process accounts for all
+5.02 million task lifetimes; the default controls caught unrelated host work
+and are excluded from performance acceptance. No capacity scan, polling,
+admission or wake protocol changes are included in this evidence slice.

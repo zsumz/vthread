@@ -7,6 +7,7 @@ publish = false
 [features]
 allocation-probe = []
 lifecycle-profiling = ["vthread/lifecycle-profiling"]
+scheduler-profiling = ["vthread/scheduler-profiling"]
 
 [dependencies]
 may = "=0.3.51"

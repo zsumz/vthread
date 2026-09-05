@@ -147,10 +147,27 @@ scope retirement. Producer and carrier phases overlap, so they are not additive 
 residual is only a lower bound. Clock reads and atomic accounting intentionally make profiled totals
 slower; use the default build above for engine-to-engine comparisons.
 
+For admission/idle attribution without per-task clocks or shared counter atomics:
+
+```sh
+cargo build --release --manifest-path benchmarks/Cargo.toml --features scheduler-profiling
+taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread spawn 4 10000 501
+taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread park 10000 4 64 11 --max-vthreads 65536
+```
+
+Carrier-local counters are copied through existing snapshot publication; the harness
+reads them **only after shutdown**, never between rounds. Final output checks all
+warm-up and measured task counts and reports receive-size histograms, full-window
+deferrals, dispatches between idle entries, poll probes/hits and wait calls. Totals
+include startup, warm-up and shutdown, not just measured intervals. Wait calls do not
+prove kernel sleeps; returns without task work can reflect timers or control events.
+This opt-in feature still changes code/layout and snapshot-copy work. Its timings are
+diagnostic, not headline comparisons; disable all profiling for performance acceptance.
+
 Heap allocation counts are independently available with `--features allocation-probe`. They cover
 the measured process-wide interval and therefore should be collected with one worker on a quiet
 machine. The TCP count also includes its native peer, so use the scheduler-only scenarios for clean
-engine attribution. Rebuild without either feature before recording headline latency results.
+engine attribution. Rebuild without profiling features before recording headline latency results.
 
 The [handoff review checkpoint](review-progress.md) records rejected optimization experiments,
 migration-observation limits, and the expanded mutex soak qualification.

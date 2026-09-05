@@ -12,6 +12,7 @@ release qualification or an archive of executed binaries.
 | `admission-fairness-fc9156a9.tar.gz` | [Admission fairness](../admission-fairness-review.md) | `398d1233d2e195d542768037c64bb4ecb0fb21ec8c7f1c0f84f55cfd720e4850` |
 | `completion-observer-f8f1f6f5.tar.gz` | [Completion observer](../completion-observer-review.md) | `b080b4bc24ed6a274cc2755433cb928e052dbfc338c71be341e416ba7f3f4070` |
 | `publication-f5cde19e.tar.gz` | [Wake publication](../publication-review.md) | `2fa11ac9c72cee83611daac9c3791231d422acc68216416dad940b0639f5c820` |
+| `scheduler-profile-718e21c1.tar.gz` | [Scheduler activity](../scheduler-profile-review.md) | `7dc52997e93f3d3499eb02afa224c35a666fb25f658397c76f6a8a5598b5b397` |
 
 The ready-fairness bundle includes original, FIFO, cohort-32 and cohort-2 logs;
 the original failing production-queue regression; counter CSVs; native tests and
@@ -41,6 +42,12 @@ The publication bundle contains the final test-only pause probes against `23822e
 native/all-feature/optimized qualification, and 20 one-CPU suite repeats. It confirms
 a carrier-wide publication dependency while checking ownership and retirement safety;
 it is not a protocol repair or a new performance comparison.
+
+The scheduler-profile bundle preserves the opt-in counter/report source, canonical
+and both native feature configurations, benchmark gates, a final-only lifecycle
+profile and noisy default controls explicitly excluded from performance acceptance.
+Source/binary hashes, the exact macro-grant preview, raw output and analysis/replay
+commands are included. No scan-free runtime change is part of that checkpoint.
 
 Extract into a fresh directory and inspect the manifests before replaying commands.
 Absolute paths in captured receipts describe the original host, not required output

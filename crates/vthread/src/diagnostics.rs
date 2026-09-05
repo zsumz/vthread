@@ -18,6 +18,8 @@ pub mod evidence;
 pub mod qualification;
 #[cfg(feature = "lifecycle-profiling")]
 pub use crate::lifecycle_probe::LifecycleProfile;
+#[cfg(feature = "scheduler-profiling")]
+pub use crate::scheduler_probe::SchedulerProfile;
 
 pub use crate::dump::DumpReport;
 pub use crate::identity::{RuntimeId, ScopeId};
@@ -164,6 +166,8 @@ pub struct CarrierSnapshot {
     pub(crate) stats: RuntimeStats,
     /// Carrier-local stack cache.
     pub(crate) stacks: StackSnapshot,
+    #[cfg(feature = "scheduler-profiling")]
+    pub(crate) scheduler_profile: SchedulerProfile,
 }
 
 impl CarrierSnapshot {
@@ -179,6 +183,8 @@ impl CarrierSnapshot {
             pending_wakes: 0,
             stats: RuntimeStats::default(),
             stacks: StackSnapshot::default(),
+            #[cfg(feature = "scheduler-profiling")]
+            scheduler_profile: SchedulerProfile::default(),
         }
     }
 }

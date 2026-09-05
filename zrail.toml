@@ -107,6 +107,35 @@ package = "vthreads"
 default_features = false
 features = ["qualification"]
 
+[[source.rust.feature_worlds]]
+name = "scheduler-profiling"
+reason = "The opt-in owner-local scheduler counters qualify admission and idle pacing without timing the hot path."
+
+[[source.rust.feature_worlds.packages]]
+package = "vthread"
+default_features = true
+features = ["scheduler-profiling"]
+
+[[source.rust.feature_worlds.packages]]
+package = "vthread-lab"
+default_features = true
+features = []
+
+[[source.rust.feature_worlds.packages]]
+package = "vthread-stack"
+default_features = true
+features = []
+
+[[source.rust.feature_worlds.packages]]
+package = "vthread-sync-core"
+default_features = true
+features = []
+
+[[source.rust.feature_worlds.packages]]
+package = "vthreads"
+default_features = true
+features = ["scheduler-profiling"]
+
 [source.rust.macros]
 mode = "deny-unreviewed"
 
@@ -121,6 +150,10 @@ reason = "Approved: exact compiler derive for small immutable evidence identitie
 [[source.rust.macros.allow]]
 name = "core::fmt::Debug"
 reason = "Approved: exact compiler derive for evidence diagnostics."
+
+[[source.rust.macros.allow]]
+name = "core::default::Default"
+reason = "Approved: exact compiler derive initializes owner-local scheduler counters and fixed histogram bins to zero."
 
 [[source.rust.macros.allow]]
 name = "core::cmp::Eq"

@@ -13,14 +13,16 @@ use std::{
 };
 
 pub(crate) fn run(config: &Config) -> Result<(), String> {
+    #[cfg(feature = "scheduler-profiling")]
+    println!("engine=vthread phase=instrumentation scheduler_profiling=true headline=false");
     let runtime = crate::vthread_setup::build(config)?;
     measure(config, |observe_placement| {
         run_round(&runtime, config, observe_placement)
     })?;
-    runtime
-        .shutdown()
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+    runtime.shutdown().map_err(|error| error.to_string())?;
+    #[cfg(feature = "scheduler-profiling")]
+    crate::scheduler_profile::report(&mut std::io::stdout().lock(), &runtime.snapshot(), config)?;
+    Ok(())
 }
 
 fn run_round(
