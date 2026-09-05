@@ -11,8 +11,8 @@ out of scope. The overall May goal and stable-release qualification remain open.
 
 | Order | Slice | Exit evidence | State |
 | --- | --- | --- | --- |
-| 1 | ARM64 terminal result register | Real ARM64 debug/optimized completion, yield/park, panic, forced unwind, reuse and FP state | One-instruction repair locally qualified; repaired ARM64 run pending |
-| 2 | Ready-queue bounded fairness | Old code fails mixed hot-wake/normal-work counterexample; repaired dispatch bound and measured tradeoffs | Pending |
+| 1 | ARM64 terminal result register | Real ARM64 debug/optimized completion, yield/park, panic, forced unwind, reuse and FP state | Native CI passed on both architectures/profiles; raw artifact archival pending |
+| 2 | Ready-queue bounded fairness | Old code fails mixed hot-wake/normal-work counterexample; repaired dispatch bound and measured tradeoffs | Reproduced against the production queue; policy experiments next |
 | 3 | Pending-admission fairness | Real late starts under sustained mixed park/yield/wake and borrowed work | Pending |
 | 4 | Unexplained stall test | Actual failure state; ordered evidence replacing unproven temporal assumptions | Pending |
 | 5 | Handoff publication evidence | Publisher-pause regressions and stage attribution without changing production ordering | Pending |
@@ -83,4 +83,29 @@ The subsequent one-instruction repair (`mov x0, x1`) passed all 11 local canonic
 gates under receipt
 `/root/.cache/zcheck/run-1788620337-573240029-2144698/receipt.json`.
 It changes no Linux assembly or runtime scheduling policy and requires no lock
-or grant change. Real ARM64 qualification of the repaired commit remains pending.
+or grant change.
+
+The repaired commit `1b39b4895304b02b79401fb3491a0e495174f520` then passed
+[native-stack run 33973607610](https://github.com/zsumz/vthread/actions/runs/33973607610):
+
+| Actual host / Rust target | Profile | Job | Result |
+| --- | --- | ---: | --- |
+| ARM64 / aarch64-apple-darwin | debug (`test`) | 101326338847 | Host verification and native stack suite passed |
+| ARM64 / aarch64-apple-darwin | optimized (`release`) | 101326338761 | Host verification and native stack suite passed |
+| x86-64 / x86_64-unknown-linux-gnu | debug (`test`) | 101326338849 | Host verification and native stack suite passed |
+| x86-64 / x86_64-unknown-linux-gnu | optimized (`release`) | 101326338852 | Host verification and native stack suite passed |
+
+These jobs execute the terminal/reuse regressions and existing architecture FP,
+register-preservation, panic, forced-unwind and guard-page tests, not a cross-build
+or a label-only check. This closes the first slice's native execution gate. The
+full ARM64 runtime/stress and sanitizer matrix remain later qualification; CI
+artifacts expire and have not yet been copied into a durable release bundle.
+
+## Ready-queue initial regression
+
+The real `ReadyQueue` (not a separate policy implementation) fails the new
+four-identity mixed-work test on the repaired-stack baseline: one old wake, two
+alternating hot wakers and one normal task. After 34 dispatch opportunities the
+normal task ran once, but the old wake ran zero times. The queue never exceeded
+three entries. The exact failure is `normal work erased the oldest-wake quota`.
+This does not establish the cause of the historical wake p99.9 measurements.
