@@ -58,5 +58,8 @@ pub use suspension::{FiberState, ParkRequest, ParkToken, Resume, SuspendError, S
 #[path = "lib_test.rs"]
 mod lib_test;
 #[cfg(test)]
+#[path = "terminal_test.rs"]
+mod terminal_test;
+#[cfg(test)]
 #[path = "trace_test.rs"]
 mod trace_test;

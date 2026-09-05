@@ -1,0 +1,88 @@
+name: native stack
+
+on:
+  pull_request:
+  push:
+    branches: [main, "perf/scheduler-hot-path", "release/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  terminal:
+    name: native stack (${{ matrix.target }}, ${{ matrix.profile }})
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            architecture: x86_64
+            profile: test
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            architecture: x86_64
+            profile: release
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            architecture: arm64
+            profile: test
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            architecture: arm64
+            profile: release
+    runs-on: ${{ matrix.runner }}
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target/native-stack-build
+      EVIDENCE_DIR: ${{ github.workspace }}/target/native-stack-evidence
+      EXPECTED_ARCH: ${{ matrix.architecture }}
+      EXPECTED_TARGET: ${{ matrix.target }}
+      NATIVE_PROFILE: ${{ matrix.profile }}
+      RUST_BACKTRACE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust
+        run: rustup toolchain install 1.96.1 --profile minimal
+      - name: Verify execution host and record source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR"
+          test "$(uname -m)" = "$EXPECTED_ARCH"
+          rustc -vV | tee "$EVIDENCE_DIR/rustc.txt"
+          rustc -vV | grep -Fx "host: $EXPECTED_TARGET"
+          uname -a > "$EVIDENCE_DIR/host.txt"
+          git rev-parse HEAD > "$EVIDENCE_DIR/source-commit.txt"
+          git ls-tree -r HEAD > "$EVIDENCE_DIR/source-tree.txt"
+          printf '%s\n' "$NATIVE_PROFILE" > "$EVIDENCE_DIR/profile.txt"
+          printf 'cargo test --locked -p vthread-stack --lib --profile %s --target %s\n' "$NATIVE_PROFILE" "$EXPECTED_TARGET" > "$EVIDENCE_DIR/command.txt"
+      - name: Run native stack qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked -p vthread-stack --lib --profile "$NATIVE_PROFILE" --target "$EXPECTED_TARGET" 2>&1 | tee "$EVIDENCE_DIR/tests.log"
+      - name: Record executed binary identity
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_profile="$NATIVE_PROFILE"
+          if test "$build_profile" = test; then build_profile=debug; fi
+          binary_dir="$CARGO_TARGET_DIR/$EXPECTED_TARGET/$build_profile/deps"
+          if test -d "$binary_dir"; then
+            for binary in "$binary_dir"/vthread_stack-*; do
+              if test -f "$binary" && test -x "$binary"; then
+                shasum -a 256 "$binary" >> "$EVIDENCE_DIR/binaries.sha256"
+              fi
+            done
+          fi
+      - name: Preserve source-keyed qualification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-stack-${{ github.sha }}-${{ matrix.target }}-${{ matrix.profile }}
+          path: target/native-stack-evidence/
+          if-no-files-found: error
