@@ -219,3 +219,10 @@ impl WaitCell {
 #[cfg(test)]
 #[path = "wait_test.rs"]
 mod wait_test;
+
+#[cfg(test)]
+#[path = "wait_publication_probe_test.rs"]
+pub(crate) mod wait_publication_probe_test;
+#[cfg(test)]
+#[path = "wait_publication_test.rs"]
+mod wait_publication_test;
