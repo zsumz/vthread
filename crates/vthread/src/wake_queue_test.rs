@@ -27,6 +27,7 @@ fn producer_and_consumer_cursors_do_not_share_a_cache_line() {
 #[test]
 fn wake_slots_fit_two_per_cache_line() {
     assert_eq!(std::mem::size_of::<super::Slot>(), 32);
+    assert_eq!(std::mem::size_of::<super::Cursor>(), 64);
 }
 
 #[test]
@@ -62,5 +63,107 @@ fn a_consumed_route_can_be_republished_while_an_older_batch_remains() {
 
     assert_eq!(queue.pop().unwrap().route, TaskKey::owned(1));
     assert_eq!(queue.pop(), Some(replacement));
+    assert!(queue.pop().is_none());
+}
+
+#[test]
+fn pending_counts_publications_rejections_and_reused_routes_at_every_capacity() {
+    for capacity in [1, 64, 256, 257, 4096, 65536] {
+        let queue = WakeQueue::new(capacity);
+        let routes = capacity.min(8);
+        for generation in 1..=4 {
+            for index in 0..routes {
+                let mut notice = notice(index);
+                notice.token = ParkToken::new(notice.token.wait(), generation);
+                queue.push(notice, || {}).unwrap();
+                assert!(queue.push(notice, || {}).is_err());
+                assert_eq!(queue.pending(), index + 1);
+            }
+            for remaining in (0..routes).rev() {
+                assert_eq!(queue.pop().unwrap().token.generation(), generation);
+                assert_eq!(queue.pending(), remaining);
+            }
+            assert!(queue.pop().is_none());
+            assert_eq!(queue.pending(), 0);
+        }
+        assert!(queue.push(notice(capacity), || {}).is_err());
+        assert_eq!(queue.pending(), 0);
+    }
+}
+
+#[test]
+fn publication_count_includes_reserved_but_not_yet_published_routes() {
+    for capacity in [64, 4096] {
+        let queue = WakeQueue::new(capacity);
+        queue
+            .push(notice(0), || {
+                assert_eq!(queue.pending(), 1);
+                assert!(!queue.has_pending());
+            })
+            .unwrap();
+        assert_eq!(queue.pending(), 1);
+        assert_eq!(queue.pop(), Some(notice(0)));
+        assert_eq!(queue.pending(), 0);
+    }
+}
+
+#[test]
+fn concurrent_route_reuse_never_overcounts_or_underflows_pending() {
+    use std::{
+        sync::atomic::{AtomicBool, Ordering},
+        time::{Duration, Instant},
+    };
+    let queue = WakeQueue::new(64);
+    let stop = AtomicBool::new(false);
+    let mut delivered = BTreeSet::new();
+    let mut maximum_pending = 0;
+    let mut duplicate_wakes = 0;
+    let mut invalid_notice = false;
+    thread::scope(|threads| {
+        for route in 0..8 {
+            let queue = &queue;
+            let stop = &stop;
+            threads.spawn(move || {
+                for generation in 1..=1024 {
+                    let mut next = notice(route);
+                    next.token = ParkToken::new(next.token.wait(), generation);
+                    loop {
+                        if stop.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        if queue.push(next, || {}).is_ok() {
+                            break;
+                        }
+                        thread::yield_now();
+                    }
+                }
+            });
+        }
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while delivered.len() != 8 * 1024 && Instant::now() < deadline {
+            maximum_pending = maximum_pending.max(queue.pending());
+            if let Some(wake) = queue.pop() {
+                let route = wake.route.index();
+                let generation = wake.token.generation();
+                let mut expected = notice(route);
+                expected.token = ParkToken::new(expected.token.wait(), generation);
+                invalid_notice |=
+                    route >= 8 || !(1..=1024).contains(&generation) || wake != expected;
+                duplicate_wakes +=
+                    usize::from(!delivered.insert((wake.route.encoded(), generation)));
+            } else {
+                thread::yield_now();
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+    });
+    assert_eq!(delivered.len(), 8 * 1024);
+    assert_eq!(duplicate_wakes, 0);
+    assert!(!invalid_notice, "received a notice that was never issued");
+    assert!(
+        maximum_pending <= 8,
+        "observed {maximum_pending} pending wakes"
+    );
+    assert_eq!(queue.pending(), 0);
     assert!(queue.pop().is_none());
 }
