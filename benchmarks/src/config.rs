@@ -23,6 +23,10 @@ pub(crate) enum Scenario {
         per_task: usize,
         capacity: Option<usize>,
     },
+    ChannelMpmc {
+        per_task: usize,
+        capacity: usize,
+    },
     Tcp {
         per_task: usize,
     },
@@ -76,6 +80,11 @@ impl Config {
                 per_task: positive(&mut args, "messages-per-task")?,
                 capacity: Some(channel_capacity(&mut args)?),
             },
+            Some("channel-mpmc") if matches!(engine, Engine::Vthread) => Scenario::ChannelMpmc {
+                per_task: positive(&mut args, "messages-per-task")?,
+                capacity: channel_capacity(&mut args)?,
+            },
+            Some("channel-mpmc") => return Err("channel-mpmc is a vthread-only control".into()),
             Some("tcp") => Scenario::Tcp {
                 per_task: positive(&mut args, "round-trips-per-task")?,
             },
@@ -116,6 +125,18 @@ impl Config {
         ) && tasks != 1
         {
             return Err("uncontended mutex requires exactly one task".into());
+        }
+        if let Scenario::ChannelMpmc { per_task, .. } = scenario {
+            if tasks < 4 || !tasks.is_multiple_of(2) {
+                return Err(
+                    "shared MPMC requires even tasks with at least two per direction".into(),
+                );
+            }
+            if (tasks / 2).checked_mul(per_task).is_none()
+                || per_task > isize::MAX as usize / std::mem::size_of::<usize>()
+            {
+                return Err("shared MPMC delivery evidence exceeds addressable storage".into());
+            }
         }
         let mut max_vthreads = None;
         let mut pin_carriers = false;
@@ -173,6 +194,9 @@ impl Config {
                 capacity: Some(capacity),
                 ..
             } => Cow::Owned(format!("bounded-spsc-channel-{capacity}-handoff")),
+            Scenario::ChannelMpmc { capacity, .. } => {
+                Cow::Owned(format!("bounded-mpmc-channel-{capacity}-transfer"))
+            }
             Scenario::Tcp { .. } => Cow::Borrowed("tcp-round-trip"),
             Scenario::WakeTail { .. } => Cow::Borrowed("wake-to-resume"),
         }
@@ -184,11 +208,17 @@ impl Config {
             | Scenario::Park { per_task }
             | Scenario::Mutex { per_task, .. }
             | Scenario::Channel { per_task, .. }
+            | Scenario::ChannelMpmc { per_task, .. }
             | Scenario::Tcp { per_task }
             | Scenario::WakeTail { per_task } => per_task,
             Scenario::Spawn => 1,
         };
-        (self.tasks as u128) * (per_task as u128)
+        let producing_tasks = if matches!(self.scenario, Scenario::ChannelMpmc { .. }) {
+            self.tasks / 2
+        } else {
+            self.tasks
+        };
+        (producing_tasks as u128) * (per_task as u128)
     }
 }
 
@@ -212,6 +242,13 @@ fn channel_capacity(args: &mut impl Iterator<Item = String>) -> Result<usize, St
 }
 
 fn usage() -> String {
+    format!(
+        "{}\n       vthread-benchmarks vthread channel-mpmc <messages-per-producer> <capacity> <workers> <even-tasks>=4> <odd-samples>",
+        common_usage(),
+    )
+}
+
+fn common_usage() -> String {
     "usage: vthread-benchmarks <vthread|may> yield <yields-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> spawn <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> park <parks-per-task> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> mutex <locks-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> mutex-uncontended <locks-per-task> <workers> 1 <odd-samples>\n       vthread-benchmarks <vthread|may> channel <messages-per-task> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> channel-bounded-spsc <messages-per-task> <capacity> <workers> <even-tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> tcp <round-trips-per-task> <workers> <tasks> <odd-samples>\n       vthread-benchmarks <vthread|may> wake-tail <wakes-per-task> <workers> <even-tasks> <odd-samples>\n       vthread scenarios also accept: --max-vthreads <capacity> and --pin-carriers (Linux only)".into()
 }
 

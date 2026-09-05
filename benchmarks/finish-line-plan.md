@@ -17,7 +17,7 @@ out of scope. The overall May goal and stable-release qualification remain open.
 | 4 | Unexplained stall test | Actual failure state; ordered evidence replacing unproven temporal assumptions | Captured Stored watchdog permit with zero parks; ordered tests qualified; additional loaded-suite findings open |
 | 5 | Handoff publication evidence | Publisher-pause regressions and stage attribution without changing production ordering | Native/optimized probes and canonical gates pass; owner-wide dependency confirmed; repair and OS-tail attribution open |
 | 6 | Capacity/admission/idle interaction | Scan-free maintenance without rejected lifecycle/idle costs, multiple provisioned capacities | Counters and visible-ingress progress repair qualified; scan-free lifecycle penalty and quiet-host performance acceptance remain open |
-| 7 | Useful channel handoff | Notification/progress counts; reserve under lock, publish outside, cancellation/close/panic proof | Pending |
+| 7 | Useful channel handoff | Notification/progress counts; reserve under lock, publish outside, cancellation/close/panic proof | Shared MPMC benchmark control qualified; eligibility and out-of-lock publication remain separate pending changes |
 | 8 | Mutex round-trip cost | Local/remote and active/sleeping recipient attribution; exact ownership and waiter progress | Pending |
 | 9 | Incremental readiness | Bounded command processing proportional to changes/events and large-connection validation | Pending |
 | 10 | Release evidence | Durable source-keyed cross-platform correctness, stress, footprint, CPU and performance bundle | Pending |
@@ -194,3 +194,8 @@ cycles by 24.58%. That combined candidate is also shelved, with durable raw evid
 in the capacity-pacing review. A separate uninstrumented sample still points at
 idle polling. Capacity-independent publication remains open; the next independent
 slice examines channel wake eligibility without changing resource publication.
+
+[shared-channel-review.md](shared-channel-review.md) records the benchmark-only
+baseline for that work. It adds one shared bounded MPMC channel with exact delivery
+checks outside the elapsed clock; all native smokes and qualification pass. It is
+not a new May comparison, latency distribution or channel runtime optimization.

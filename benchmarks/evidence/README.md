@@ -16,6 +16,7 @@ release qualification or an archive of executed binaries.
 | `capacity-pacing-244bc8a1.tar.gz` | [Rejected capacity experiment](../capacity-pacing-review.md) | `93539843d126e7cc2b1b3c71293c8bf9d64cd1b21a344c1522d80b58240a41b5` |
 | `ingress-visibility-aa2fa66e.tar.gz` | [Idle ingress progress](../ingress-visibility-review.md) | `9d3d6c9ec47309922b4cb716c689f00b02ecd46d81f40ccc47faf4e59c5b1bdc` |
 | `capacity-ingress-e6474864.tar.gz` | [Four-way capacity attribution](../capacity-pacing-review.md) | `766796d6657116476b550162cfe61046f336bc74f2c2ca7ebe9cf99252ac2836` |
+| `shared-channel-control-a373785e.tar.gz` | [Shared channel contract](../shared-channel-review.md) | `1234a27e3570d54498af5a660b29619e6f37bbd84d166eb1f05610c14abe4da9` |
 
 The ready-fairness bundle includes original, FIFO, cohort-32 and cohort-2 logs;
 the original failing production-queue regression; counter CSVs; native tests and
@@ -70,6 +71,11 @@ against `a4b5a96`, six targeted checks, 48 four-way diagnostic processes, all so
 and binary identities, and the separate uninstrumented cycle sample/annotation.
 It demonstrates that removing empty-idle reentry does not recover the lifecycle
 batching penalty. No idle policy or scan-free change is retained in production.
+
+The shared-channel-control bundle contains the benchmark-only patch against
+`7410285`, exact-delivery negative checks, native capacity/carrier smokes, standalone
+benchmark gates and the full canonical receipt. The new shared bounded MPMC control
+is vthread-only and does not change or replace the historical May comparisons.
 
 Extract into a fresh directory and inspect the manifests before replaying commands.
 Absolute paths in captured receipts describe the original host, not required output

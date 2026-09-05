@@ -6,6 +6,7 @@ pub(crate) struct Round {
     pub(crate) operation_latency_groups_ns: Vec<Vec<u64>>,
     pub(crate) pair_owners: Vec<(usize, usize)>,
     pub(crate) task_migrations: Vec<bool>,
+    pub(crate) channel_delivery: Option<crate::channel_delivery::Delivery>,
     #[cfg(feature = "lifecycle-profiling")]
     pub(crate) lifecycle: Option<vthread::diagnostics::LifecycleProfile>,
 }
@@ -15,6 +16,7 @@ pub(crate) fn measure(
     mut round: impl FnMut(bool) -> Result<Round, String>,
 ) -> Result<(), String> {
     let warmup = round(true)?;
+    crate::channel_delivery::validate(config, warmup.channel_delivery.as_ref())?;
     let mut samples = Vec::with_capacity(config.samples);
     let mut admission_samples = Vec::with_capacity(config.samples);
     let mut drain_samples = Vec::with_capacity(config.samples);
@@ -33,6 +35,7 @@ pub(crate) fn measure(
         let total = started.elapsed().as_nanos();
         #[cfg(feature = "allocation-probe")]
         allocation_samples.push(crate::allocation_probe::finish());
+        crate::channel_delivery::validate(config, round.channel_delivery.as_ref())?;
         samples.push(total);
         admission_samples.push(round.admission_ns);
         drain_samples.push(total.saturating_sub(round.admission_ns));

@@ -18,6 +18,9 @@ use std::{
 const STACK_SIZE: usize = 64 * 1024;
 
 pub(crate) fn run(config: &Config) -> Result<(), String> {
+    if matches!(config.scenario, Scenario::ChannelMpmc { .. }) {
+        return Err("channel-mpmc is a vthread-only control".into());
+    }
     may::config()
         .set_workers(config.workers)
         .set_stack_size(STACK_SIZE / std::mem::size_of::<usize>())
@@ -155,6 +158,7 @@ fn run_round(config: &Config, observe_placement: bool) -> Result<Round, String> 
     may::coroutine::scope(|scope| {
         let started = Instant::now();
         match config.scenario {
+            Scenario::ChannelMpmc { .. } => unreachable!("vthread-only control rejected above"),
             Scenario::Yield { per_task } => {
                 for _ in 0..config.tasks {
                     may::go!(scope, move || run_yields(per_task));
@@ -247,6 +251,7 @@ fn run_round(config: &Config, observe_placement: bool) -> Result<Round, String> 
         operation_latency_groups_ns,
         pair_owners,
         task_migrations,
+        channel_delivery: None,
         #[cfg(feature = "lifecycle-profiling")]
         lifecycle: None,
     })
