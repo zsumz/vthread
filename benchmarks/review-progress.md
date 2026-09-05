@@ -171,3 +171,11 @@ The [capacity review](capacity-review.md) records a newly exposed spare-capacity
 cliff, hardware-counter and idle-loop profiling evidence, and rejected counter,
 snapshot, and idle-polling experiments. The benchmark control is retained;
 none of those runtime changes is retained because lifecycle regression checks failed.
+
+## Follow-up: owner wake dequeue
+
+The [dequeue review](dequeue-review.md) records cycle profiles, an unretained forced-inline
+dequeue experiment, and its complete reversed-order counter and tail evidence. It also
+records May's default OS-worker pinning and strengthens the foreign-runtime Drop test
+with explicit event ordering. The next protocol experiment targets the owner wake-head
+exchange; no mailbox implementation or corresponding speedup is claimed here.
