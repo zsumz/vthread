@@ -15,7 +15,7 @@ out of scope. The overall May goal and stable-release qualification remain open.
 | 2 | Ready-queue bounded fairness | Old code fails mixed hot-wake/normal-work counterexample; repaired dispatch bound and measured tradeoffs | Qualified two-wake cohorts; four-selection head bound; explicit cycle/throughput/p95 costs |
 | 3 | Pending-admission fairness | Real late starts under sustained mixed park/yield/wake and borrowed work | Qualified check-based quota and one-start service; measured small park/cycle costs recorded |
 | 4 | Unexplained stall test | Actual failure state; ordered evidence replacing unproven temporal assumptions | Captured Stored watchdog permit with zero parks; ordered tests qualified; additional loaded-suite findings open |
-| 5 | Handoff publication evidence | Publisher-pause regressions and stage attribution without changing production ordering | Pending |
+| 5 | Handoff publication evidence | Publisher-pause regressions and stage attribution without changing production ordering | Native/optimized probes and canonical gates pass; owner-wide dependency confirmed; repair and OS-tail attribution open |
 | 6 | Capacity/admission/idle interaction | Scan-free maintenance without rejected lifecycle/idle costs, multiple provisioned capacities | Pending |
 | 7 | Useful channel handoff | Notification/progress counts; reserve under lock, publish outside, cancellation/close/panic proof | Pending |
 | 8 | Mutex round-trip cost | Local/remote and active/sleeping recipient attribution; exact ownership and waiter progress | Pending |
@@ -157,3 +157,16 @@ four-carrier cycles; it is a correctness tradeoff, not a throughput win. Full ta
 counter evidence, spare-capacity effects and source identity are in
 [admission-fairness-review.md](admission-fairness-review.md). Wake-publication pause
 evidence is the next review slice; the production wait ordering is still unchanged.
+
+## Paused publisher evidence
+
+The ordered probe now reproduces a carrier-wide dependency after a wake notice is
+visible but before its claim is fully published. A recipient spins while unrelated,
+already-runnable owner work cannot advance. Real mutex ownership is still recovered
+when cancellation arrives after selection. All six wake/resource selections preserve
+their winner, and cleanup waits before old-notice disposal and route reuse.
+
+[publication-review.md](publication-review.md) records these boundaries. This is a
+test-only characterization, not a liveness repair or proof of the historical tail
+cause. Production ordering is unchanged; bounded deferral or another protocol change
+requires a composition model and separate performance qualification.

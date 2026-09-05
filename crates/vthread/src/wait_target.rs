@@ -24,6 +24,8 @@ pub(crate) struct WaitInner {
     route: AtomicUsize,
     primary_hub: OnceLock<Arc<WaitHub>>,
     fallback_hub: Mutex<Option<Arc<WaitHub>>>,
+    #[cfg(test)]
+    pub(super) publication_probe: OnceLock<super::wait_publication_probe_test::Probe>,
 }
 
 impl WaitInner {
@@ -35,6 +37,8 @@ impl WaitInner {
             route: AtomicUsize::new(0),
             primary_hub: OnceLock::new(),
             fallback_hub: Mutex::new(None),
+            #[cfg(test)]
+            publication_probe: OnceLock::new(),
         }
     }
 
@@ -154,6 +158,11 @@ impl WaitInner {
                 return None;
             }
             if word.is_claimed() || word.phase() == Phase::Binding {
+                #[cfg(test)]
+                self.observe_publication(
+                    super::wait_publication_probe_test::Stage::RetireWaiting,
+                    token,
+                );
                 std::hint::spin_loop();
                 continue;
             }

@@ -89,6 +89,11 @@ impl WaitCell {
                 return Err(resumed_generation_fault());
             }
             if word.is_claimed() || word.phase() == wait_state::Phase::Binding {
+                #[cfg(test)]
+                self.state.observe_publication(
+                    super::wait_publication_probe_test::Stage::FinishWaiting,
+                    token,
+                );
                 std::hint::spin_loop();
                 continue;
             }
@@ -115,6 +120,11 @@ impl WaitCell {
                 return Err(resumed_generation_fault());
             }
             if word.is_claimed() || word.phase() == wait_state::Phase::Binding {
+                #[cfg(test)]
+                self.state.observe_publication(
+                    super::wait_publication_probe_test::Stage::FinishWaiting,
+                    token,
+                );
                 std::hint::spin_loop();
                 continue;
             }

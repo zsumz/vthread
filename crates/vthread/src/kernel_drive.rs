@@ -258,3 +258,7 @@ mod kernel_drive_test;
 #[cfg(test)]
 #[path = "kernel_wake_reuse_test.rs"]
 mod kernel_wake_reuse_test;
+
+#[cfg(test)]
+#[path = "kernel_publication_test.rs"]
+mod kernel_publication_test;

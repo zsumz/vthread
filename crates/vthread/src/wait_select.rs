@@ -237,6 +237,11 @@ pub(super) fn enqueue_selected(
             hub.enqueue(notice);
         }
     });
+    #[cfg(test)]
+    state.observe_publication(
+        super::wait_publication_probe_test::Stage::NoticePublished,
+        token,
+    );
     state.publish_claim(claimed);
 }
 
