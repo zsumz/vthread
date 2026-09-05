@@ -13,8 +13,8 @@ out of scope. The overall May goal and stable-release qualification remain open.
 | --- | --- | --- | --- |
 | 1 | ARM64 terminal result register | Real ARM64 debug/optimized completion, yield/park, panic, forced unwind, reuse and FP state | Native CI passed on both architectures/profiles; raw artifact archival pending |
 | 2 | Ready-queue bounded fairness | Old code fails mixed hot-wake/normal-work counterexample; repaired dispatch bound and measured tradeoffs | Qualified two-wake cohorts; four-selection head bound; explicit cycle/throughput/p95 costs |
-| 3 | Pending-admission fairness | Real late starts under sustained mixed park/yield/wake and borrowed work | Pending |
-| 4 | Unexplained stall test | Actual failure state; ordered evidence replacing unproven temporal assumptions | Pending |
+| 3 | Pending-admission fairness | Real late starts under sustained mixed park/yield/wake and borrowed work | Repair and real-kernel regressions preserved separately; qualification/performance resumed after test diagnosis |
+| 4 | Unexplained stall test | Actual failure state; ordered evidence replacing unproven temporal assumptions | Captured Stored watchdog permit with zero parks; ordered tests qualified; additional loaded-suite findings open |
 | 5 | Handoff publication evidence | Publisher-pause regressions and stage attribution without changing production ordering | Pending |
 | 6 | Capacity/admission/idle interaction | Scan-free maintenance without rejected lifecycle/idle costs, multiple provisioned capacities | Pending |
 | 7 | Useful channel handoff | Notification/progress counts; reserve under lock, publish outside, cancellation/close/panic proof | Pending |
@@ -119,3 +119,18 @@ rose 2.16%. This is the explicit correctness/fairness tradeoff, not zero regress
 All 11 canonical gates, default-native tests, benchmark gates and 601,197 native
 mixed-soak lifetimes passed. Raw evidence and qualification logs are committed in
 the linked source-keyed archive; full release evidence remains incomplete.
+
+## Ordered stall and service qualification
+
+The old root-stall failure was captured under oversubscription as `Ok(())`, watchdog
+`Stored`, no stall and zero parks: the test's rescue ran before the purported park.
+Late-service shutdown also exceeded its test's 200 ms deadline but completed without
+another stop request. The observed failures and ordered replacements are recorded in
+[wait-qualification-review.md](wait-qualification-review.md), including the raw archive.
+The replacement shutdown test still fails a deliberately omitted-stop negative control.
+
+Canonical and default-native workspace qualification pass for the test-only slice.
+The repaired tests pass four oversubscribed runs, but the broader loaded suite still
+has separately recorded refill, join/deadline, timer, I/O retry and timing-ratio findings.
+These are open release-evidence work, not silently accepted or attributed to runtime
+defects without investigation. Admission remains a separate runtime/performance patch.

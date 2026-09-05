@@ -122,6 +122,7 @@ fn unrelated_supervisor_activity_cannot_hide_a_stalled_root_scope() {
     use std::sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
+        mpsc,
     };
     let runtime = Runtime::builder()
         .carriers(2)
@@ -133,33 +134,82 @@ fn unrelated_supervisor_activity_cannot_hide_a_stalled_root_scope() {
         .unwrap();
     let stop = Arc::new(AtomicBool::new(false));
     let worker_stop = Arc::clone(&stop);
+    let (started, active) = mpsc::sync_channel(1);
     let mut busy = supervisor
         .spawn("unrelated", move || {
+            started.send(()).unwrap();
             while !worker_stop.load(Ordering::Acquire) {
                 crate::yield_now().unwrap();
             }
         })
         .unwrap();
+    active.recv_timeout(Duration::from_secs(5)).unwrap();
     let (parker, wake) = park_pair();
-    let watchdog = std::thread::spawn(move || {
-        std::thread::park_timeout(Duration::from_millis(200));
-        wake.unpark();
-    });
+    let (finished, finish) = mpsc::sync_channel(1);
+    let observed = Arc::clone(&runtime.shared);
+    let mut watchdog = None;
     let result = runtime.run_scope(|scope| {
         let _ = scope.spawn("ownerless", move || parker.park())?;
+        crate::support_test::until(|| {
+            scope.runtime_snapshot().tasks.iter().any(|task| {
+                task.name == "ownerless"
+                    && task.status == crate::TaskStatus::Suspended(crate::SuspensionReason::Park)
+            })
+        });
+        // Arm only after an actual suspension, and cancel after scope completion.
+        // A rescue is a failed test with state evidence, never a successful wake.
+        watchdog = Some(std::thread::spawn(move || {
+            finish
+                .recv_timeout(Duration::from_secs(5))
+                .err()
+                .map(|error| {
+                    let snapshot = observed.snapshot();
+                    (error, snapshot, wake.unpark())
+                })
+        }));
         Ok(())
     });
+    let _ = finished.send(());
+    let rescue = watchdog.expect("armed after suspension").join().unwrap();
     stop.store(true, Ordering::Release);
     busy.join().unwrap();
     supervisor.shutdown().unwrap();
-    watchdog.join().unwrap();
-    assert!(matches!(
-        result.as_ref().map_err(crate::Error::primary),
-        Err(Error::RuntimeStalled { active: 1 })
-    ));
+    assert!(
+        rescue.is_none(),
+        "stall watchdog rescued the task: {rescue:?}"
+    );
+    assert!(
+        matches!(
+            result.as_ref().map_err(crate::Error::primary),
+            Err(Error::RuntimeStalled { active: 1 })
+        ),
+        "result={result:?}, snapshot={:?}",
+        runtime.snapshot()
+    );
     let stall = runtime.snapshot().last_stall.unwrap();
     assert_eq!(stall.tasks.len(), 1);
     assert_eq!(stall.tasks[0].name, "ownerless");
+}
+
+#[test]
+fn an_early_watchdog_permit_does_not_exercise_stall_detection() {
+    let runtime = Runtime::builder()
+        .stall_policy(crate::StallPolicy::AbortAfter(Duration::from_millis(10)))
+        .build()
+        .unwrap();
+    let (parker, wake) = park_pair();
+    assert_eq!(wake.unpark(), crate::UnparkResult::Stored);
+    let result = runtime.run_scope(|scope| {
+        assert_eq!(
+            scope.spawn("permitted", move || parker.park())?.join()??,
+            crate::ParkOutcome::Ready
+        );
+        Ok(())
+    });
+    assert!(result.is_ok(), "stored permit became a stall: {result:?}");
+    let snapshot = runtime.snapshot();
+    assert_eq!(snapshot.stats.parks, 0);
+    assert!(snapshot.last_stall.is_none());
 }
 
 #[test]

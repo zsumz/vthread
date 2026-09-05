@@ -198,3 +198,7 @@ mod runtime_lifecycle_test;
 #[cfg(test)]
 #[path = "runtime_ownership_test.rs"]
 mod runtime_ownership_test;
+
+#[cfg(test)]
+#[path = "runtime_service_publication_test.rs"]
+mod runtime_service_publication_test;
