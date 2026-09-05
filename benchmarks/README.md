@@ -113,3 +113,6 @@ Heap allocation counts are independently available with `--features allocation-p
 the measured process-wide interval and therefore should be collected with one worker on a quiet
 machine. The TCP count also includes its native peer, so use the scheduler-only scenarios for clean
 engine attribution. Rebuild without either feature before recording headline latency results.
+
+The [handoff review checkpoint](review-progress.md) records rejected optimization experiments,
+migration-observation limits, and the expanded mutex soak qualification.
