@@ -94,3 +94,7 @@ fn drive(kernel: &mut Kernel) -> Result<()> {
 #[cfg(test)]
 #[path = "carrier_test.rs"]
 mod carrier_test;
+
+#[cfg(test)]
+#[path = "carrier_ingress_test.rs"]
+mod carrier_ingress_test;

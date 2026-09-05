@@ -13,6 +13,8 @@ release qualification or an archive of executed binaries.
 | `completion-observer-f8f1f6f5.tar.gz` | [Completion observer](../completion-observer-review.md) | `b080b4bc24ed6a274cc2755433cb928e052dbfc338c71be341e416ba7f3f4070` |
 | `publication-f5cde19e.tar.gz` | [Wake publication](../publication-review.md) | `2fa11ac9c72cee83611daac9c3791231d422acc68216416dad940b0639f5c820` |
 | `scheduler-profile-718e21c1.tar.gz` | [Scheduler activity](../scheduler-profile-review.md) | `7dc52997e93f3d3499eb02afa224c35a666fb25f658397c76f6a8a5598b5b397` |
+| `capacity-pacing-244bc8a1.tar.gz` | [Rejected capacity experiment](../capacity-pacing-review.md) | `93539843d126e7cc2b1b3c71293c8bf9d64cd1b21a344c1522d80b58240a41b5` |
+| `ingress-visibility-aa2fa66e.tar.gz` | [Idle ingress progress](../ingress-visibility-review.md) | `9d3d6c9ec47309922b4cb716c689f00b02ecd46d81f40ccc47faf4e59c5b1bdc` |
 
 The ready-fairness bundle includes original, FIFO, cohort-32 and cohort-2 logs;
 the original failing production-queue regression; counter CSVs; native tests and
@@ -48,6 +50,19 @@ and both native feature configurations, benchmark gates, a final-only lifecycle
 profile and noisy default controls explicitly excluded from performance acceptance.
 Source/binary hashes, the exact macro-grant preview, raw output and analysis/replay
 commands are included. No scan-free runtime change is part of that checkpoint.
+
+The capacity-pacing bundle preserves a rejected observer-only patch against
+`62378f4`, failing/passing snapshot checks and 30 balanced diagnostic processes.
+It exposes the lifecycle batching/polling penalty rather than qualifying a speedup.
+The source remains shelved; its full canonical and default-performance gates did
+not run. Both instrumented binary identities and raw owner counters are included.
+
+The ingress-visibility bundle contains the separate owner-local progress repair
+against `62378f4`, a real-carrier paused-notifier negative control, canonical/native/
+optimized qualification, 20 one-CPU replays and 705,249 mixed soak lifetimes. It
+preserves initial and final test sources separately, along with mixed default-build
+controls, excluded contaminated rounds and endpoint host observations. Its progress
+proof passes; quiet-host multi-carrier performance/tail acceptance remains open.
 
 Extract into a fresh directory and inspect the manifests before replaying commands.
 Absolute paths in captured receipts describe the original host, not required output

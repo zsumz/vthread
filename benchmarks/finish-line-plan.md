@@ -16,7 +16,7 @@ out of scope. The overall May goal and stable-release qualification remain open.
 | 3 | Pending-admission fairness | Real late starts under sustained mixed park/yield/wake and borrowed work | Qualified check-based quota and one-start service; measured small park/cycle costs recorded |
 | 4 | Unexplained stall test | Actual failure state; ordered evidence replacing unproven temporal assumptions | Captured Stored watchdog permit with zero parks; ordered tests qualified; additional loaded-suite findings open |
 | 5 | Handoff publication evidence | Publisher-pause regressions and stage attribution without changing production ordering | Native/optimized probes and canonical gates pass; owner-wide dependency confirmed; repair and OS-tail attribution open |
-| 6 | Capacity/admission/idle interaction | Scan-free maintenance without rejected lifecycle/idle costs, multiple provisioned capacities | Final-only owner-local activity counters qualified; scan-free comparison and pacing repair remain open |
+| 6 | Capacity/admission/idle interaction | Scan-free maintenance without rejected lifecycle/idle costs, multiple provisioned capacities | Counters and visible-ingress progress repair qualified; scan-free lifecycle penalty and quiet-host performance acceptance remain open |
 | 7 | Useful channel handoff | Notification/progress counts; reserve under lock, publish outside, cancellation/close/panic proof | Pending |
 | 8 | Mutex round-trip cost | Local/remote and active/sleeping recipient attribution; exact ownership and waiter progress | Pending |
 | 9 | Incremental readiness | Bounded command processing proportional to changes/events and large-connection validation | Pending |
@@ -179,3 +179,11 @@ benchmark qualification pass. The first lifecycle process accounts for all
 5.02 million task lifetimes; the default controls caught unrelated host work
 and are excluded from performance acceptance. No capacity scan, polling,
 admission or wake protocol changes are included in this evidence slice.
+
+The [follow-up observer-only experiment](capacity-pacing-review.md) reproduced singleton batches, much more
+polling and empty idle reentry. It remains shelved. The separate
+[ingress-visibility review](ingress-visibility-review.md) records a real-carrier
+dependency on a paused notifier and its owner-local cache repair, with capacity
+scans still enabled. Native/canonical/soak proof passes; multi-carrier performance
+and tail acceptance remain open because the observations are mixed and host
+activity contaminated several runs. No new May claim is made.
