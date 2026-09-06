@@ -19,10 +19,17 @@ The [readiness counter-free confirmation](readiness-counterfree-review.md) also
 holds promotion: 320 complete processes do not establish protected time/CPU/tail
 non-regression. The retained runtime remains unchanged after both re-evaluations.
 
+The narrow [lone-admission publication follow-up](admission-publication-review.md)
+also stops: default counter-free lifecycle is +14.01% slower with +20.14% process
+CPU. No runtime candidate is retained. The subsequent restored-baseline canonical
+run fails the terminal-sibling native release test; its failed receipt is preserved
+and the terminal-completion/credit-retirement boundary is under ordered investigation.
+
 ## Current checkpoint
 
-Runtime/test/harness source at `462c636` passes all fourteen canonical gates,
-including default-native debug/release. The
+Runtime/test/harness source at `462c636` previously passed all fourteen canonical
+gates, including default-native debug/release. A later run on the same retained
+source fails as described above; the checkpoint is not currently claimed green. The
 [quiet-window refresh](quiet-checkpoint-review.md) now measures that unchanged
 source: nine complete counter-free May cases, two unresolved May park timeouts,
 separate counter/crossover panels and tight/spare-capacity controls. This is
