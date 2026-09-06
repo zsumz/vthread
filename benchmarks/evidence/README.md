@@ -7,6 +7,7 @@ release qualification or an archive of executed binaries.
 
 | Bundle | Review | SHA-256 |
 | --- | --- | --- |
+| `mutex-final-guard-f0ce5246.tar.gz` | [Final guarded checkpoint; zero benchmark invocations](../finishing-pass.md) | `f8a8e01b7b41ade65e1021fe5a1b38b511a3e80672f9eafd6a00a51ba8059a99` |
 | `offered-load-e344a60e.tar.gz` | [Bounded fixed offered-load application control](../offered-load-review.md) | `7d6165cae50a9474fc159db946da7e2276f9c0d0bc3f7addb9d5209a9d67186a` |
 | `inbox-refill-evidence-9dda2c9f.tar.gz` | [Pre-cleanup refill evidence; historical stall remains open](../inbox-refill-evidence-review.md) | `468a48f2f027b08344a40ba413313a5aa40e6d973e16dacb5c14ed2aebd8c1f4` |
 | `deadline-join-order-104957c5.tar.gz` | [Selected deadline survives late child completion](../deadline-join-order-review.md) | `5f341dba055025d7e6f203c2f01de84fc7f393c873a050ade13fdb5d72062f9d` |
