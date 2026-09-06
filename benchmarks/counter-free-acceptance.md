@@ -100,3 +100,15 @@ Negative controls must show that the retained code both scans during publication
 and hides local/deferred contributions. Normal remote refresh remains a positive
 control. Polling, completion flushing, ingress caching and sleep ordering remain
 byte-for-byte unchanged in production.
+
+## Bounded-service checkpoint
+
+The [wake-service review](wake-service-review.md) closes one measured candidate,
+not the service-bound milestone. Ordered burst and deferred-publication probes
+justify the mechanism target, but the 144-process protected screen rejects its
+first implementation: bare remote mutex and channel regressions cross the
+predeclared stop. The candidate and incomplete abandonment-model attempts remain
+recoverable; retained source `d38dcb86` is unchanged. Attribute dequeue/batch and
+recipient scheduling costs before another candidate. Channel retry elimination
+remains the next independent synchronization target; earlier capacity/readiness
+decisions and the release gaps are not overturned.
