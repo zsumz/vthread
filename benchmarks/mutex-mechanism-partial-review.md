@@ -1,5 +1,9 @@
 # Mutex controls: partial measured panel, no runtime change
 
+Historical partial attempt. The later
+[complete quiet-window controls](mutex-mechanism-quiet-review.md) use new,
+independent invocations and do not pool or replace the observations below.
+
 The [qualified fixture](mutex-mechanism-review.md) was resumed on a clean detached
 `80b3ba1` worktree, verifying source `f0ce5246` and both previously qualified
 executable hashes. The perf branch's subsequent changes are test/policy repairs,
