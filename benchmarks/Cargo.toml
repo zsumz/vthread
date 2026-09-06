@@ -8,6 +8,7 @@ publish = false
 allocation-probe = []
 lifecycle-profiling = ["vthread/lifecycle-profiling"]
 scheduler-profiling = ["vthread/scheduler-profiling"]
+handoff-profiling = ["scheduler-profiling", "vthread/handoff-profiling"]
 
 [dependencies]
 may = "=0.3.51"

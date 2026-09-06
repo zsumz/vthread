@@ -60,6 +60,14 @@ impl crate::RuntimeSnapshot {
 }
 
 impl crate::CarrierSnapshot {
+    /// Opt-in elapsed handoff/idle histograms and useful-channel-work counts.
+    /// Read after shutdown for final totals. This separate feature adds clocks;
+    /// its timings are diagnostic and cannot qualify default-build performance.
+    #[cfg(feature = "handoff-profiling")]
+    pub fn handoff_profile(&self) -> &crate::diagnostics::HandoffProfile {
+        &self.handoff_profile
+    }
+
     /// Opt-in carrier-local batch and idle counters, published with this snapshot.
     /// Read after shutdown for final totals; active observations may lag. The
     /// `scheduler-profiling` feature adds no clock reads or shared counter atomics.

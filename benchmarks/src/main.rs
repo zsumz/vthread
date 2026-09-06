@@ -5,6 +5,8 @@ mod allocation_probe;
 mod channel_delivery;
 mod channel_latency;
 mod config;
+#[cfg(feature = "handoff-profiling")]
+mod handoff_profile;
 #[cfg(feature = "lifecycle-profiling")]
 mod lifecycle_profile;
 mod may_bounded_channel;

@@ -16,6 +16,11 @@
 pub mod evidence;
 #[cfg(feature = "qualification")]
 pub mod qualification;
+#[cfg(feature = "handoff-profiling")]
+pub use crate::handoff_profile::{
+    ChannelCounters, ChannelDirection, HANDOFF_DURATION_BOUNDS_NS, HandoffDuration, HandoffProfile,
+    HandoffStage,
+};
 #[cfg(feature = "lifecycle-profiling")]
 pub use crate::lifecycle_probe::LifecycleProfile;
 #[cfg(feature = "scheduler-profiling")]
@@ -168,6 +173,8 @@ pub struct CarrierSnapshot {
     pub(crate) stacks: StackSnapshot,
     #[cfg(feature = "scheduler-profiling")]
     pub(crate) scheduler_profile: SchedulerProfile,
+    #[cfg(feature = "handoff-profiling")]
+    pub(crate) handoff_profile: HandoffProfile,
 }
 
 impl CarrierSnapshot {
@@ -185,6 +192,8 @@ impl CarrierSnapshot {
             stacks: StackSnapshot::default(),
             #[cfg(feature = "scheduler-profiling")]
             scheduler_profile: SchedulerProfile::default(),
+            #[cfg(feature = "handoff-profiling")]
+            handoff_profile: HandoffProfile::default(),
         }
     }
 }

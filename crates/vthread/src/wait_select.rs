@@ -220,6 +220,9 @@ pub(super) fn enqueue_selected(
     registration: Option<&WaitRegistration>,
     local: bool,
 ) {
+    #[cfg(feature = "handoff-profiling")]
+    let _publication =
+        crate::handoff_span::Span::new(crate::handoff_profile::HandoffStage::WakePublication);
     let token = ParkToken::new(state.id, claimed.generation());
     state.with_target(claimed, |task, route, hub| {
         if let Some(registration) = registration {
@@ -235,6 +238,11 @@ pub(super) fn enqueue_selected(
         };
         if !local || !crate::context::enqueue_local_wake(hub, notice) {
             hub.enqueue(notice);
+            #[cfg(feature = "handoff-profiling")]
+            crate::handoff_span::record(|profile| profile.remote_publications += 1);
+        } else {
+            #[cfg(feature = "handoff-profiling")]
+            crate::handoff_span::record(|profile| profile.local_publications += 1);
         }
     });
     #[cfg(test)]

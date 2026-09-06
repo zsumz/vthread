@@ -16,6 +16,8 @@ pub(crate) fn report(
         .and_then(|tasks| u64::try_from(tasks).ok())
         .ok_or("scheduler profile task count overflow")?;
     validate(snapshot, expected)?;
+    #[cfg(feature = "handoff-profiling")]
+    let transfers = channel_transfers(config)?;
     writeln!(
         output,
         "engine=vthread phase=scheduler-profile scope=whole-runtime headline=false rounds={} expected_tasks={} batch_bins=0,1,2-3,4-7,8-15,16-31,32-63,64+",
@@ -54,7 +56,24 @@ pub(crate) fn report(
         )
         .map_err(|error| error.to_string())?;
     }
+    #[cfg(feature = "handoff-profiling")]
+    crate::handoff_profile::report(output, snapshot, transfers)?;
     Ok(())
+}
+
+#[cfg(feature = "handoff-profiling")]
+fn channel_transfers(config: &Config) -> Result<Option<u64>, String> {
+    let crate::config::Scenario::ChannelMpmc { per_task, .. } = config.scenario else {
+        return Ok(None);
+    };
+    config
+        .samples
+        .checked_add(1)
+        .and_then(|rounds| rounds.checked_mul(config.tasks / 2))
+        .and_then(|calls| calls.checked_mul(per_task))
+        .and_then(|calls| u64::try_from(calls).ok())
+        .map(Some)
+        .ok_or_else(|| "handoff profile channel transfer count overflow".into())
 }
 
 fn validate(snapshot: &RuntimeSnapshot, expected: u64) -> Result<(), String> {

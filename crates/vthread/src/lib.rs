@@ -40,6 +40,12 @@ mod diagnostics_accessors;
 mod dump;
 pub mod error;
 pub mod fs;
+#[cfg(feature = "handoff-profiling")]
+mod handoff_channel;
+#[cfg(feature = "handoff-profiling")]
+mod handoff_profile;
+#[cfg(feature = "handoff-profiling")]
+mod handoff_span;
 mod id_map;
 mod identity;
 mod inbox;

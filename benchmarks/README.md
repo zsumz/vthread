@@ -210,6 +210,23 @@ prove kernel sleeps; returns without task work can reflect timers or control eve
 This opt-in feature still changes code/layout and snapshot-copy work. Its timings are
 diagnostic, not headline comparisons; disable all profiling for performance acceptance.
 
+For channel progress and handoff/idle stage attribution, separately from headline runs:
+
+```sh
+cargo build --release --manifest-path benchmarks/Cargo.toml --features handoff-profiling
+taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread channel-mpmc 2000 1 4 64 3 --pin-carriers
+```
+
+This feature implies `scheduler-profiling` and adds owner-local duration histograms
+and channel transfer/notification/park/retry counters. The final-only report checks
+their conservation and separates visible-work polls, control-only polls, exhausted
+polls, wait API calls and condition-variable invocations. Native callers without a
+carrier route are omitted. Durations overlap and include clock/preemption costs;
+they must not be added as CPU time. The clocks can significantly amplify channel
+lock contention. Use these counts to form experiments, never as default performance
+or end-to-end tail claims. See [handoff-attribution-review.md](handoff-attribution-review.md)
+for the instrumented/default cross-checks and capacity-scan evidence.
+
 Heap allocation counts are independently available with `--features allocation-probe`. They cover
 the measured process-wide interval and therefore should be collected with one worker on a quiet
 machine. The TCP count also includes its native peer, so use the scheduler-only scenarios for clean

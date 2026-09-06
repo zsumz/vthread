@@ -136,6 +136,35 @@ package = "vthreads"
 default_features = true
 features = ["scheduler-profiling"]
 
+[[source.rust.feature_worlds]]
+name = "handoff-profiling"
+reason = "The opt-in handoff clock and owner-counter build qualifies useful channel work, publication spans and idle/native wait attribution."
+
+[[source.rust.feature_worlds.packages]]
+package = "vthread"
+default_features = true
+features = ["handoff-profiling"]
+
+[[source.rust.feature_worlds.packages]]
+package = "vthread-lab"
+default_features = true
+features = []
+
+[[source.rust.feature_worlds.packages]]
+package = "vthread-stack"
+default_features = true
+features = []
+
+[[source.rust.feature_worlds.packages]]
+package = "vthread-sync-core"
+default_features = true
+features = []
+
+[[source.rust.feature_worlds.packages]]
+package = "vthreads"
+default_features = true
+features = ["handoff-profiling"]
+
 [source.rust.macros]
 mode = "deny-unreviewed"
 

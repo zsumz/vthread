@@ -215,6 +215,18 @@ impl Kernel {
         #[cfg(feature = "runtime-evidence")]
         let task_id = self.task(task).execution().id;
         let reason = self.task(task).execution().data.reason();
+        #[cfg(feature = "handoff-profiling")]
+        {
+            use crate::handoff_channel::ChannelDirection;
+            let direction = match reason {
+                SuspensionReason::ChannelSend => Some(ChannelDirection::Send),
+                SuspensionReason::ChannelRecv => Some(ChannelDirection::Receive),
+                _ => None,
+            };
+            if let Some(direction) = direction {
+                self.local.handoff_profile.borrow_mut().channels[direction as usize].parks += 1;
+            }
+        }
         self.task(task)
             .execution()
             .record()

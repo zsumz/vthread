@@ -15,6 +15,8 @@ pub(crate) struct LocalCarrier {
     borrowed_scope_epoch: Cell<u64>,
     pub(crate) stacks: RefCell<StackPool>,
     capacity: usize,
+    #[cfg(feature = "handoff-profiling")]
+    pub(crate) handoff_profile: RefCell<crate::handoff_profile::HandoffProfile>,
 }
 
 impl LocalCarrier {
@@ -26,6 +28,8 @@ impl LocalCarrier {
             pending_wakes: Cell::new(0),
             borrowed_scope_epoch: Cell::new(0),
             capacity: config.carrier_queue_capacity(),
+            #[cfg(feature = "handoff-profiling")]
+            handoff_profile: RefCell::default(),
             stacks: RefCell::new(StackPool::new(
                 config.stack_size(),
                 config.stack_cache_capacity(),

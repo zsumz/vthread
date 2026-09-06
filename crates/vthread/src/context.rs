@@ -1,7 +1,7 @@
 //! Carrier-local identity installed while one virtual thread is mounted.
 
 #[path = "context_wake.rs"]
-mod wake;
+pub(crate) mod wake;
 pub(crate) use wake::mount_carrier;
 pub(crate) use wake::{enqueue_local_wake, unregister_local_wake};
 #[path = "context_pending.rs"]
