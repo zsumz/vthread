@@ -6,6 +6,11 @@ the channel-first next-step ordering in the earlier status and experiment report
 One runtime change is active at a time. Rejected candidates remain evidence, not
 the production baseline. HTTP is out of scope.
 
+The [counter-free recovery pass](counter-free-acceptance.md) revises the next-work
+order and acceptance rules after `d83b787`: re-evaluate scan-only maintenance and
+the existing readiness candidate with collection modes separated. The chronology
+below retains the earlier experiments and their original decisions.
+
 ## Current checkpoint
 
 Runtime/test/harness source at `462c636` passes all fourteen canonical gates,
