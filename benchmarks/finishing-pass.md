@@ -184,8 +184,15 @@ controls, fourteen canonical tasks and eighty additional ordered subcases pass.
 No runtime timer or checkpoint behavior changes; the old unlabeled timeout does
 not identify a unique historical schedule.
 
-Three loaded findings remain unclassified release blockers: inbox refill,
-interrupted cross-runtime join and deadline-first join.
+The [cross-runtime join repair](cross-join-order-review.md) replaces native test
+gates with exact deadline selection, typed interruption/handle return and one-time
+result recovery across distinct runtime identities. An ordered completed-panic
+case demonstrates the old deadline-only oracle's invalid assumption. Three
+negative controls, fourteen gates and eighty further native executions pass;
+production join/ownership behavior is unchanged.
+
+Two loaded findings remain unclassified release blockers: inbox refill and
+deadline-first join.
 A longer timeout or quiet rerun is not closure. Native ARM64, sanitizer support
 and the full mixed-lifetime release matrix remain separate from a local canonical
 pass.

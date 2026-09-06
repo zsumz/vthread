@@ -1,36 +1,15 @@
 //! Select an exact timer generation before permitting delayed stack resumption.
 
 use crate::{
-    CarrierId, Error, JoinHandle, ParkOutcome, Runtime, ScopeOptions, TaskFailure, control::Shared,
-    kernel::Kernel, wait::Publication,
+    Error, JoinHandle, ParkOutcome,
+    kernel::kernel_policy_test::{Owner, wait_until},
+    wait::Publication,
 };
 use std::{
     io::Write,
     sync::Arc,
     time::{Duration, Instant},
 };
-
-struct Owner {
-    kernel: Kernel,
-    scope: u64,
-}
-
-impl Drop for Owner {
-    fn drop(&mut self) {
-        while !self.kernel.abort(None, TaskFailure::RuntimeStopped) {
-            std::thread::yield_now();
-        }
-        self.kernel.shared.finish_scope(self.scope);
-    }
-}
-
-fn wait_until(deadline: Instant) {
-    // Only the ordinary test driver waits here, never a mounted vthread. A
-    // spurious native wake rechecks the clock; it cannot substitute for expiry.
-    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
-        std::thread::park_timeout(remaining);
-    }
-}
 
 #[test]
 fn a_selected_timer_preserves_which_deadline_won_after_delayed_resume() {
@@ -40,20 +19,9 @@ fn a_selected_timer_preserves_which_deadline_won_after_delayed_resume() {
 }
 
 fn owner() -> (Owner, Instant) {
-    let config = Runtime::builder()
-        .max_vthreads(4)
-        .stack_cache_capacity(4)
-        .carrier_queue_capacity(4)
-        .build()
-        .unwrap()
-        .config();
-    let shared = Arc::new(Shared::new(config));
-    let kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
-    let deadline = Instant::now() + Duration::from_secs(1);
-    let scope = shared
-        .begin_owned(ScopeOptions::default().deadline(deadline), false)
-        .unwrap();
-    (Owner { kernel, scope }, deadline)
+    let owner = Owner::new(Some(Duration::from_secs(1)));
+    let deadline = owner.deadline.unwrap();
+    (owner, deadline)
 }
 
 fn selected_timer(explicit_offset: i64) {
