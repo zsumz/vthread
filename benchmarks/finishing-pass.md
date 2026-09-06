@@ -129,6 +129,15 @@ success, selected FIFO ticket accounting, buffered payload ownership and RAII wa
 publication. No sixth layout permutation without the missing attribution pass;
 after two justified failures, record the result and move on.
 
+The [matching historical A/E attribution pass](channel-attribution-review.md)
+now preserves default cycle profiles, 48 complete established-counter processes
+at two work counts and twelve extended diagnostic processes. E adds roughly one
+local rearm reference-count pair per value while both retain an extra unsuccessful
+retry crossing. Profiles have explicit sampling/throttling limits; an expanded
+counter timeout and final build-overlap exclusion remain visible. No new channel
+implementation is attempted or promoted. Exact mutex owner/active/sleeping
+attribution remains independent; direct ownership and polling stay frozen.
+
 The six loaded findings remain unclassified release blockers: inbox refill,
 interrupted cross-runtime join, delayed selected timer, cancellation-history
 timing, readiness retry count and deadline-first join. A longer timeout or quiet
