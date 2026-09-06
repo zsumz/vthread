@@ -177,8 +177,15 @@ fourteen gates and 1.2 million further constrained successor generations pass.
 Its single guarded timing-task invocation passes, but does not reconstruct or
 explain the historical excursion; that remains release-performance evidence.
 
-Four loaded findings remain unclassified release blockers: inbox refill,
-interrupted cross-runtime join, delayed selected timer and deadline-first join.
+The [selected-timer ordering repair](selected-timer-order-review.md) now observes
+the exact published generation before delayed resumption, tests equal-deadline
+policy, and demonstrates valid late admission with no park. Four negative
+controls, fourteen canonical tasks and eighty additional ordered subcases pass.
+No runtime timer or checkpoint behavior changes; the old unlabeled timeout does
+not identify a unique historical schedule.
+
+Three loaded findings remain unclassified release blockers: inbox refill,
+interrupted cross-runtime join and deadline-first join.
 A longer timeout or quiet rerun is not closure. Native ARM64, sanitizer support
 and the full mixed-lifetime release matrix remain separate from a local canonical
 pass.
