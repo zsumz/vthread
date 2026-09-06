@@ -256,3 +256,7 @@ mod kernel_policy_test;
 #[cfg(test)]
 #[path = "kernel_cross_join_test.rs"]
 mod kernel_cross_join_test;
+
+#[cfg(test)]
+#[path = "kernel_join_deadline_test.rs"]
+mod kernel_join_deadline_test;
