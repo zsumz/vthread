@@ -1,5 +1,9 @@
 # Mutex mechanism controls: qualified fixture, panel pending
 
+Historical fixture checkpoint. The subsequent
+[quiet-window panel](mutex-mechanism-quiet-review.md) completes all planned
+controls and adds counter-free validation; the guarded non-runs below are unchanged.
+
 This checkpoint adds a bounded, unpublished Linux lab executable. **It does not
 change the runtime or establish a mutex speedup.** Direct ownership, cancellation,
 affinity, stacks, ready/admission fairness and polling remain unchanged.
