@@ -161,8 +161,16 @@ defect. Ordered real-kernel/socket regressions cover materialized peers, the exa
 fourteen canonical gates and 300 additional one-CPU native executions qualify the
 test-only repair; no retry or polling behavior changes.
 
-Five loaded findings remain unclassified release blockers: inbox refill,
-interrupted cross-runtime join, delayed selected timer, cancellation-history
-timing and deadline-first join. A longer timeout or quiet rerun is not closure.
-Native ARM64, sanitizer support and the full mixed-lifetime release matrix remain
-separate from a local canonical pass.
+The [cancellation-history test split](cancellation-history-order-review.md)
+preserves mandatory 100,000-generation semantic bounds and both cancellation
+paths while retaining the unchanged timing allowance in an explicit optimized
+`zcheck` task. Pruning, missing-handoff and disabled-threshold negative controls,
+fourteen gates and 1.2 million further constrained successor generations pass.
+Its single guarded timing-task invocation passes, but does not reconstruct or
+explain the historical excursion; that remains release-performance evidence.
+
+Four loaded findings remain unclassified release blockers: inbox refill,
+interrupted cross-runtime join, delayed selected timer and deadline-first join.
+A longer timeout or quiet rerun is not closure. Native ARM64, sanitizer support
+and the full mixed-lifetime release matrix remain separate from a local canonical
+pass.

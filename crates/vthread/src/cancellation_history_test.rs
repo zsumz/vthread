@@ -3,11 +3,7 @@ use crate::{
     Error, JoinHandle, Result, Runtime, Spawner,
     parking::{Parker, Unparker, park_pair},
 };
-use std::{
-    io::Write,
-    sync::mpsc,
-    time::{Duration, Instant},
-};
+use std::{io::Write, sync::mpsc, time::Instant};
 
 const GENERATIONS: usize = 100_000;
 
@@ -63,13 +59,55 @@ fn latency(token: &CancellationToken) -> (u128, u128) {
 #[test]
 fn sequential_dynamic_generations_keep_cancellation_live_and_bounded() {
     for cancel_owner in [false, true] {
-        let runtime = Runtime::builder()
-            .carriers(2)
-            .max_vthreads(2)
-            .stack_cache_capacity(2)
-            .build()
-            .unwrap();
-        runtime.run_scope(|scope| {
+        let _ = history(cancel_owner);
+    }
+}
+
+#[test]
+#[ignore = "run zcheck run perf-cancellation-history on an otherwise idle host"]
+fn sequential_dynamic_history_retains_its_performance_guard() {
+    for cancel_owner in [false, true] {
+        let (beginning, ending) = history(cancel_owner);
+        require_history_performance(beginning, ending);
+    }
+}
+
+fn require_history_performance(beginning: (u128, u128), ending: (u128, u128)) {
+    assert!(
+        ending.0 <= beginning.0 * 128 + 10_000_000,
+        "cancellation-check performance: start_ns={beginning:?} end_ns={ending:?}"
+    );
+    assert!(
+        ending.1 <= beginning.1 * 128 + 10_000_000,
+        "child-cancellation performance: start_ns={beginning:?} end_ns={ending:?}"
+    );
+}
+
+#[test]
+fn the_history_performance_guard_rejects_each_excessive_sample() {
+    let beginning = (100, 200);
+    let boundary = (
+        beginning.0 * 128 + 10_000_000,
+        beginning.1 * 128 + 10_000_000,
+    );
+    require_history_performance(beginning, boundary);
+    for ending in [(boundary.0 + 1, 200), (100, boundary.1 + 1)] {
+        assert!(
+            std::panic::catch_unwind(|| require_history_performance(beginning, ending)).is_err()
+        );
+    }
+}
+
+fn history(cancel_owner: bool) -> ((u128, u128), (u128, u128)) {
+    let runtime = Runtime::builder()
+        .carriers(2)
+        .max_vthreads(2)
+        .stack_cache_capacity(2)
+        .build()
+        .unwrap();
+    let mut timing = None;
+    runtime
+        .run_scope(|scope| {
             let spawner = scope.spawner();
             let (sent, received) = mpsc::sync_channel(1);
             let (gate, mut wake) = park_pair();
@@ -81,28 +119,41 @@ fn sequential_dynamic_generations_keep_cancellation_live_and_bounded() {
                 wake.unpark();
                 current.join()??;
                 drop(current);
-                (current, wake) = received.recv_timeout(Duration::from_secs(10)).unwrap();
+                // Parent completion proves its bounded handoff send finished.
+                // A missing handoff is an ordering defect, not a timed receive.
+                (current, wake) = received
+                    .try_recv()
+                    .expect("completed parent published its successor");
                 let snapshot = current.cancellation_token().graph_snapshot();
                 peak = (peak.0.max(snapshot.0), peak.1.max(snapshot.2));
-                assert!(snapshot.0 <= 8 && snapshot.1 <= 1 && snapshot.2 <= 12,
-                    "generation {index}: {snapshot:?}");
+                assert!(
+                    snapshot.0 <= 8 && snapshot.1 <= 1 && snapshot.2 <= 12,
+                    "generation {index}: {snapshot:?}"
+                );
                 assert!(runtime.snapshot().tasks().len() <= 2);
             }
             let token = current.cancellation_token();
             let ending = latency(&token);
-            // Timing is diagnostic with a generous noise allowance; state bounds above
-            // are the deterministic history-regression gate, not a microbenchmark SLA.
-            assert!(ending.0 <= beginning.0 * 128 + 10_000_000);
-            assert!(ending.1 <= beginning.1 * 128 + 10_000_000);
+            timing = Some((beginning, ending));
             crate::support_test::until(|| runtime.snapshot().parked() == 1);
             let started = Instant::now();
-            if cancel_owner { scope.cancel(); } else { ancestor.cancel(); }
+            if cancel_owner {
+                scope.cancel();
+            } else {
+                ancestor.cancel();
+            }
             let cancel_ns = started.elapsed().as_nanos();
             assert!(matches!(current.join()?, Err(Error::Cancelled)));
             assert!(token.is_cancelled());
-            writeln!(std::io::stdout().lock(), "cancellation-history generations={GENERATIONS} owner={cancel_owner} peak={peak:?} start_ns={beginning:?} end_ns={ending:?} cancel_ns={cancel_ns}").unwrap();
+            writeln!(
+                std::io::stdout().lock(),
+                "cancellation-history generations={GENERATIONS} owner={cancel_owner} \
+                 peak={peak:?} start_ns={beginning:?} end_ns={ending:?} cancel_ns={cancel_ns}"
+            )
+            .unwrap();
             Ok(())
-        }).unwrap();
-        runtime.shutdown().unwrap();
-    }
+        })
+        .unwrap();
+    runtime.shutdown().unwrap();
+    timing.expect("both timing observations executed after bounded history")
 }
