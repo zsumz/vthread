@@ -146,6 +146,15 @@ negative control fails the old assumption; all fourteen gates and 400 additional
 native sleeping-owner tests pass, including 34 owner-first observations. The
 mutex fixture is preserved separately and has not yet produced a performance panel.
 
+The [mutex mechanism fixture](mutex-mechanism-review.md) is now qualified under all
+fourteen gates. It verifies measured-task ownership and separates local,
+remote-active and observed-sleep handoffs without changing runtime semantics.
+Its final CLI smokes pass, but both independent-panel attempts stopped before
+their first process on an unrelated build. The 18 default/nine diagnostic panel
+is explicitly pending, not replaced by smoke medians. Ordered loaded-finding
+repairs are the next independent work; no ownership or polling candidate follows
+these incomplete performance observations.
+
 The six loaded findings remain unclassified release blockers: inbox refill,
 interrupted cross-runtime join, delayed selected timer, cancellation-history
 timing, readiness retry count and deadline-first join. A longer timeout or quiet

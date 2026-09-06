@@ -6,12 +6,19 @@ rust-version.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+handoff-profiling = ["vthread/handoff-profiling"]
+
 [dependencies]
 vthread.workspace = true
 
 [[bin]]
 name = "vthread-application"
 path = "src/application_main.rs"
+
+[[bin]]
+name = "vthread-mutex-handoff"
+path = "src/mutex_handoff_main.rs"
 
 [lints]
 workspace = true
