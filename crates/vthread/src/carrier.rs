@@ -108,3 +108,7 @@ mod carrier_test;
 #[cfg(test)]
 #[path = "carrier_ingress_test.rs"]
 mod carrier_ingress_test;
+
+#[cfg(test)]
+#[path = "carrier_refill_test.rs"]
+mod carrier_refill_test;
