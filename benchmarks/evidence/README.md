@@ -7,6 +7,7 @@ release qualification or an archive of executed binaries.
 
 | Bundle | Review | SHA-256 |
 | --- | --- | --- |
+| `offered-load-e344a60e.tar.gz` | [Bounded fixed offered-load application control](../offered-load-review.md) | `7d6165cae50a9474fc159db946da7e2276f9c0d0bc3f7addb9d5209a9d67186a` |
 | `inbox-refill-evidence-9dda2c9f.tar.gz` | [Pre-cleanup refill evidence; historical stall remains open](../inbox-refill-evidence-review.md) | `468a48f2f027b08344a40ba413313a5aa40e6d973e16dacb5c14ed2aebd8c1f4` |
 | `deadline-join-order-104957c5.tar.gz` | [Selected deadline survives late child completion](../deadline-join-order-review.md) | `5f341dba055025d7e6f203c2f01de84fc7f393c873a050ade13fdb5d72062f9d` |
 | `cross-join-order-d4bf2450.tar.gz` | [Typed cross-runtime interruption and handle recovery](../cross-join-order-review.md) | `65f11cf64108d634b03d15a234dd039a3aa62872d2aba466ce36623184fc83dd` |
@@ -39,6 +40,13 @@ release qualification or an archive of executed binaries.
 | `adaptive-idle-af71b577.tar.gz` | [Adaptive polling screen](../adaptive-idle-review.md) | `139a5e4cfc729a32ed0ce65e787238dd280f69872d40d786aaa9856357ef9f7b` |
 | `handoff-attribution-f57b1db1.tar.gz` | [Useful handoff, polling and capacity attribution](../handoff-attribution-review.md) | `d816a803b2ef6d29556801f7e3ce1978cf63596d9029a3860a6bd1197dad3431` |
 | `channel-publication-56f61f86.tar.gz` | [Rejected channel reservation/publication prototypes](../channel-publication-review.md) | `888f1481a6d90424877022aaaf0b1fc77b70ab78e10f637c3e892b6166e043dc` |
+
+The offered-load bundle preserves the bounded application harness, schedule,
+busy-client and tail-verifier mutations, missing-matrix control, nineteen evidence
+tests, 700 repeated ordered tests, canonical qualification and initial/final live
+matrices under their own source identities. Every offered request and all drops
+remain visible. This is shared-host harness qualification, not runtime speedup,
+controlled-host tail acceptance, HTTP or a new May result.
 
 The inbox-refill-evidence bundle preserves the original failure, ordered
 pre-cleanup observations, lost-notification and cleanup-order negative controls,

@@ -12,6 +12,7 @@ import time
 
 import application_faults
 import application_load
+import application_offered
 import application_verify
 import evidence
 
@@ -23,6 +24,8 @@ def main():
     parser.add_argument("--concurrency", type=int, nargs="+", default=[1, 16, 64, 256])
     parser.add_argument("--rounds", type=int, default=128)
     parser.add_argument("--fault-rounds", type=int, default=3)
+    parser.add_argument("--offered-rates", type=int, nargs="+", default=[])
+    parser.add_argument("--offered-count", type=int, default=1000)
     parser.add_argument("--context", default="local uncontrolled application observation")
     args = parser.parse_args()
     try:
@@ -55,6 +58,13 @@ def main():
                 print(f"RUN {name}", flush=True)
                 application_load.run(binary, args.out / name, carriers, concurrency, args.rounds)
                 receipt["cases"].append(dict(kind="load", path=f"{name}/load.json"))
+                for rate in args.offered_rates:
+                    assert time.monotonic() - started < 1800, "application run exceeded 30 minutes"
+                    name = f"offered-{carriers}-{concurrency}-{rate}"
+                    print(f"RUN {name}", flush=True)
+                    application_offered.run(binary, args.out / name, carriers, concurrency,
+                                            rate, args.offered_count)
+                    receipt["cases"].append(dict(kind="offered-load", path=f"{name}/offered.json"))
             for round_index in range(args.fault_rounds):
                 assert time.monotonic() - started < 1800, "application run exceeded 30 minutes"
                 name = f"faults-{carriers}-{round_index}"
