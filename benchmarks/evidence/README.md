@@ -7,6 +7,7 @@ release qualification or an archive of executed binaries.
 
 | Bundle | Review | SHA-256 |
 | --- | --- | --- |
+| `channel-attribution-56f61f86.tar.gz` | [Channel rearming and publication attribution](../channel-attribution-review.md) | `1159959bd818adf21ee07aefa0eb954a16b8b8053326542443984beb8de3e38c` |
 | `readiness-incremental-01b33038.tar.gz` | [Bounded incremental readiness, promotion held](../readiness-incremental-review.md) | `aa4241bdf0dba95cae5ac59b5f13dafd882c984c90d0d3bc476bc36d15d7df6c` |
 | `capacity-admission-4aaf5b0a.tar.gz` | [Rejected zero/32 admission-only probe experiments](../capacity-admission-review.md) | `8426b17dba434dd5bfafd27a52f2ff7206abefa8408190d6f901ce89f2ddaa09` |
 | `publication-progress-90bc3126.tar.gz` | [Native recipient progress repair and measured cost](../publication-progress-review.md) | `10e3d51d55621bfa04f2da5799dc315435609ce5f8b30e9735e1a77b9725f2ae` |
@@ -29,6 +30,14 @@ release qualification or an archive of executed binaries.
 | `adaptive-idle-af71b577.tar.gz` | [Adaptive polling screen](../adaptive-idle-review.md) | `139a5e4cfc729a32ed0ce65e787238dd280f69872d40d786aaa9856357ef9f7b` |
 | `handoff-attribution-f57b1db1.tar.gz` | [Useful handoff, polling and capacity attribution](../handoff-attribution-review.md) | `d816a803b2ef6d29556801f7e3ce1978cf63596d9029a3860a6bd1197dad3431` |
 | `channel-publication-56f61f86.tar.gz` | [Rejected channel reservation/publication prototypes](../channel-publication-review.md) | `888f1481a6d90424877022aaaf0b1fc77b70ab78e10f637c3e892b6166e043dc` |
+
+The channel-attribution bundle preserves the missing matching historical A/E
+default cycle profiles, a complete 48-process established-counter panel, two
+work counts, twelve extended diagnostic processes and counter negative controls.
+It also retains the expanded-counter timeout, sampling throttling and final
+profile build-overlap exclusion. One extra local rearm reference-count pair per
+value is demonstrated in the instrumented fixture, not assigned the entire loss.
+No new channel candidate, polling change or May result is promoted.
 
 The readiness-incremental bundle preserves the complete experimental source,
 bounded production-state model, old-code and deliberate-mutation negative
