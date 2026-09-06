@@ -6,6 +6,37 @@ the channel-first next-step ordering in the earlier status and experiment report
 One runtime change is active at a time. Rejected candidates remain evidence, not
 the production baseline. HTTP is out of scope.
 
+## Current checkpoint
+
+Runtime/test/harness source at `462c636` passes all fourteen canonical gates,
+including default-native debug/release. This is **not release completion** or a
+refreshed May scorecard. Source-keyed raw evidence and explicit stop decisions
+are linked below; later documentation-only commits do not imply another speedup.
+
+| Work item | Retained result / remaining requirement |
+| --- | --- |
+| Native qualification | Default debug/release now mandatory; all-feature diagnostics remain covered |
+| Publisher progress | Bounded owner deferral and safe cleanup retained, with composed models and ordered regressions; measured park cycle cost is about +12% local / +16% four-carrier |
+| Capacity maintenance | Four-arm zero-probe experiment and one 32-probe follow-up rejected on tight lifecycle/CPU; production scan remains |
+| Incremental readiness | Qualified candidate reduces the large idle-population control substantially; held off production because protected non-regression is not established |
+| Channel | Matching historical default-build attribution completed; no sixth implementation or polling rescue |
+| Mutex | Exact-owner fixture qualified; default observations remain partial and diagnostic panel pending because competing builds repeatedly trip guards |
+| Loaded findings | Four ordering/oracle repairs qualified; cancellation semantics separated from timing; historical refill stall and history timing excursion remain open |
+| Offered load | Bounded, fixed-arrival application case and verifier qualified; controlled-host tail/CPU acceptance still required |
+| Release | Current-source ARM64 execution, supported sanitizer integration, large mixed-lifetime/population evidence and final frozen-source May panel remain outstanding |
+
+The [final mutex guard](evidence/mutex-final-guard-f0ce5246.tar.gz) stopped before
+its first benchmark invocation after observing another cargo process. All 18
+default and nine diagnostic invocations in that attempt remain unrun; the earlier
+partial results are unchanged. A reserved quiet host is needed, not a relaxed
+guard. Its twelve internal hashes verify; archive SHA-256:
+`f8a8e01b7b41ade65e1021fe5a1b38b511a3e80672f9eafd6a00a51ba8059a99`.
+
+No push or hosted workflow was initiated in this finishing pass. Real ARM64
+evidence still requires execution on that platform; merely having its workflow
+in the checkout is insufficient. Sanitizer flags alone are not qualified native
+fiber support. None of these release obligations is waived by local green tests.
+
 ## Frozen contracts
 
 - No stack assembly, trampoline or execution-engine optimization; only
