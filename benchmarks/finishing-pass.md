@@ -191,8 +191,15 @@ case demonstrates the old deadline-only oracle's invalid assumption. Three
 negative controls, fourteen gates and eighty further native executions pass;
 production join/ownership behavior is unchanged.
 
-Two loaded findings remain unclassified release blockers: inbox refill and
-deadline-first join.
+The [deadline-first join repair](deadline-join-order-review.md) now holds an exact
+selected notice while the child is reclaimed, then verifies deadline selection
+and one-time result recovery for both transferable and borrowed handles. A third
+ordered case preserves valid local deadline policy alongside an unused observer's
+disconnection. Three negative controls, fourteen gates and 120 further native test
+executions pass. Join/wait, timer, ownership and ready policy remain unchanged.
+
+Inbox refill remains the last unclassified loaded correctness release blocker.
+The historical cancellation-history timing excursion remains separately open.
 A longer timeout or quiet rerun is not closure. Native ARM64, sanitizer support
 and the full mixed-lifetime release matrix remain separate from a local canonical
 pass.

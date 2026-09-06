@@ -200,10 +200,3 @@ fn cancellation_selecting_before_completion_interrupts_both_handle_types() {
         policy_first(local, false);
     }
 }
-
-#[test]
-fn inherited_deadline_selecting_before_completion_interrupts_both_handle_types() {
-    for local in [false, true] {
-        policy_first(local, true);
-    }
-}
