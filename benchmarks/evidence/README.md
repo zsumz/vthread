@@ -7,6 +7,7 @@ release qualification or an archive of executed binaries.
 
 | Bundle | Review | SHA-256 |
 | --- | --- | --- |
+| `publication-observer-266e8624.tar.gz` | [Test-only publication observer ordering](../publication-observer-review.md) | `b411fd245b7f5e438da2d2d533570656f700b3ef007a9b39a21efb21f98f220a` |
 | `channel-attribution-56f61f86.tar.gz` | [Channel rearming and publication attribution](../channel-attribution-review.md) | `1159959bd818adf21ee07aefa0eb954a16b8b8053326542443984beb8de3e38c` |
 | `readiness-incremental-01b33038.tar.gz` | [Bounded incremental readiness, promotion held](../readiness-incremental-review.md) | `aa4241bdf0dba95cae5ac59b5f13dafd882c984c90d0d3bc476bc36d15d7df6c` |
 | `capacity-admission-4aaf5b0a.tar.gz` | [Rejected zero/32 admission-only probe experiments](../capacity-admission-review.md) | `8426b17dba434dd5bfafd27a52f2ff7206abefa8408190d6f901ce89f2ddaa09` |

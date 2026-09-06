@@ -140,8 +140,8 @@ fn sleeping_owner(resource: bool, end: End) {
         crate::support_test::until(|| shared.inboxes[0].signal.waiting() == 1);
         let mut pause = PausedPublication::install(&cell);
         unlock.send(()).unwrap();
-        pause.observe(Stage::NoticePublished);
-        let deferred = pause.observe(Stage::OwnerDeferred);
+        let (published, deferred) = pause.observe_routed_pair();
+        assert_ne!(published.thread, deferred.thread);
         assert_ne!(deferred.thread, thread::current().id());
         if end == End::Abandon {
             shared.abort_scope(scope, TaskFailure::ScopeStalled);

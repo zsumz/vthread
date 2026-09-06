@@ -138,6 +138,14 @@ counter timeout and final build-overlap exclusion remain visible. No new channel
 implementation is attempted or promoted. Exact mutex owner/active/sleeping
 attribution remains independent; direct ownership and polling stay frozen.
 
+During that next measurement-only slice, canonical qualification exposed a
+[publication observer ordering assumption](publication-observer-review.md).
+The test-only repair accepts the two exact route/deferral observations in either
+arrival order, without changing publication or retirement. Its deterministic
+negative control fails the old assumption; all fourteen gates and 400 additional
+native sleeping-owner tests pass, including 34 owner-first observations. The
+mutex fixture is preserved separately and has not yet produced a performance panel.
+
 The six loaded findings remain unclassified release blockers: inbox refill,
 interrupted cross-runtime join, delayed selected timer, cancellation-history
 timing, readiness retry count and deadline-first join. A longer timeout or quiet
