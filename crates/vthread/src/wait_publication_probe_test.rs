@@ -83,6 +83,24 @@ impl PausedPublication {
         event
     }
 
+    pub(crate) fn observe_routed_pair(&self) -> (Observation, Observation) {
+        // Routing is visible before the publisher sends its diagnostic event.
+        // The owner can therefore report deferral first. Accept exactly these
+        // two events, without treating delivery order as a protocol edge.
+        let first = self.next_observation();
+        let second = self.next_observation();
+        let (published, deferred) = match (first.stage, second.stage) {
+            (Stage::NoticePublished, Stage::OwnerDeferred) => (first, second),
+            (Stage::OwnerDeferred, Stage::NoticePublished) => (second, first),
+            pair => panic!("unexpected route publication pair: {pair:?}"),
+        };
+        assert_eq!(
+            published.token, deferred.token,
+            "same exact wait generation"
+        );
+        (published, deferred)
+    }
+
     pub(crate) fn next_observation(&self) -> Observation {
         let event = self
             .events
@@ -141,4 +159,58 @@ impl WaitInner {
             let _ = crate::signal::lock(&probe.resume).recv();
         }
     }
+}
+
+fn observed_pair(stages: [Stage; 2], tokens: [ParkToken; 2]) -> PausedPublication {
+    let (events, received) = mpsc::channel();
+    for (stage, token) in stages.into_iter().zip(tokens) {
+        events
+            .send(Observation {
+                stage,
+                token,
+                thread: std::thread::current().id(),
+                elapsed: Duration::ZERO,
+            })
+            .unwrap();
+    }
+    PausedPublication {
+        events: received,
+        resume: None,
+    }
+}
+
+#[test]
+fn a_routed_pair_preserves_evidence_when_owner_observation_arrives_first() {
+    let token = ParkToken::new(7, 11);
+    for stages in [
+        [Stage::NoticePublished, Stage::OwnerDeferred],
+        [Stage::OwnerDeferred, Stage::NoticePublished],
+    ] {
+        let pause = observed_pair(stages, [token; 2]);
+        let (published, deferred) = pause.observe_routed_pair();
+        assert_eq!(published.stage, Stage::NoticePublished);
+        assert_eq!(deferred.stage, Stage::OwnerDeferred);
+        assert_eq!(published.token, token);
+        assert_eq!(deferred.token, token);
+    }
+}
+
+#[test]
+#[should_panic(expected = "same exact wait generation")]
+fn a_routed_pair_cannot_combine_different_generations() {
+    observed_pair(
+        [Stage::NoticePublished, Stage::OwnerDeferred],
+        [ParkToken::new(7, 11), ParkToken::new(7, 12)],
+    )
+    .observe_routed_pair();
+}
+
+#[test]
+#[should_panic(expected = "unexpected route publication pair")]
+fn a_routed_pair_cannot_substitute_mounted_spinning_for_owner_deferral() {
+    observed_pair(
+        [Stage::NoticePublished, Stage::FinishWaiting],
+        [ParkToken::new(7, 11); 2],
+    )
+    .observe_routed_pair();
 }
