@@ -19,7 +19,7 @@ pub mod qualification;
 #[cfg(feature = "handoff-profiling")]
 pub use crate::handoff_profile::{
     ChannelCounters, ChannelDirection, HANDOFF_DURATION_BOUNDS_NS, HandoffDuration, HandoffProfile,
-    HandoffStage,
+    HandoffStage, MutexCounters,
 };
 #[cfg(feature = "lifecycle-profiling")]
 pub use crate::lifecycle_probe::LifecycleProfile;

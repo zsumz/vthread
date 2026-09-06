@@ -156,3 +156,55 @@ fn unwinding_after_queue_removal_still_publishes_the_selected_handoff() {
         42
     );
 }
+
+#[cfg(feature = "handoff-profiling")]
+#[test]
+fn stored_rejected_and_still_queued_cleanup_keep_distinct_accounting() {
+    let local = std::rc::Rc::new(crate::local_carrier::LocalCarrier::new(
+        crate::RuntimeConfig::default(),
+    ));
+    let hub = Arc::new(WaitHub::new(1, Arc::default()));
+    let _route = crate::context::mount_carrier(&hub, &local);
+    for case in 0..3 {
+        let queue = MutexQueue::new(1).unwrap();
+        let value = ExclusiveCell::new(42);
+        let owner = value.try_lock().unwrap();
+        let wait = WaitCell::new();
+        let Subscription::Waiting(ticket) = queue.subscribe(&value, &wait).unwrap() else {
+            panic!("must queue behind the existing owner")
+        };
+        let excess = WaitCell::new();
+        assert!(matches!(
+            queue.subscribe(&value, &excess),
+            Err(Error::Capacity { .. })
+        ));
+        if case == 2 {
+            drop(ticket);
+            queue.release(&value, owner);
+        } else {
+            if case == 1 {
+                assert!(wait.close());
+            }
+            queue.release(&value, owner);
+            drop(ticket);
+        }
+        assert_eq!(queue.waiting(), 0);
+        assert_eq!(*value.try_lock().unwrap(), 42);
+    }
+    let profile = local.handoff_profile.borrow();
+    let counts = profile.mutex();
+    assert_eq!(
+        counts.queued(),
+        3,
+        "capacity rejection is not an admitted ticket"
+    );
+    assert_eq!(counts.dropped(), 3);
+    assert_eq!(counts.completed(), 0);
+    assert_eq!(counts.removed(), 1);
+    assert_eq!(counts.abandoned(), 1);
+    assert_eq!(counts.attempts(), 2);
+    assert_eq!(counts.stored(), 1);
+    assert_eq!(counts.rejected(), 1);
+    assert_eq!(counts.same_owner(), 0);
+    assert_eq!(counts.other_owner(), 0);
+}

@@ -46,6 +46,15 @@ others preserve binary identities only, as specified in their reviews.
 | `handoff-attribution-f57b1db1.tar.gz` | [Useful handoff, polling and capacity attribution](../handoff-attribution-review.md) | `d816a803b2ef6d29556801f7e3ce1978cf63596d9029a3860a6bd1197dad3431` |
 | `channel-publication-56f61f86.tar.gz` | [Rejected channel reservation/publication prototypes](../channel-publication-review.md) | `888f1481a6d90424877022aaaf0b1fc77b70ab78e10f637c3e892b6166e043dc` |
 
+The [mutex-attribution bundle](mutex-attribution-325396ac.tar.gz) preserves both
+source snapshots, three binaries, all 120 default/clocked controls, 66.88 million
+accounted diagnostic acquisitions, owner-identity/report negatives, identical
+default executable-code hashes and all fourteen passing canonical gates. It adds
+opt-in counters, not a new default-path speedup or May comparison. Archive SHA-256:
+`142e26e55100b2b34daf613df1366b08b0d276daad4496be580d6010b5958244`.
+See the [attribution review](../mutex-attribution-review.md); `replay.py` verifies
+all 1,206 payload hashes and re-analyzes every observed process.
+
 The channel-retry bundle preserves the existing eligible-grant candidate rebased
 onto the current progress repair, seven exact source snapshots, both default and
 both clocked diagnostic binaries, ordered negatives, native/model tests, all 264

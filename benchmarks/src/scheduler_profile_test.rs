@@ -60,3 +60,23 @@ fn report_rejects_overflowing_expected_counts() {
     let error = report(&mut Vec::new(), &runtime.snapshot(), &config).unwrap_err();
     assert_eq!(error, "scheduler profile task count overflow");
 }
+
+#[cfg(feature = "handoff-profiling")]
+#[test]
+fn mutex_expected_totals_include_warmup_and_reject_overflow() {
+    let mut config = config();
+    assert_eq!(super::mutex_acquisitions(&config).unwrap(), None);
+    config.scenario = Scenario::Mutex {
+        per_task: 1000,
+        contended: true,
+    };
+    assert_eq!(super::mutex_acquisitions(&config).unwrap(), Some(32_000));
+    config.scenario = Scenario::Mutex {
+        per_task: usize::MAX,
+        contended: false,
+    };
+    assert_eq!(
+        super::mutex_acquisitions(&config).unwrap_err(),
+        "handoff profile mutex acquisition count overflow"
+    );
+}

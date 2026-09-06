@@ -227,7 +227,13 @@ taskset -c 0-3 benchmarks/target/release/vthread-benchmarks vthread channel-mpmc
 ```
 
 This feature implies `scheduler-profiling` and adds owner-local duration histograms
-and channel transfer/notification/park/retry counters. The final-only report checks
+and channel transfer/notification/park/retry counters. It also counts mutex calls,
+useful acquisitions, FIFO ticket completion/cleanup, stored versus active grants,
+and actual park crossings. Active mutex grants are classified by exact owning-hub
+identity while their publication guard still protects the generation. Shared-queue
+routing is not a different-owner oracle, and neither category proves native sleep.
+`try_lock` calls are excluded. Inactive stored grants do not inspect target metadata.
+The final-only report checks
 their conservation and separates visible-work polls, control-only polls, exhausted
 polls, wait API calls and condition-variable invocations. Native callers without a
 carrier route are omitted. Durations overlap and include clock/preemption costs;
@@ -235,6 +241,17 @@ they must not be added as CPU time. The clocks can significantly amplify channel
 lock contention. Use these counts to form experiments, never as default performance
 or end-to-end tail claims. See [handoff-attribution-review.md](handoff-attribution-review.md)
 for the instrumented/default cross-checks and capacity-scan evidence.
+
+For mutex attribution use the existing `mutex` scenario with that feature. The
+final report requires every warm-up and measured acquisition and exact ticket
+retirement totals. Source-side offers and recipient-side completion may be counted
+on different carriers. External producers without a carrier route are omitted,
+so offer/receipt equality is valid only for a fixture whose producers are all
+counted; it is not a general diagnostic invariant. This adds no new clocks or
+shared counter atomics, but additional TLS accesses and larger profiling snapshots
+still alter execution. Keep its timing separate from default-build acceptance.
+The [production mutex attribution](mutex-attribution-review.md) preserves the
+ordered owner-identity negative and a complete 120-process default/clocked panel.
 
 The [channel publication review](channel-publication-review.md) preserves five
 cancellation-safe out-of-lock prototypes and their rejection screens. Sampled

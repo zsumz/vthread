@@ -43,6 +43,8 @@ pub mod fs;
 #[cfg(feature = "handoff-profiling")]
 mod handoff_channel;
 #[cfg(feature = "handoff-profiling")]
+mod handoff_mutex;
+#[cfg(feature = "handoff-profiling")]
 mod handoff_profile;
 #[cfg(feature = "handoff-profiling")]
 mod handoff_span;

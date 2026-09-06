@@ -39,6 +39,14 @@ pub(crate) fn run(config: &Config) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(all(test, feature = "handoff-profiling"))]
+pub(crate) fn profile_mutex_test_round(
+    runtime: &vthread::Runtime,
+    config: &Config,
+) -> Result<(), String> {
+    run_round(runtime, config, false).map(|_| ())
+}
+
 fn run_round(
     runtime: &vthread::Runtime,
     config: &Config,

@@ -39,6 +39,15 @@ separate counter/crossover panels and tight/spare-capacity controls. This is
 **not release completion** or a fully qualified May panel. Later documentation-
 only commits do not imply another runtime speedup.
 
+The subsequent [production mutex attribution](mutex-attribution-review.md) adds
+opt-in counters at source `325396ac`; default executable code is byte-identical
+to `d38dcb86`. All fourteen canonical gates pass again. Forty diagnostic processes
+account for 66.88 million acquisitions; the complete 120-process panel separates
+default controls from clocked instrumentation, whose elapsed cost is 1.3-2.5x.
+Most active grants in the longer four-carrier diagnostic cells target another
+owner, but stage time and actual recipient sleep remain unmeasured. No new
+default-path speedup or May comparison is claimed.
+
 | Work item | Retained result / remaining requirement |
 | --- | --- |
 | Native qualification | Default debug/release now mandatory; all-feature diagnostics remain covered |
@@ -46,7 +55,7 @@ only commits do not imply another runtime speedup.
 | Capacity maintenance | Four-arm zero-probe experiment and one 32-probe follow-up rejected on tight lifecycle/CPU; production scan remains |
 | Incremental readiness | Qualified candidate reduces the large idle-population control substantially; held off production because protected non-regression is not established |
 | Channel | Matching historical default-build attribution completed; no sixth implementation or polling rescue |
-| Mutex | Exact-owner fixture now has 36 successful quiet-window controls; counter-free local/remote-active/sleep medians are 191 ns / 311 ns / 3.67 us; production state frequencies and multi-waiter fairness remain open |
+| Mutex | Direct ownership retained; useful acquisition/park/grant/owner counters qualified and distortion measured. Stage-associated default-state attribution and multi-waiter fairness remain open; historical one-successor fixture numbers are not production stage costs |
 | Loaded findings | Four ordering/oracle repairs qualified; cancellation semantics separated from timing; historical refill stall and history timing excursion remain open |
 | Offered load | Bounded, fixed-arrival application case and verifier qualified; controlled-host tail/CPU acceptance still required |
 | Release | Current-source ARM64, supported sanitizers, large mixed lifetimes/populations and offered-load/footprint acceptance remain open; May park control also needs classification before a complete comparison claim |

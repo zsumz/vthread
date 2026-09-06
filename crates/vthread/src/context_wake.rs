@@ -39,6 +39,16 @@ pub(crate) fn with_handoff_profile(
     });
 }
 
+#[cfg(feature = "handoff-profiling")]
+pub(crate) fn is_owner_hub(hub: &Arc<WaitHub>) -> Option<bool> {
+    CARRIER_ROUTE.with(|current| {
+        current
+            .borrow()
+            .as_ref()
+            .map(|route| Arc::ptr_eq(&route.hub, hub))
+    })
+}
+
 pub(crate) fn enqueue_local_wake(hub: &Arc<WaitHub>, notice: WakeNotice) -> bool {
     let routed = CARRIER_ROUTE.with(|current| {
         let current = current.borrow();

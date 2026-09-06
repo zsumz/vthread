@@ -3,15 +3,16 @@
 use std::io::Write;
 use vthread::diagnostics::{
     CarrierStatus, ChannelDirection, HANDOFF_DURATION_BOUNDS_NS, HandoffProfile, HandoffStage,
-    RuntimeSnapshot, ShutdownPhase,
+    MutexCounters, RuntimeSnapshot, ShutdownPhase,
 };
 
 pub(crate) fn report(
     output: &mut impl Write,
     snapshot: &RuntimeSnapshot,
     expected_transfers: Option<u64>,
+    expected_acquisitions: Option<u64>,
 ) -> Result<(), String> {
-    validate(snapshot, expected_transfers)?;
+    validate(snapshot, expected_transfers, expected_acquisitions)?;
     writeln!(output,
         "engine=vthread phase=handoff-profile scope=whole-runtime headline=false owner_only=true native_callers=false regions_overlap=true clock_overhead_subtracted=false bounds_ns={HANDOFF_DURATION_BOUNDS_NS:?}")
         .map_err(|error| error.to_string())?;
@@ -41,16 +42,31 @@ pub(crate) fn report(
                 counts.closed_notifications(), counts.ineligible_notifications())
                 .map_err(|error| error.to_string())?;
         }
+        let counts = profile.mutex();
+        writeln!(output,
+            "engine=vthread phase=handoff-mutex carrier={id} calls={} acquired={} failed_calls={} immediate={} recheck={} queued={} park_returns={} parks={} completed={} dropped={} removed={} abandoned={} attempts={} stored={} rejected={} same_owner={} other_owner={} owner_identity=hub sleep_inferred=false",
+            counts.calls(), counts.acquired(), counts.failed_calls(), counts.immediate(),
+            counts.recheck(), counts.queued(), counts.park_returns(), counts.parks(),
+            counts.completed(), counts.dropped(), counts.removed(), counts.abandoned(),
+            counts.attempts(), counts.stored(), counts.rejected(), counts.same_owner(),
+            counts.other_owner())
+            .map_err(|error| error.to_string())?;
     }
     Ok(())
 }
 
-fn validate(snapshot: &RuntimeSnapshot, expected: Option<u64>) -> Result<(), String> {
+fn validate(
+    snapshot: &RuntimeSnapshot,
+    expected: Option<u64>,
+    expected_acquisitions: Option<u64>,
+) -> Result<(), String> {
     if snapshot.shutdown_phase() != ShutdownPhase::Complete || snapshot.active() != 0 {
         return Err("handoff profile requires completed shutdown and no active tasks".into());
     }
     let mut sent = 0;
     let mut received = 0;
+    let mut calls = 0;
+    let mut acquired = 0;
     for carrier in snapshot.carriers() {
         let profile = carrier.handoff_profile();
         if carrier.status() != CarrierStatus::Stopped || !consistent(profile) {
@@ -76,6 +92,15 @@ fn validate(snapshot: &RuntimeSnapshot, expected: Option<u64>) -> Result<(), Str
         }
         sent += profile.channel(ChannelDirection::Send).transfers();
         received += profile.channel(ChannelDirection::Receive).transfers();
+        calls += profile.mutex().calls();
+        acquired += profile.mutex().acquired();
+    }
+    if let Some(expected) = expected_acquisitions
+        && (calls != expected || acquired != expected)
+    {
+        return Err(format!(
+            "expected {expected} mutex acquisitions, observed {calls} calls and {acquired} acquisitions"
+        ));
     }
     if let Some(expected) = expected
         && (sent != expected || received != expected)
@@ -107,6 +132,20 @@ fn consistent(profile: &HandoffProfile) -> bool {
                         + counts.stored_notifications()
                         + counts.closed_notifications()
         })
+        && consistent_mutex(profile.mutex())
+}
+
+fn consistent_mutex(counts: &MutexCounters) -> bool {
+    counts.calls() == counts.acquired() + counts.failed_calls()
+        && counts.queued() == counts.completed() + counts.dropped()
+        && counts.completed() <= counts.park_returns()
+        && counts.park_returns() <= counts.queued()
+        && counts.parks() <= counts.queued()
+        && counts.immediate() + counts.recheck() <= counts.acquired()
+        && counts.acquired() <= counts.immediate() + counts.recheck() + counts.completed()
+        && counts.removed() + counts.abandoned() <= counts.dropped()
+        && counts.attempts()
+            == counts.stored() + counts.rejected() + counts.same_owner() + counts.other_owner()
 }
 
 #[cfg(test)]
