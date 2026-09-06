@@ -50,6 +50,7 @@ impl WaitRegistration {
         Ok(select_generation(&state, self, token, WakeCause::TimedOut))
     }
 
+    #[cfg(test)]
     pub(crate) fn abandon(&self, token: ParkToken) {
         if let Some(state) = self.state.upgrade()
             && let Some(hub) = state.retire(token)

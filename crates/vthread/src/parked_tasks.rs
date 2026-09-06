@@ -7,6 +7,7 @@ pub(super) struct ParkedTask {
     pub(super) token: ParkToken,
     pub(super) task: TaskKey,
     pub(super) has_deadline: bool,
+    pub(super) deferred: bool,
     // `None` is valid only for this task's exact resident synchronization generation.
     pub(super) registration: Option<WaitRegistration>,
 }
@@ -43,6 +44,10 @@ impl ParkedTasks {
 
     pub(super) fn get(&self, task: TaskKey) -> Option<&ParkedTask> {
         self.slots(task).get(task.index())?.as_ref()
+    }
+
+    pub(super) fn get_mut(&mut self, task: TaskKey) -> Option<&mut ParkedTask> {
+        self.slots_mut(task).get_mut(task.index())?.as_mut()
     }
 
     pub(super) fn remove(&mut self, task: TaskKey) -> Option<ParkedTask> {

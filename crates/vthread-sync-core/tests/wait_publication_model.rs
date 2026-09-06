@@ -1,10 +1,8 @@
-//! Proposed publication/owner-deferral protocol, not a shipped runtime repair.
+//! Production publication and bounded MPSC routing under modeled atomics.
 //!
-//! WaitWord is production source. The bounded one-route transport abstracts the
-//! existing wake queue; Signal preserves its epoch/waiter/gate ordering. Native
-//! queue reversal, target binding, stack destruction and multi-route composition
-//! still require their own integration evidence. No production atomic is modeled
-//! through std: all mutable shared state below uses Loom primitives.
+//! WaitWord, owner publication/retirement and WakeQueue are imported source.
+//! Signal retains its explicit SC adapter limitation. Native target binding,
+//! ancestor stack destruction and complete multi-scope scheduling are not modeled.
 
 #![forbid(unsafe_code)]
 
@@ -31,6 +29,8 @@ mod wait {
 
 #[path = "support/publication_composition_test.rs"]
 mod publication_composition_test;
+#[path = "support/publication_routes_test.rs"]
+mod publication_routes_test;
 #[path = "support/publication_signal_test.rs"]
 mod publication_signal;
 #[path = "../../vthread/src/wait_state.rs"]
@@ -39,7 +39,7 @@ mod wait_state;
 use publication_signal::Route;
 use wait_state::{Phase, WaitWord};
 
-fn model(f: impl Fn() + Send + Sync + 'static) {
+fn model(f: impl Fn() + Send + Sync + 'static) -> usize {
     let mut builder = loom::model::Builder::new();
     builder.max_threads = 3;
     builder.max_branches = 1_000;
@@ -47,19 +47,33 @@ fn model(f: impl Fn() + Send + Sync + 'static) {
     builder.max_duration = None;
     builder.preemption_bound = None;
     builder.checkpoint_file = None;
-    builder.check(f);
+    // Harness bookkeeping only, after all protocol actors have joined. This
+    // counter is not visible to any modeled decision or synchronization path.
+    let completed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = std::sync::Arc::clone(&completed);
+    builder.check(move || {
+        f();
+        count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    });
+    completed.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Publication {
-    Published,
-    InFlight,
-    Stale,
-}
+#[path = "support/publication_types_test.rs"]
+mod publication_types;
+use publication_types::{ParkToken, TaskId, TaskKey, WakeNotice};
+
+type WaitInner = Handoff;
+type HubHandle = loom::sync::Arc<Route>;
+#[path = "../../vthread/src/wait_owner_protocol.rs"]
+mod owner_protocol;
+use owner_protocol::Publication;
+#[path = "../../vthread/src/wake_queue_core.rs"]
+mod wake_queue_core;
 
 struct Handoff {
+    id: u64,
     word: AtomicU64,
-    route: Route,
+    route: HubHandle,
     ownership: AtomicUsize,
     recovered: AtomicUsize,
     consumed: AtomicUsize,
@@ -67,9 +81,14 @@ struct Handoff {
 
 impl Handoff {
     fn new() -> Self {
+        Self::with_route(loom::sync::Arc::new(Route::new()), 1)
+    }
+
+    fn with_route(route: HubHandle, id: u64) -> Self {
         Self {
+            id,
             word: AtomicU64::new(Self::active(41).raw()),
-            route: Route::new(),
+            route,
             ownership: AtomicUsize::new(0),
             recovered: AtomicUsize::new(0),
             consumed: AtomicUsize::new(0),
@@ -86,7 +105,7 @@ impl Handoff {
         WaitWord::from_raw(self.word.load(Ordering::Acquire))
     }
 
-    fn replace(&self, before: WaitWord, after: WaitWord) -> bool {
+    fn compare_exchange(&self, before: WaitWord, after: WaitWord) -> Result<(), WaitWord> {
         self.word
             .compare_exchange(
                 before.raw(),
@@ -94,7 +113,33 @@ impl Handoff {
                 Ordering::AcqRel,
                 Ordering::Acquire,
             )
-            .is_ok()
+            .map(|_| ())
+            .map_err(WaitWord::from_raw)
+    }
+
+    fn replace(&self, before: WaitWord, after: WaitWord) -> bool {
+        self.compare_exchange(before, after).is_ok()
+    }
+
+    fn clone_hub(&self, _: WaitWord) -> HubHandle {
+        loom::sync::Arc::clone(&self.route)
+    }
+
+    fn observe_deferred(&self, _: ParkToken) {}
+    fn observe_completion(&self, _: ParkToken) {}
+    fn observe_retirement(&self, _: ParkToken) {}
+
+    fn published(&self, generation: u64) -> Publication {
+        self.publication(ParkToken::new(self.id, generation))
+    }
+
+    fn route_claim(&self, generation: u64) {
+        self.route.push(WakeNotice {
+            token: ParkToken::new(self.id, generation),
+            task: TaskId::new(self.id),
+            route: TaskKey::owned(self.id as usize - 1),
+            cause: self.load().publish_claim().selected_cause().unwrap(),
+        });
     }
 
     fn claim(&self, cause: WakeCause, resource: bool) -> Option<WaitWord> {
@@ -120,17 +165,16 @@ impl Handoff {
     }
 
     fn publish(&self, claimed: WaitWord, complete_notice: bool) {
+        if complete_notice {
+            // The shipped candidate's exact CAS and hub-retention protocol.
+            self.publish_claim(claimed);
+            return;
+        }
+        // Deliberately broken negative control: keep the same state transition,
+        // but omit the independent completion signal.
         let mut before = claimed;
         loop {
-            // During a claim, the otherwise absent permit bit can represent
-            // owner interest. It is never a permit for the next generation.
-            let selected = before.publish_claim().with_permit(false);
-            if self.replace(before, selected) {
-                if before.has_permit() && complete_notice {
-                    // Production must retain the selected hub before releasing
-                    // the claim; only this independent signal may follow it.
-                    self.route.signal.notify();
-                }
+            if self.replace(before, before.publish_claim().with_permit(false)) {
                 return;
             }
             before = self.load();
@@ -138,43 +182,24 @@ impl Handoff {
         }
     }
 
-    fn publication(&self, generation: u64) -> Publication {
-        loop {
-            let word = self.load();
-            if word.generation() != generation || word.phase() == Phase::Idle {
-                return Publication::Stale;
-            }
-            if word.selected_cause().is_some() {
-                return Publication::Published;
-            }
-            assert!(
-                word.is_claimed(),
-                "a routed notice requires a selected generation"
-            );
-            if word.has_permit() || self.replace(word, word.with_permit(true)) {
-                return Publication::InFlight;
-            }
-        }
-    }
-
     fn try_abandon(&self, generation: u64) -> bool {
+        if self
+            .try_retire(ParkToken::new(self.id, generation))
+            .is_err()
+        {
+            return false;
+        }
+        // Production retirement retains the selected resource for Ticket::drop.
+        // Model that separate cleanup boundary, rather than retiring ownership
+        // inside the publication protocol.
         loop {
             let word = self.load();
-            if word.generation() != generation || word.phase() == Phase::Idle {
+            if word.generation() != generation || word.resource().is_none() {
                 return true;
             }
-            if word.is_claimed() {
-                match self.publication(generation) {
-                    Publication::InFlight => return false,
-                    _ => continue,
-                }
-            }
-            assert_ne!(word.phase(), Phase::Binding, "owner has already parked");
-            if self.replace(word, word.with_resource(None).retire()) {
-                if word.resource().is_some() {
-                    assert_eq!(self.ownership.swap(0, Ordering::AcqRel), 1);
-                    self.recovered.fetch_add(1, Ordering::Relaxed);
-                }
+            if self.replace(word, word.with_resource(None)) {
+                assert_eq!(self.ownership.swap(0, Ordering::AcqRel), 1);
+                self.recovered.fetch_add(1, Ordering::Relaxed);
                 return true;
             }
         }
@@ -211,7 +236,7 @@ impl Handoff {
                 return;
             }
             if let Some(generation) = deferred {
-                match self.publication(generation) {
+                match self.published(generation) {
                     Publication::Published => {
                         if abandon {
                             assert!(self.try_abandon(generation));

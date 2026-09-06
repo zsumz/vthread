@@ -33,15 +33,21 @@ impl Kernel {
             .map(|parked| parked.task)
             .collect::<Vec<_>>();
         for task in tasks {
-            let parked = self.parked.remove(task).expect("revoked park");
+            let parked = self.remove_parked(task);
             let token = parked.token;
             self.local.unregister_wake(token);
             if let Some(registration) = parked.registration {
-                registration.abandon(token);
+                assert!(
+                    registration.try_abandon(token),
+                    "revoked frame retained a publisher"
+                );
             } else {
-                self.task(parked.task)
-                    .execution()
-                    .abandon_synchronization_wait(token);
+                assert!(
+                    self.task(parked.task)
+                        .execution()
+                        .try_abandon_synchronization_wait(token),
+                    "revoked frame retained a publisher"
+                );
             }
             if self.timers.cancel(token) {
                 #[cfg(feature = "runtime-evidence")]

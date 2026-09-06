@@ -35,6 +35,9 @@ use crate::{
 };
 use vthread_stack::ParkToken;
 
+#[path = "parking_wait.rs"]
+mod parking_wait;
+
 /// The exact selected winner for one parking generation.
 ///
 /// Once a winner is selected, later inherited cancellation or deadline expiry
@@ -181,48 +184,17 @@ fn park_wait<const PLAIN_READY: bool, const PERMIT_READY: bool, G>(
         WaitBegin::Immediate(cause) => selected(cause, inherited_timeout),
         WaitBegin::Park {
             request,
-            mut registration,
-        } => {
-            let token = request.token();
-            let mut generation = wait.guard(token);
-            let _subscription = if unmasked {
-                let result = match registration.as_ref() {
-                    Some(registration) => policy.cancellation().register(token, registration),
-                    None => policy.cancellation().register_resident(token, wait),
-                };
-                match result {
-                    Ok(subscription) => Some(subscription),
-                    Err(error) => {
-                        wait.rollback(token);
-                        return Err(error);
-                    }
-                }
-            } else {
-                None
-            };
-            let _external = register(token, registration.as_ref())?;
-            let _publication = match handoff {
-                WaitHandoff::Shared => Some(execution.publish_wait(
-                    token,
-                    registration.take().expect("shared wait registration"),
-                )?),
-                WaitHandoff::TaskResident => None,
-            };
-            let suspension = vthread_stack::Suspension::Park(request);
-            if let Err(error) = vthread_stack::suspend(suspension) {
-                wait.rollback(token);
-                return Err(Error::from(error));
-            }
-            let cause = if PLAIN_READY {
-                wait.finish_plain_ready(token)?
-            } else if PERMIT_READY {
-                wait.finish_permit_ready(token)?
-            } else {
-                wait.finish(token)?
-            };
-            generation.disarm();
-            selected(cause, inherited_timeout)
-        }
+            registration,
+        } => selected(
+            parking_wait::park::<PLAIN_READY, PERMIT_READY, _>(
+                execution,
+                wait,
+                request,
+                registration,
+                register,
+            )?,
+            inherited_timeout,
+        ),
     }
 }
 

@@ -9,7 +9,7 @@ fn completion_registration_and_owner_sleep_cannot_lose_a_wake() {
             let sender = Arc::clone(&handoff);
             let publisher = thread::spawn(move || {
                 let claimed = sender.claim(WakeCause::Ready, resource).unwrap();
-                sender.route.push(41);
+                sender.route_claim(41);
                 sender.publish(claimed, true);
             });
             handoff.drive(false);
@@ -17,7 +17,7 @@ fn completion_registration_and_owner_sleep_cannot_lose_a_wake() {
             assert_eq!(handoff.load().phase(), Phase::Idle);
             assert_eq!(handoff.consumed.load(Ordering::Relaxed), 1);
             assert_eq!(handoff.ownership.load(Ordering::Relaxed), 0);
-            assert_eq!(handoff.publication(41), Publication::Stale);
+            assert_eq!(handoff.published(41), Publication::Stale);
             assert!(handoff.route.pop().is_none());
         });
     }
@@ -30,7 +30,7 @@ fn abandonment_keeps_selected_ownership_until_publication_finishes() {
         let sender = Arc::clone(&handoff);
         let publisher = thread::spawn(move || {
             if let Some(claimed) = sender.claim(WakeCause::Ready, true) {
-                sender.route.push(41);
+                sender.route_claim(41);
                 sender.publish(claimed, true);
                 true
             } else {
@@ -49,7 +49,7 @@ fn abandonment_keeps_selected_ownership_until_publication_finishes() {
         // A queued notice may still exist after abandonment, but retirement was
         // already legal and the owner rejects it before route reuse.
         if let Some(generation) = handoff.route.pop() {
-            assert_eq!(handoff.publication(generation), Publication::Stale);
+            assert_eq!(handoff.published(generation), Publication::Stale);
         }
     });
 }
@@ -59,9 +59,9 @@ fn an_incomplete_claim_does_not_authorize_mount_or_ancestor_reclamation() {
     model(|| {
         let handoff = Handoff::new();
         let claimed = handoff.claim(WakeCause::Ready, true).unwrap();
-        handoff.route.push(41);
+        handoff.route_claim(41);
         assert_eq!(handoff.route.pop(), Some(41));
-        assert_eq!(handoff.publication(41), Publication::InFlight);
+        assert_eq!(handoff.published(41), Publication::InFlight);
         assert!(!handoff.try_abandon(41));
         assert_eq!(handoff.ownership.load(Ordering::Relaxed), 1);
         // Owner has returned to scheduling. Its exact parked record and the
@@ -86,7 +86,7 @@ fn omitting_completion_notification_has_a_sleeping_owner_counterexample() {
         let sender = Arc::clone(&handoff);
         let publisher = thread::spawn(move || {
             let claimed = sender.claim(WakeCause::Ready, false).unwrap();
-            sender.route.push(41);
+            sender.route_claim(41);
             sender.publish(claimed, false);
         });
         handoff.drive(false);
@@ -104,14 +104,14 @@ fn a_held_publisher_allows_unrelated_work_but_not_selected_resource_reclamation(
         let (resume, held) = loom::sync::mpsc::channel();
         let publisher = thread::spawn(move || {
             let claimed = sender.claim(WakeCause::Ready, true).unwrap();
-            sender.route.push(41);
+            sender.route_claim(41);
             published.send(()).unwrap();
             held.recv().unwrap();
             sender.publish(claimed, true);
         });
         observe.recv().unwrap();
         assert_eq!(handoff.route.pop(), Some(41));
-        assert_eq!(handoff.publication(41), Publication::InFlight);
+        assert_eq!(handoff.published(41), Publication::InFlight);
         assert!(!handoff.try_abandon(41));
         let unrelated = loom::sync::atomic::AtomicUsize::new(0);
         unrelated.fetch_add(1, Ordering::Relaxed);
@@ -137,14 +137,14 @@ fn ready_competing_with_other_causes_produces_one_owned_resume() {
             let ready = Arc::clone(&handoff);
             let publisher = thread::spawn(move || {
                 if let Some(claimed) = ready.claim(WakeCause::Ready, true) {
-                    ready.route.push(41);
+                    ready.route_claim(41);
                     ready.publish(claimed, true);
                 }
             });
             let other = Arc::clone(&handoff);
             let competitor = thread::spawn(move || {
                 if let Some(claimed) = other.claim(cause, false) {
-                    other.route.push(41);
+                    other.route_claim(41);
                     other.publish(claimed, true);
                 }
             });
@@ -155,12 +155,12 @@ fn ready_competing_with_other_causes_produces_one_owned_resume() {
             // every condition-variable schedule or silently cap permutations.
             let observed = handoff.route.pop();
             if let Some(generation) = observed {
-                assert_ne!(handoff.publication(generation), Publication::Stale);
+                assert_ne!(handoff.published(generation), Publication::Stale);
             }
             publisher.join().unwrap();
             competitor.join().unwrap();
             let generation = observed.or_else(|| handoff.route.pop()).unwrap();
-            assert_eq!(handoff.publication(generation), Publication::Published);
+            assert_eq!(handoff.published(generation), Publication::Published);
             handoff.consume(generation);
             assert_eq!(handoff.consumed.load(Ordering::Relaxed), 1);
             assert_eq!(handoff.recovered.load(Ordering::Relaxed), 0);
@@ -175,9 +175,9 @@ fn delayed_completion_signal_does_not_touch_a_reused_generation() {
     model(|| {
         let handoff = Arc::new(Handoff::new());
         let claimed = handoff.claim(WakeCause::Ready, false).unwrap();
-        handoff.route.push(41);
+        handoff.route_claim(41);
         assert_eq!(handoff.route.pop(), Some(41));
-        assert_eq!(handoff.publication(41), Publication::InFlight);
+        assert_eq!(handoff.published(41), Publication::InFlight);
         // Stop after selected publication, before the independent completion
         // signal. The old publisher must have no subsequent route/state writes.
         let watched = handoff.load();
@@ -187,9 +187,9 @@ fn delayed_completion_signal_does_not_touch_a_reused_generation() {
         let delayed = thread::spawn(move || old.route.signal.notify());
         handoff.consume(41);
         assert!(handoff.replace(handoff.load(), Handoff::active(42)));
-        assert_eq!(handoff.publication(41), Publication::Stale);
+        assert_eq!(handoff.published(41), Publication::Stale);
         let next = handoff.claim(WakeCause::Ready, true).unwrap();
-        handoff.route.push(42);
+        handoff.route_claim(42);
         handoff.publish(next, true);
         assert_eq!(handoff.route.pop(), Some(42));
         handoff.consume(42);
@@ -207,7 +207,7 @@ fn mounting_before_publication_is_rejected() {
     model(|| {
         let handoff = Handoff::new();
         handoff.claim(WakeCause::Ready, false).unwrap();
-        handoff.route.push(41);
+        handoff.route_claim(41);
         handoff.consume(handoff.route.pop().unwrap());
     });
 }

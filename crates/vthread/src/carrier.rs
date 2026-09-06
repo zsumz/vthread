@@ -48,7 +48,15 @@ fn finish(kernel: &mut Kernel, shared: &Shared) {
         };
         record_failure(shared, panic);
         kernel.inbox.stop();
-        kernel.abort(None, TaskFailure::CarrierFailed);
+        loop {
+            let observed = kernel.inbox.signal.version();
+            if kernel.abort(None, TaskFailure::CarrierFailed) {
+                break;
+            }
+            // No task on a failed carrier may resume. Retain affine stacks while
+            // the registered publication completion makes retirement legal.
+            kernel.inbox.signal.wait(observed, None);
+        }
         kernel.retire(CarrierStatus::Failed);
     } else {
         kernel.retire(CarrierStatus::Stopped);
@@ -72,13 +80,15 @@ fn drive(kernel: &mut Kernel) -> Result<()> {
         let signal_changed = handled != Some(observed);
         if signal_changed {
             if kernel.inbox.stopped() {
-                kernel.abort(None, TaskFailure::RuntimeStopped);
-                return Ok(());
+                if kernel.abort(None, TaskFailure::RuntimeStopped) {
+                    return Ok(());
+                }
+            } else {
+                while let Some((scope, reason)) = kernel.inbox.take_abort() {
+                    kernel.abort(Some(scope), reason);
+                }
+                kernel.receive();
             }
-            while let Some((scope, reason)) = kernel.inbox.take_abort() {
-                kernel.abort(Some(scope), reason);
-            }
-            kernel.receive();
             handled = Some(observed);
         } else if kernel.remote_pending() {
             kernel.receive();

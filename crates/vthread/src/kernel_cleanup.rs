@@ -8,7 +8,7 @@ use std::{
 };
 
 impl Kernel {
-    pub(crate) fn abort(&mut self, scope: Option<u64>, reason: TaskFailure) {
+    pub(crate) fn abort(&mut self, scope: Option<u64>, reason: TaskFailure) -> bool {
         self.flush_completions();
         if self
             .pending
@@ -40,6 +40,16 @@ impl Kernel {
             );
         }
         self.pending = retained_pending;
+        for task in self.local.take_starts() {
+            self.ready.push_back(self.tasks.insert_borrowed(task));
+        }
+        if !self.prepare_abort(scope) {
+            self.defer_abort(scope, reason);
+            self.publish(CarrierStatus::Running);
+            return false;
+        }
+        self.pending_aborts
+            .retain(|(pending, _)| scope.is_some() && *pending != scope);
         if self.in_flight.is_some_and(|task| {
             scope.is_none_or(|scope| self.task(task).execution().record().lock().scope == scope)
         }) {
@@ -48,9 +58,6 @@ impl Kernel {
         let retained_flight = self.in_flight.take();
         if let Some(task) = retained_flight {
             self.ready.push_front(task);
-        }
-        for task in self.local.take_starts() {
-            self.ready.push_back(self.tasks.insert_borrowed(task));
         }
         for _ in 0..self.ready.len() {
             let task = self.ready.pop_front().expect("ready task");
@@ -73,15 +80,21 @@ impl Kernel {
             .map(|parked| parked.task)
             .collect::<Vec<_>>();
         for task in tasks {
-            let parked = self.parked.remove(task).expect("owned park");
+            let parked = self.remove_parked(task);
             let token = parked.token;
             self.local.unregister_wake(token);
             if let Some(registration) = parked.registration {
-                registration.abandon(token);
+                assert!(
+                    registration.try_abandon(token),
+                    "preflight retained a publisher"
+                );
             } else {
-                self.task(parked.task)
-                    .execution()
-                    .abandon_synchronization_wait(token);
+                assert!(
+                    self.task(parked.task)
+                        .execution()
+                        .try_abandon_synchronization_wait(token),
+                    "preflight retained a publisher"
+                );
             }
             if self.timers.cancel(token) {
                 #[cfg(feature = "runtime-evidence")]
@@ -103,6 +116,7 @@ impl Kernel {
         }
         self.refresh_borrowed();
         self.publish(CarrierStatus::Running);
+        true
     }
 
     pub(super) fn discard_pending(&mut self, reason: TaskFailure) {

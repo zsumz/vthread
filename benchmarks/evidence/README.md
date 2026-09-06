@@ -7,6 +7,7 @@ release qualification or an archive of executed binaries.
 
 | Bundle | Review | SHA-256 |
 | --- | --- | --- |
+| `publication-progress-90bc3126.tar.gz` | [Native recipient progress repair and measured cost](../publication-progress-review.md) | `10e3d51d55621bfa04f2da5799dc315435609ce5f8b30e9735e1a77b9725f2ae` |
 | `publication-deferral-e9214dc3.tar.gz` | [Publication deferral model, not runtime integration](../publication-deferral-review.md) | `bbae5ee124ef57a618aa351d320598d450b9a99d37ab03bc1b54b65eaa7d9144` |
 | `native-qualification-f57b1db1.tar.gz` | [Required native qualification and pristine control](../finishing-pass.md) | `966e766560aa17696263f1211f7b0e0ae995792d0475e8d346bf99a487e4e6a8` |
 | `ready-fairness-bd80c2f1.tar.gz` | [Ready fairness](../ready-fairness-review.md) | `a60f5ed413af10412e64dbed83a9e8c0dcd5b02fc3735195eaa768f5b58071e8` |
@@ -26,6 +27,15 @@ release qualification or an archive of executed binaries.
 | `adaptive-idle-af71b577.tar.gz` | [Adaptive polling screen](../adaptive-idle-review.md) | `139a5e4cfc729a32ed0ce65e787238dd280f69872d40d786aaa9856357ef9f7b` |
 | `handoff-attribution-f57b1db1.tar.gz` | [Useful handoff, polling and capacity attribution](../handoff-attribution-review.md) | `d816a803b2ef6d29556801f7e3ce1978cf63596d9029a3860a6bd1197dad3431` |
 | `channel-publication-56f61f86.tar.gz` | [Rejected channel reservation/publication prototypes](../channel-publication-review.md) | `888f1481a6d90424877022aaaf0b1fc77b70ab78e10f637c3e892b6166e043dc` |
+
+The publication-progress bundle preserves the integrated owner-deferral and
+lifetime-safe cleanup repair, actual shared production protocol/MPSC models,
+ordered old-code and missing-notification negative controls, fourteen-gate native
+qualification, 1,140 repeated ordered test executions and 778,182 mixed lifetimes.
+Its cost panel selects 104 complete guarded processes from 181 total invocations;
+two observed build overlaps and incomplete/preliminary groups remain separate.
+The repair has a repeatable park cycle cost, not a qualified throughput/tail win.
+The six loaded findings and cross-platform release matrix remain open.
 
 The publication-deferral bundle preserves thirteen passing model tests with two
 negative controls, an actual proposed abandonment bug, an explicitly classified
