@@ -7,6 +7,7 @@ release qualification or an archive of executed binaries.
 
 | Bundle | Review | SHA-256 |
 | --- | --- | --- |
+| `cross-join-order-d4bf2450.tar.gz` | [Typed cross-runtime interruption and handle recovery](../cross-join-order-review.md) | `65f11cf64108d634b03d15a234dd039a3aa62872d2aba466ce36623184fc83dd` |
 | `selected-timer-order-889c2843.tar.gz` | [Selection before delayed timer resumption](../selected-timer-order-review.md) | `0dfba52efb61fd30b8826767307d744da2be42486c3293d25ceee485d8eaf14a` |
 | `mutex-mechanism-partial-f0ce5246.tar.gz` | [Partial frozen-source mutex mechanism measurements](../mutex-mechanism-partial-review.md) | `6f36e4a020233e7179eceb285e35f97ed2e792978cf5cddc61ac2e473f402755` |
 | `cancellation-history-order-fb834f0f.tar.gz` | [Separate cancellation-history semantic and timing gates](../cancellation-history-order-review.md) | `d809bde75d32fc3d0ee7db1ae9be0e9da5089220c767f21aa0a477c9bb72416e` |

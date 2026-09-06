@@ -248,3 +248,11 @@ impl Kernel {
 #[cfg(test)]
 #[path = "kernel_test.rs"]
 mod kernel_test;
+
+#[cfg(test)]
+#[path = "kernel_policy_test.rs"]
+mod kernel_policy_test;
+
+#[cfg(test)]
+#[path = "kernel_cross_join_test.rs"]
+mod kernel_cross_join_test;
