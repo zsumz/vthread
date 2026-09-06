@@ -1,5 +1,9 @@
 # Core performance overview: 2026-09-05
 
+Historical comparison: see the [current performance status](performance-status.md)
+for later fairness/progress repairs, rejected experiments and remaining work. This
+panel has not been rerun against the current branch head.
+
 This refresh measures the requested borrowed-occupancy work-in-progress checkpoint
 on `perf/scheduler-hot-path`, based on `c7beec5`. Its source and executable identities
 are in the [occupancy review](borrowed-occupancy-review.md). The tested executable
