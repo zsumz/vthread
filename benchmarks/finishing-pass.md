@@ -15,6 +15,10 @@ The first [scan-only counter-free re-evaluation](scan-counterfree-review.md) sto
 at the predeclared lifecycle screen. Its batching/idle diagnostics are retained;
 no capacity or polling runtime change is promoted. Readiness re-evaluation is next.
 
+The [readiness counter-free confirmation](readiness-counterfree-review.md) also
+holds promotion: 320 complete processes do not establish protected time/CPU/tail
+non-regression. The retained runtime remains unchanged after both re-evaluations.
+
 ## Current checkpoint
 
 Runtime/test/harness source at `462c636` passes all fourteen canonical gates,
