@@ -7,6 +7,7 @@ release qualification or an archive of executed binaries.
 
 | Bundle | Review | SHA-256 |
 | --- | --- | --- |
+| `capacity-admission-4aaf5b0a.tar.gz` | [Rejected zero/32 admission-only probe experiments](../capacity-admission-review.md) | `8426b17dba434dd5bfafd27a52f2ff7206abefa8408190d6f901ce89f2ddaa09` |
 | `publication-progress-90bc3126.tar.gz` | [Native recipient progress repair and measured cost](../publication-progress-review.md) | `10e3d51d55621bfa04f2da5799dc315435609ce5f8b30e9735e1a77b9725f2ae` |
 | `publication-deferral-e9214dc3.tar.gz` | [Publication deferral model, not runtime integration](../publication-deferral-review.md) | `bbae5ee124ef57a618aa351d320598d450b9a99d37ab03bc1b54b65eaa7d9144` |
 | `native-qualification-f57b1db1.tar.gz` | [Required native qualification and pristine control](../finishing-pass.md) | `966e766560aa17696263f1211f7b0e0ae995792d0475e8d346bf99a487e4e6a8` |
@@ -27,6 +28,13 @@ release qualification or an archive of executed binaries.
 | `adaptive-idle-af71b577.tar.gz` | [Adaptive polling screen](../adaptive-idle-review.md) | `139a5e4cfc729a32ed0ce65e787238dd280f69872d40d786aaa9856357ef9f7b` |
 | `handoff-attribution-f57b1db1.tar.gz` | [Useful handoff, polling and capacity attribution](../handoff-attribution-review.md) | `d816a803b2ef6d29556801f7e3ce1978cf63596d9029a3860a6bd1197dad3431` |
 | `channel-publication-56f61f86.tar.gz` | [Rejected channel reservation/publication prototypes](../channel-publication-review.md) | `888f1481a6d90424877022aaaf0b1fc77b70ab78e10f637c3e892b6166e043dc` |
+
+The capacity-admission bundle preserves five default-build arm identities,
+negative and passing snapshot/probe/kernel tests, complete source reconstruction,
+all 27 counter processes and analyses of the 24 complete guarded controls. The
+zero-probe factorial candidate and single 32-probe follow-up both fail the first
+tight lifecycle screen. The partial/overlapped 10k group is excluded. No capacity
+or polling change is retained, and no full candidate qualification is claimed.
 
 The publication-progress bundle preserves the integrated owner-deferral and
 lifetime-safe cleanup repair, actual shared production protocol/MPSC models,
