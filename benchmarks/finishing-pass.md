@@ -77,6 +77,11 @@ The remaining 17 planned processes did not run; they are not silently inferred.
 
 ## Stop rules and open proof obligations
 
+The first publication slice is a [test-only composed model](publication-deferral-review.md),
+not a runtime repair. It imports the real wait word and passes thirteen targeted
+tests, with negative controls and explicit transport/SC/cleanup limits. Native
+deferral and lifetime-safe cleanup remain the next implementation work.
+
 Publisher deferral must let unrelated ready work run while publication is held;
 it need not complete the paused task or its scope. Moving `publish_claim` earlier,
 native yielding, or invoking a public checkpoint from half-retired state is not
