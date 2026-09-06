@@ -47,6 +47,11 @@ run = ["cargo", "test", "--locked", "--workspace", "--all-targets", "--release"]
 tools = ["cargo"]
 needs = ["test-native"]
 
+[tasks.perf-cancellation-history]
+description = "Check cancellation-history timing separately on an otherwise idle host."
+run = ["cargo", "test", "--locked", "-p", "vthread", "--release", "cancellation::cancellation_history_test::sequential_dynamic_history_retains_its_performance_guard", "--", "--ignored", "--exact", "--nocapture"]
+tools = ["cargo"]
+
 [tasks.qualification-policy-test]
 description = "Prove native qualification cannot silently lose a required gate."
 run = ["python3", "scripts/guardrail_policy_test.py"]

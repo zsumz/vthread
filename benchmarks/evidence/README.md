@@ -7,6 +7,7 @@ release qualification or an archive of executed binaries.
 
 | Bundle | Review | SHA-256 |
 | --- | --- | --- |
+| `cancellation-history-order-fb834f0f.tar.gz` | [Separate cancellation-history semantic and timing gates](../cancellation-history-order-review.md) | `d809bde75d32fc3d0ee7db1ae9be0e9da5089220c767f21aa0a477c9bb72416e` |
 | `io-retry-order-7bb05ae6.tar.gz` | [Ordered readiness retry contract](../io-retry-order-review.md) | `fc1a613a968e627a7e1f2572c59e7c8327a74db749bd5dcdf34edaedc5044c69` |
 | `mutex-mechanism-f0ce5246.tar.gz` | [Qualified mutex controls, formal panel pending](../mutex-mechanism-review.md) | `09a0228a1e9f4d6641f49b07f1ccfc78437d16599a39890fdfdeaab4999ca6db` |
 | `publication-observer-266e8624.tar.gz` | [Test-only publication observer ordering](../publication-observer-review.md) | `b411fd245b7f5e438da2d2d533570656f700b3ef007a9b39a21efb21f98f220a` |

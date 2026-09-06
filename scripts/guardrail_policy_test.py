@@ -54,5 +54,28 @@ class NativeQualificationTests(unittest.TestCase):
                 self.assertTrue(self.errors(tasks))
 
 
+class HistoryPerformanceQualificationTests(unittest.TestCase):
+    def setUp(self):
+        self.tasks = tomllib.loads((ROOT / "zcheck.toml").read_text())["tasks"]
+
+    def errors(self, tasks):
+        errors = []
+        POLICY.check_history_performance(errors, tasks)
+        return errors
+
+    def test_current_timing_guard_is_preserved(self):
+        self.assertEqual(self.errors(self.tasks), [])
+
+    def test_missing_performance_guard_is_rejected(self):
+        del self.tasks["perf-cancellation-history"]
+        self.assertTrue(self.errors(self.tasks))
+
+    def test_unexecuted_or_unoptimized_timing_guard_is_rejected(self):
+        for argument in ("--release", "--ignored", "--exact"):
+            tasks = copy.deepcopy(self.tasks)
+            tasks["perf-cancellation-history"]["run"].remove(argument)
+            self.assertTrue(self.errors(tasks))
+
+
 if __name__ == "__main__":
     unittest.main()

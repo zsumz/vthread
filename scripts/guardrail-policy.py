@@ -112,6 +112,16 @@ def check_blocking_boundaries(errors: list[str]) -> None:
                 )
 
 
+def check_history_performance(errors: list[str], tasks: dict) -> None:
+    expected = [
+        "cargo", "test", "--locked", "-p", "vthread", "--release",
+        "cancellation::cancellation_history_test::sequential_dynamic_history_retains_its_performance_guard",
+        "--", "--ignored", "--exact", "--nocapture",
+    ]
+    if tasks.get("perf-cancellation-history", {}).get("run") != expected:
+        errors.append("perf-cancellation-history must retain its explicit optimized timing guard")
+
+
 def main() -> int:
     errors: list[str] = []
     check_line_limits(errors)
@@ -120,6 +130,7 @@ def main() -> int:
     check_core_dependencies(errors)
     config = tomllib.loads((ROOT / "zcheck.toml").read_text(encoding="utf-8"))
     check_native_qualification(errors, config["tasks"])
+    check_history_performance(errors, config["tasks"])
     check_blocking_boundaries(errors)
 
     if errors:
