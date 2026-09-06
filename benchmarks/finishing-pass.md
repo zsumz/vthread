@@ -105,13 +105,23 @@ and rejected at its first protected workload. Zero probes and the one fixed
 32-probe follow-up both lose tight-capacity lifecycle throughput/CPU substantially.
 All source and raw attempts are preserved, and the qualified runtime is restored.
 Capacity-independent maintenance and correct local/deferred snapshot depth remain
-open; incremental readiness is the next independent implementation slice.
+open.
 
 Readiness admission reserves eventual-removal capacity. Drop cannot block on
 command space or lose deletion; cancelled in-flight installations must be deleted.
 Keep descriptor ownership, subscription/token identity, level triggering, errors
 and bounded shutdown. Qualify thousands of mostly idle registrations, a small
 active subset, cancellation/install/event/removal races and continuous churn.
+
+The [bounded incremental readiness experiment](readiness-incremental-review.md)
+passes its ordered negative controls, production-state model, 920 repeated native
+test executions and all fourteen canonical gates. At 4,096 idle registrations,
+the longer control records about 82% fewer process cycles and 86% less exchange
+time. Its protected CPU/cycle/tail panel does not establish non-regression, so
+promotion is held on `perf/readiness-incremental`. The production perf branch
+keeps the retained readiness implementation. All 192 completed counter processes
+and the complete candidate are archived. No polling/layout rescue follows this
+mixed result; default-build channel attribution is the next independent slice.
 
 Channel screening is single-carrier forced handoff, four carriers/eight tasks,
 four/64, then endpoint tails/burst CPU and full qualification. Preserve immediate
