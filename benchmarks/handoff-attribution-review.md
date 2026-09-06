@@ -166,8 +166,10 @@ the native workspace/stack/protocol suites, 52 standalone benchmark tests, stric
 benchmark Clippy and three burst-control/report tests. Two optimized feature-on
 mixed-traffic soaks complete 266,823 task lifetimes across one/four carriers with
 exact completion and park/wake accounting. These short soaks are not release
-burn-in. All-features alone selects the compatibility engine and is not native-
-stack proof. No new atomic protocol or unsafe boundary is introduced. This is
+burn-in. Correction after the `0b67337` source audit: both default and all-features
+use the native `vthread-stack` engine; no corosensei backend remains. All-features
+enables diagnostics/evidence and does not replace default-feature debug/release
+runtime qualification. No new atomic protocol or unsafe boundary is introduced. This is
 not full ARM64, sanitizer, loaded-tail or release proof.
 
 The next small optimization should target **useful channel notification and a
