@@ -3,10 +3,12 @@
 These archives preserve raw experiment and qualification output with the source
 patches, manifests and binary hashes used to produce it. See the linked review for
 commands, ordering, limitations and retention decisions. This is not a complete
-release qualification or an archive of executed binaries.
+release qualification. Some bundles also include executed benchmark binaries;
+others preserve binary identities only, as specified in their reviews.
 
 | Bundle | Review | SHA-256 |
 | --- | --- | --- |
+| `channel-retry-349bc73a.tar.gz` | [Eligible channel recovery fails the intermediate-capacity screen](../channel-retry-review.md) | `bc8f2c4d583fc76678937bbf779f9aa74c8b35814615ccbe4ce75bee248ba041` |
 | `readiness-counterfree-68051406.tar.gz` | [Existing readiness candidate remains held counter-free](../readiness-counterfree-review.md) | `54a0ecf17c98173aeea712f63cf4f830724f077f1fe70137e38d4d1d61e2ac19` |
 | `scan-counterfree-628c9522.tar.gz` | [Scan-only B fails the counter-free early screen](../scan-counterfree-review.md) | `4abcbb9de138beb481ef8a982dd7b11ffa8adc98962b983d04a19c2fbd7f0c93` |
 | `mutex-final-guard-f0ce5246.tar.gz` | [Final guarded checkpoint; zero benchmark invocations](../finishing-pass.md) | `f8a8e01b7b41ade65e1021fe5a1b38b511a3e80672f9eafd6a00a51ba8059a99` |
@@ -43,6 +45,16 @@ release qualification or an archive of executed binaries.
 | `adaptive-idle-af71b577.tar.gz` | [Adaptive polling screen](../adaptive-idle-review.md) | `139a5e4cfc729a32ed0ce65e787238dd280f69872d40d786aaa9856357ef9f7b` |
 | `handoff-attribution-f57b1db1.tar.gz` | [Useful handoff, polling and capacity attribution](../handoff-attribution-review.md) | `d816a803b2ef6d29556801f7e3ce1978cf63596d9029a3860a6bd1197dad3431` |
 | `channel-publication-56f61f86.tar.gz` | [Rejected channel reservation/publication prototypes](../channel-publication-review.md) | `888f1481a6d90424877022aaaf0b1fc77b70ab78e10f637c3e892b6166e043dc` |
+
+The channel-retry bundle preserves the existing eligible-grant candidate rebased
+onto the current progress repair, seven exact source snapshots, both default and
+both clocked diagnostic binaries, ordered negatives, native/model tests, all 264
+planned performance processes and twelve clocked diagnostics. Local suspensions
+fall from roughly three to two per value, and counter collection reverses some
+effects. Nevertheless, the bare capacity-1,024/default-placement cell crosses the
+declared stop. The optional candidate is rejected; conditional unaffected, burst
+and confirmation panels remain unrun. Restored source passes all fourteen
+canonical gates with repository state preserved. No new May or release claim.
 
 The offered-load bundle preserves the bounded application harness, schedule,
 busy-client and tail-verifier mutations, missing-matrix control, nineteen evidence

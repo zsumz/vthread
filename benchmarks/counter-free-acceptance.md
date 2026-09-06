@@ -112,3 +112,14 @@ recoverable; retained source `d38dcb86` is unchanged. Attribute dequeue/batch an
 recipient scheduling costs before another candidate. Channel retry elimination
 remains the next independent synchronization target; earlier capacity/readiness
 decisions and the release gaps are not overturned.
+
+## Eligible-channel recovery checkpoint
+
+The [channel retry review](channel-retry-review.md) reproduces the existing
+eligible-grant implementation, with no new layout or polling policy. Diagnostics
+demonstrate three-to-two local suspensions per value and no rearm clone. Its 264
+completed performance processes expose a genuine collection-mode reversal and
+substantial gains, but the bare capacity-1,024/default-placement cell crosses
+the predeclared stop. The candidate is preserved, not promoted. Conditional
+unaffected/burst/confirmation panels remain unrun. Restored source is unchanged;
+production mutex stage attribution is the next independent target.

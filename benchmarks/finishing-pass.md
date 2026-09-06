@@ -67,8 +67,12 @@ favors May about 5.1x. No failed park run is silently replaced or credited as a 
 Without counters, spare capacity still costs roughly 12x shared-channel / 17x park
 in the small-live-task controls. No capacity/polling/readiness candidate is promoted.
 
-No push or hosted workflow was initiated in this finishing pass. Real ARM64
-evidence still requires execution on that platform; merely having its workflow
+The requested push now includes `028d40a` on `perf/scheduler-hot-path`. No hosted
+architecture execution receipt was collected here. The subsequent
+[eligible-channel recovery](channel-retry-review.md)
+removes the diagnostic retry and improves many cases, but fails a protected
+counter-free capacity cell and is not promoted. Production source is unchanged.
+Real ARM64 evidence still requires execution on that platform; merely having its workflow
 in the checkout is insufficient. Sanitizer flags alone are not qualified native
 fiber support. None of these release obligations is waived by local green tests.
 
