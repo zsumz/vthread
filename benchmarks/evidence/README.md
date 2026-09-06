@@ -7,6 +7,7 @@ release qualification or an archive of executed binaries.
 
 | Bundle | Review | SHA-256 |
 | --- | --- | --- |
+| `readiness-counterfree-68051406.tar.gz` | [Existing readiness candidate remains held counter-free](../readiness-counterfree-review.md) | `54a0ecf17c98173aeea712f63cf4f830724f077f1fe70137e38d4d1d61e2ac19` |
 | `scan-counterfree-628c9522.tar.gz` | [Scan-only B fails the counter-free early screen](../scan-counterfree-review.md) | `4abcbb9de138beb481ef8a982dd7b11ffa8adc98962b983d04a19c2fbd7f0c93` |
 | `mutex-final-guard-f0ce5246.tar.gz` | [Final guarded checkpoint; zero benchmark invocations](../finishing-pass.md) | `f8a8e01b7b41ade65e1021fe5a1b38b511a3e80672f9eafd6a00a51ba8059a99` |
 | `offered-load-e344a60e.tar.gz` | [Bounded fixed offered-load application control](../offered-load-review.md) | `7d6165cae50a9474fc159db946da7e2276f9c0d0bc3f7addb9d5209a9d67186a` |
