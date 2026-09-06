@@ -2,30 +2,30 @@
 schema = 3
 semantics = 4
 producer = "0.0.3-rc.5"
-contract_sha256 = "18155fa51ccfcf4fd6d5d778094467c36614eb655e164ff51e8dff0e03bbd023"
+contract_sha256 = "8603e24df9addfcc603707c15027481b9ad5e11ada455e48eba1fb9de67b5e66"
 ratchet = []
 
 [analysis]
-inventory_sha256 = "edd18b574923eb38651eee02f18ccd004990250aa1336a93152ea5d607addc84"
+inventory_sha256 = "e8c39af0bd2899db8b9392100702e8477ac18ec61a91947f72110ff50ea7d9e4"
 exclusions_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 cargo_lock_sha256 = "a8c1e9f4fd6dea86e22ca421b48aa8a9b3473d0518c590a2ec4bffd365dc833a"
-cargo_features_sha256 = "ad4877d19bb526ed01763ad9f758ff432a8729a93bd9e05d0b5b8bca3147a224"
-feature_worlds_sha256 = "1cdd297148e1a2566133f3ef9119a51d0bad60e80938f85fe437581cfbf2a263"
+cargo_features_sha256 = "3e43f336e44215719c080510ba8ce053576e4fa44eab81b200117ebcbf4d3d64"
+feature_worlds_sha256 = "6edfb4a1172e614d373d2aba49cdfa4e544769ce212a82805cc63e4e3b99d116"
 feature_worlds = 5
 packages = 5
-targets = 9
-physical_rust_files = 409
-base_source_contexts = 2879
+targets = 10
+physical_rust_files = 417
+base_source_contexts = 2939
 derived_source_contexts = 0
-source_facts = 136543
-projection_queries = 3980400
+source_facts = 138448
+projection_queries = 4026983
 projected_facts = 29
 unresolved_bindings = 0
 analyzer_semantics = 4
 
 [[analysis.contract_source]]
 path = "zrail.toml"
-sha256 = "d6825df1123af11bee67cc07125e2c9f28095c59d709ea67f0c4b9cd4ac0650c"
+sha256 = "8a438fdc58291d8ccec42ed2150415e26c861497db3d3fc15a0dc5716c4c6a06"
 
 [[package]]
 name = "vthread"

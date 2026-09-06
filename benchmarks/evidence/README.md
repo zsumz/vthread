@@ -7,6 +7,7 @@ release qualification or an archive of executed binaries.
 
 | Bundle | Review | SHA-256 |
 | --- | --- | --- |
+| `mutex-mechanism-f0ce5246.tar.gz` | [Qualified mutex controls, formal panel pending](../mutex-mechanism-review.md) | `09a0228a1e9f4d6641f49b07f1ccfc78437d16599a39890fdfdeaab4999ca6db` |
 | `publication-observer-266e8624.tar.gz` | [Test-only publication observer ordering](../publication-observer-review.md) | `b411fd245b7f5e438da2d2d533570656f700b3ef007a9b39a21efb21f98f220a` |
 | `channel-attribution-56f61f86.tar.gz` | [Channel rearming and publication attribution](../channel-attribution-review.md) | `1159959bd818adf21ee07aefa0eb954a16b8b8053326542443984beb8de3e38c` |
 | `readiness-incremental-01b33038.tar.gz` | [Bounded incremental readiness, promotion held](../readiness-incremental-review.md) | `aa4241bdf0dba95cae5ac59b5f13dafd882c984c90d0d3bc476bc36d15d7df6c` |

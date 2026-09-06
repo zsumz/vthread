@@ -138,7 +138,7 @@ features = ["scheduler-profiling"]
 
 [[source.rust.feature_worlds]]
 name = "handoff-profiling"
-reason = "The opt-in handoff clock and owner-counter build qualifies useful channel work, publication spans and idle/native wait attribution."
+reason = "The opt-in handoff clock and owner-counter build qualifies useful channel work, publication spans, idle/native wait attribution and the controlled mutex lab."
 
 [[source.rust.feature_worlds.packages]]
 package = "vthread"
@@ -148,7 +148,7 @@ features = ["handoff-profiling"]
 [[source.rust.feature_worlds.packages]]
 package = "vthread-lab"
 default_features = true
-features = []
+features = ["handoff-profiling"]
 
 [[source.rust.feature_worlds.packages]]
 package = "vthread-stack"
