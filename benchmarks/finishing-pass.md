@@ -100,6 +100,13 @@ They do not replace the scan with an unproven shared per-wake counter. If skippi
 admission-only probes loses, one small fixed budget may be screened; no broad
 adaptive search or restored scan as artificial pacing.
 
+The [four-arm admission-only experiment](capacity-admission-review.md) is complete
+and rejected at its first protected workload. Zero probes and the one fixed
+32-probe follow-up both lose tight-capacity lifecycle throughput/CPU substantially.
+All source and raw attempts are preserved, and the qualified runtime is restored.
+Capacity-independent maintenance and correct local/deferred snapshot depth remain
+open; incremental readiness is the next independent implementation slice.
+
 Readiness admission reserves eventual-removal capacity. Drop cannot block on
 command space or lose deletion; cancelled in-flight installations must be deleted.
 Keep descriptor ownership, subscription/token identity, level triggering, errors
