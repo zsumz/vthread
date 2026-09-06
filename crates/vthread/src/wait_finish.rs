@@ -184,12 +184,6 @@ impl WaitCell {
         crate::context::unregister_local_wake(&hub, token);
         hub.discard_notice(token);
     }
-
-    pub(crate) fn abandon(&self, token: ParkToken) {
-        if let Some(hub) = self.state.retire(token) {
-            hub.discard_notice(token);
-        }
-    }
 }
 
 fn resumed_generation_fault() -> Error {

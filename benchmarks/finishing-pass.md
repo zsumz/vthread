@@ -80,7 +80,14 @@ The remaining 17 planned processes did not run; they are not silently inferred.
 The first publication slice is a [test-only composed model](publication-deferral-review.md),
 not a runtime repair. It imports the real wait word and passes thirteen targeted
 tests, with negative controls and explicit transport/SC/cleanup limits. Native
-deferral and lifetime-safe cleanup remain the next implementation work.
+deferral and lifetime-safe cleanup are now an
+[integrated progress candidate](publication-progress-review.md), with ordered
+native regressions and shared-production-source models. The candidate passes all
+fourteen canonical gates, 1,140 repeated ordered test executions and 778,182 mixed
+task lifetimes. Its 104-process default cost screen records a repeatable park
+penalty (about 12% local / 16% four-carrier cycles), not a performance improvement.
+The necessary progress repair is retained with that explicit tradeoff; release
+qualification remains incomplete.
 
 Publisher deferral must let unrelated ready work run while publication is held;
 it need not complete the paused task or its scope. Moving `publish_claim` earlier,

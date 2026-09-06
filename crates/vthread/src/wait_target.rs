@@ -69,15 +69,6 @@ impl WaitInner {
         self.state.store(word.raw(), Ordering::Release);
     }
 
-    #[inline]
-    pub(super) fn publish_claim(&self, claimed: WaitWord) {
-        // Claims are write-exclusive: selectors reject them, while close and
-        // permit mutation wait for the selected phase.
-        #[cfg(debug_assertions)]
-        assert!(self.load() == claimed);
-        self.store(claimed.publish_claim());
-    }
-
     pub(super) fn bind_target(&self, task: TaskId, route: TaskKey, hub: &Arc<WaitHub>) -> bool {
         self.task.store(task.get(), Ordering::Relaxed);
         self.route.store(route.encoded(), Ordering::Relaxed);

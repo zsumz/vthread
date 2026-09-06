@@ -2,7 +2,7 @@
 //!
 //! `WaitWord`, resource decisions and claim/retirement encoding are the production
 //! source. The adapter below preserves MutexQueue's lock boundary, WaitInner's
-//! AcqRel/Acquire CAS and Release publication, and OwnershipSlot's Release/Acquire
+//! AcqRel/Acquire CAS publication, and OwnershipSlot's Release/Acquire
 //! transfer. The queue has one bounded entry; routed wakes are counted, not scheduled.
 //! Native tests separately exercise the real queue, checkpoints, routing and unwind.
 
@@ -86,8 +86,7 @@ impl Handoff {
     fn publish(&self, claimed: WaitWord) {
         assert_eq!(self.load(), claimed, "claim lost write exclusivity");
         self.wakes.fetch_add(1, Ordering::Relaxed);
-        self.word
-            .store(claimed.publish_claim().raw(), Ordering::Release);
+        assert!(self.replace(claimed, claimed.publish_claim()));
     }
 
     fn reserve_resource(&self) -> Option<Option<WaitWord>> {

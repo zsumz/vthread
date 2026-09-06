@@ -50,84 +50,42 @@ impl Signal {
 }
 
 pub(super) struct Route {
-    // One route is sufficient for completion/registration/sleep ordering. Queue
-    // occupancy and notice generation share a modeled word, not a new runtime
-    // mailbox. Multi-route payload/list races are explicitly outside this model.
-    queued: AtomicU64,
+    pub(super) queue: super::wake_queue_core::WakeQueue,
     pub(super) signal: Signal,
 }
 
 impl Route {
-    const SLEEPING: u64 = 1 << 63;
-
     pub(super) fn new() -> Self {
         Self {
-            queued: AtomicU64::new(0),
+            queue: super::wake_queue_core::WakeQueue::new(2),
             signal: Signal::new(),
         }
     }
 
-    pub(super) fn push(&self, generation: u64) {
-        let mut before = self.queued.load(Ordering::Acquire);
-        loop {
-            assert_eq!(
-                before & !Self::SLEEPING,
-                0,
-                "one outstanding notice per route"
-            );
-            match self.queued.compare_exchange(
-                before,
-                generation,
-                Ordering::Release,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => {
-                    if before & Self::SLEEPING != 0 {
-                        self.signal.notify_if_waiting();
-                    }
-                    return;
-                }
-                Err(word) => before = word,
-            }
+    pub(super) fn publication_complete(&self) {
+        self.signal.notify();
+    }
+
+    pub(super) fn push(&self, notice: super::WakeNotice) {
+        if self.queue.push(notice, || {}).unwrap() {
+            self.signal.notify_if_waiting();
         }
     }
 
     pub(super) fn pop(&self) -> Option<u64> {
-        let generation = self.queued.swap(0, Ordering::Acquire) & !Self::SLEEPING;
-        (generation != 0).then_some(generation)
-    }
-
-    fn arm(&self) -> bool {
-        let mut before = self.queued.load(Ordering::Acquire);
-        loop {
-            if before & !Self::SLEEPING != 0 {
-                return true;
-            }
-            if before == Self::SLEEPING {
-                return false;
-            }
-            match self.queued.compare_exchange(
-                before,
-                Self::SLEEPING,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => return false,
-                Err(word) => before = word,
-            }
-        }
+        self.queue.pop().map(|notice| notice.token.generation())
     }
 
     pub(super) fn wait(&self, observed: u64) {
         let mut gate = self.signal.gate.lock().unwrap();
         self.signal.waiters.fetch_add(1, Ordering::SeqCst);
         loom::sync::atomic::fence(Ordering::SeqCst);
-        while self.signal.epoch.load(Ordering::SeqCst) == observed && !self.arm() {
+        while self.signal.epoch.load(Ordering::SeqCst) == observed && !self.queue.arm_wait() {
             gate = self.signal.changed.wait(gate).unwrap();
         }
         self.signal.waiters.fetch_sub(1, Ordering::SeqCst);
         drop(gate);
-        self.queued.fetch_and(!Self::SLEEPING, Ordering::Release);
+        self.queue.disarm_wait();
     }
 }
 

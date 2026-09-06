@@ -6,6 +6,10 @@ mod wait_begin;
 mod wait_evidence;
 #[path = "wait_finish.rs"]
 mod wait_finish;
+#[path = "wait_owner.rs"]
+mod wait_owner;
+#[path = "wait_owner_protocol.rs"]
+mod wait_owner_protocol;
 #[path = "wait_resource.rs"]
 mod wait_resource;
 #[path = "wait_select.rs"]
@@ -22,9 +26,11 @@ use vthread_stack::{ParkRequest, ParkToken};
 pub(crate) use crate::wait_hub::WaitHub;
 use crate::{TaskId, task_slab::TaskKey};
 use wait_evidence::SelectionRejection;
+pub(crate) use wait_owner_protocol::Publication;
 pub(crate) use wait_select::{NotifyResult, ResourceSelection};
-use wait_state::Phase;
+use wait_state::{Phase, WaitWord};
 pub(crate) use wait_target::WaitInner;
+type HubHandle = Arc<WaitHub>;
 
 static NEXT_WAIT_ID: AtomicU64 = AtomicU64::new(1);
 

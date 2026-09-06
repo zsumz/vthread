@@ -1,5 +1,7 @@
 //! Carrier-owned stacks, queues, and reclamation. This type is never Send.
 
+#[path = "kernel_abort.rs"]
+mod kernel_abort;
 #[path = "kernel_cleanup.rs"]
 mod kernel_cleanup;
 #[path = "kernel_complete.rs"]
@@ -16,6 +18,8 @@ mod kernel_revoked;
 mod kernel_task;
 #[path = "kernel_timer.rs"]
 mod kernel_timer;
+#[path = "kernel_wake.rs"]
+mod kernel_wake;
 #[path = "parked_tasks.rs"]
 mod parked_tasks;
 
@@ -44,6 +48,8 @@ pub(crate) struct Kernel {
     pub(super) tasks: KernelTasks,
     pub(super) ready: ReadyQueue,
     parked: ParkedTasks,
+    deferred_wakes: Vec<crate::wait::WakeNotice>,
+    pending_aborts: Vec<(Option<u64>, crate::TaskFailure)>,
     pub(super) in_flight: Option<TaskKey>,
     pub(super) pending: Option<SpawnPacket>,
     pub(super) incoming: VecDeque<SpawnPacket>,
@@ -74,6 +80,8 @@ impl Kernel {
             tasks: KernelTasks::new(),
             ready: ReadyQueue::new(),
             parked: ParkedTasks::new(),
+            deferred_wakes: Vec::new(),
+            pending_aborts: Vec::new(),
             in_flight: None,
             pending: None,
             incoming: VecDeque::new(),
@@ -108,7 +116,11 @@ impl Kernel {
     }
 
     pub(super) fn select_ready(&mut self) {
-        self.in_flight = self.ready.pop_front();
+        self.in_flight = if self.pending_aborts.is_empty() {
+            self.ready.pop_front()
+        } else {
+            self.select_unblocked()
+        };
         crate::context::set_carrier_runnable(
             !self.ready.is_empty()
                 || self.remote_pending
@@ -196,6 +208,8 @@ impl Kernel {
             && self.ready.is_empty()
             && self.parked.is_empty()
             && self.tasks.is_empty()
+            && self.deferred_wakes.is_empty()
+            && self.pending_aborts.is_empty()
             && self.completions.is_empty()
             && self.shared.carrier_progress[self.id.0].mounted().is_none()
             && self.local.pending_starts() == 0
@@ -218,7 +232,9 @@ impl Kernel {
             parked: self.parked.len(),
             timers: self.timers.active_count(),
             pending_starts: self.inbox.pending(),
-            pending_wakes: self.local.pending_wakes() + self.inbox.hub.pending(),
+            pending_wakes: self.local.pending_wakes()
+                + self.inbox.hub.pending()
+                + self.deferred_wakes.len(),
             stats,
             stacks: StackSnapshot::from(self.local.stacks.borrow().snapshot()),
             #[cfg(feature = "scheduler-profiling")]

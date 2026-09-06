@@ -20,6 +20,9 @@ pub(crate) enum Stage {
     FinishWaiting,
     FinishSpinning,
     RetireWaiting,
+    OwnerDeferred,
+    ClaimPublished,
+    RetirementDeferred,
 }
 
 #[derive(Debug)]
@@ -31,6 +34,7 @@ pub(crate) struct Observation {
 }
 
 pub(crate) struct Probe {
+    pause_on: Stage,
     seen: AtomicU8,
     finish_visits: AtomicUsize,
     started: Instant,
@@ -47,12 +51,17 @@ pub(crate) struct PausedPublication {
 
 impl PausedPublication {
     pub(crate) fn install(cell: &WaitCell) -> Self {
+        Self::install_at(cell, Stage::NoticePublished)
+    }
+
+    pub(crate) fn install_at(cell: &WaitCell, pause_on: Stage) -> Self {
         let (events_tx, events_rx) = mpsc::channel();
         let (resume_tx, resume_rx) = mpsc::channel();
         assert!(
             cell.state
                 .publication_probe
                 .set(Probe {
+                    pause_on,
                     seen: AtomicU8::new(0),
                     finish_visits: AtomicUsize::new(0),
                     started: Instant::now(),
@@ -69,12 +78,17 @@ impl PausedPublication {
     }
 
     pub(crate) fn observe(&self, expected: Stage) -> Observation {
+        let event = self.next_observation();
+        assert_eq!(event.stage, expected);
+        event
+    }
+
+    pub(crate) fn next_observation(&self) -> Observation {
         let event = self
             .events
             .recv_timeout(Duration::from_secs(5))
             .expect("publication stage not reached");
         writeln!(std::io::stdout().lock(), "publication probe: {event:?}").unwrap();
-        assert_eq!(event.stage, expected);
         event
     }
 
@@ -82,6 +96,12 @@ impl PausedPublication {
         if let Some(resume) = self.resume.take() {
             let _ = resume.send(());
         }
+    }
+}
+
+impl WaitCell {
+    pub(crate) fn publication_is_held(&self) -> bool {
+        self.state.load().is_claimed()
     }
 }
 
@@ -115,7 +135,7 @@ impl WaitInner {
             thread: std::thread::current().id(),
             elapsed: probe.started.elapsed(),
         });
-        if stage == Stage::NoticePublished {
+        if stage == probe.pause_on {
             // Disconnection also releases the pause. Never panic in the claimed
             // interval or let a failed test strand the production state machine.
             let _ = crate::signal::lock(&probe.resume).recv();

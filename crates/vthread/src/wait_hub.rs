@@ -115,6 +115,12 @@ impl WaitHub {
         self.ready.has_pending()
     }
 
+    pub(crate) fn publication_complete(&self) {
+        // A notice may already be owner-deferred, so queue occupancy alone is
+        // insufficient. The epoch handshake covers active and sleeping owners.
+        self.signal.notify();
+    }
+
     pub(crate) fn wait(&self, observed: u64, deadline: Option<std::time::Instant>) {
         self.signal
             .wait_while(observed, deadline, || self.ready.arm_wait());

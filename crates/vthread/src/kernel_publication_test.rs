@@ -1,8 +1,7 @@
-//! Characterization, not a progress guarantee: a visible claim currently occupies
-//! the recipient carrier. No elapsed-time assertion substitutes for that evidence.
+//! Unrelated work must progress while publication remains held. The observer
+//! releases a broken spinning implementation only to let its assertion fail safely.
 
 use std::{
-    io::Write,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -19,7 +18,7 @@ use crate::{
     wait::wait_publication_probe_test::{PausedPublication, Stage},
 };
 
-fn shared() -> Arc<Shared> {
+pub(super) fn shared() -> Arc<Shared> {
     let config = Runtime::builder()
         .max_vthreads(4)
         .carrier_queue_capacity(4)
@@ -30,7 +29,7 @@ fn shared() -> Arc<Shared> {
     Arc::new(Shared::new(config))
 }
 
-fn unrelated(shared: &Arc<Shared>, scope: u64) -> Arc<AtomicUsize> {
+pub(super) fn unrelated(shared: &Arc<Shared>, scope: u64) -> Arc<AtomicUsize> {
     let progress = Arc::new(AtomicUsize::new(0));
     let ran = Arc::clone(&progress);
     shared
@@ -45,30 +44,32 @@ fn unrelated(shared: &Arc<Shared>, scope: u64) -> Arc<AtomicUsize> {
     progress
 }
 
-fn observe_dependency(mut pause: PausedPublication, progress: &AtomicUsize) -> thread::ThreadId {
-    let first = pause.observe(Stage::FinishWaiting);
-    let repeated = pause.observe(Stage::FinishSpinning);
-    assert_eq!(first.token, repeated.token);
-    assert_eq!(first.thread, repeated.thread);
-    let ran = progress.load(Ordering::Relaxed);
-    writeln!(
-        std::io::stdout().lock(),
-        "recipient dependency: token={:?}, owner={:?}, finish_visits=1024, \
-         unrelated_progress={ran}/2, observed_spin_interval={:?}",
-        first.token,
-        first.thread,
-        repeated.elapsed - first.elapsed,
-    )
-    .unwrap();
-    // The unrelated task had already yielded back into the ready queue. This is
-    // ordered by observed production finish iterations, not an OS sleep duration.
-    assert_eq!(ran, 1, "characterized publication dependency changed");
+pub(super) fn observe_progress(
+    mut pause: PausedPublication,
+    owner_returned: mpsc::Receiver<()>,
+) -> thread::ThreadId {
+    let first = pause.next_observation();
+    match first.stage {
+        Stage::OwnerDeferred => {
+            // The owner sends only after checking progress and retained state.
+            // Disconnection releases a publisher if an assertion unwinds.
+            let _ = owner_returned.recv_timeout(Duration::from_secs(5));
+        }
+        Stage::FinishWaiting => {
+            let repeated = pause.observe(Stage::FinishSpinning);
+            assert_eq!(first.token, repeated.token);
+            assert_eq!(first.thread, repeated.thread);
+            assert!(repeated.elapsed >= first.elapsed);
+        }
+        Stage::RetireWaiting => {}
+        stage => panic!("unexpected owner publication stage: {stage:?}"),
+    }
     pause.release();
     first.thread
 }
 
 #[test]
-fn a_paused_ready_publisher_occupies_the_recipient_carrier() {
+fn a_paused_ready_publisher_does_not_occupy_the_recipient_carrier() {
     let shared = shared();
     let scope = shared.begin_scope().unwrap();
     let (parker, waker) = crate::park_pair();
@@ -94,11 +95,18 @@ fn a_paused_ready_publisher_occupies_the_recipient_carrier() {
         let published = pause.observe(Stage::NoticePublished);
         assert_ne!(published.thread, thread::current().id());
         assert_eq!(kernel.inbox.hub.pending(), 1);
-        let observer = threads.spawn(|| observe_dependency(pause, &progress));
+        let (returned, resumed) = mpsc::channel();
+        let observer = threads.spawn(move || observe_progress(pause, resumed));
         assert!(kernel.tick(false).unwrap());
+        assert_eq!(progress.load(Ordering::Relaxed), 2);
+        assert!(cell.publication_is_held());
+        assert_eq!(kernel.stats.wakes, 0);
+        assert_eq!(kernel.parked.len(), 1);
+        returned.send(()).unwrap();
         assert_eq!(observer.join().unwrap(), thread::current().id());
         assert_eq!(publisher.join().unwrap(), crate::UnparkResult::Woke);
     });
+    assert!(kernel.tick(true).unwrap());
     while kernel.tick(false).unwrap() {}
     assert_eq!(progress.load(Ordering::Relaxed), 2);
     assert_eq!(kernel.stats.wakes, 1);
@@ -160,11 +168,17 @@ fn a_paused_mutex_publisher_preserves_ownership_even_with_selected_cancellation(
             if cancelled {
                 child.cancel();
             }
-            let observed = Arc::clone(&progress);
-            let observer = threads.spawn(move || observe_dependency(pause, &observed));
+            let (returned, resumed) = mpsc::channel();
+            let observer = threads.spawn(move || observe_progress(pause, resumed));
             assert!(kernel.tick(false).unwrap());
+            assert_eq!(progress.load(Ordering::Relaxed), 2);
+            assert!(cell.publication_is_held());
+            assert_eq!(mutex.waiting(), 1);
+            assert!(matches!(mutex.try_lock(), Err(Error::WouldBlock)));
+            returned.send(()).unwrap();
             assert_eq!(observer.join().unwrap(), thread::current().id());
             publisher.join().unwrap();
+            assert!(kernel.tick(true).unwrap());
             while kernel.tick(false).unwrap() {}
             let result = child.take_result().unwrap();
             if cancelled {

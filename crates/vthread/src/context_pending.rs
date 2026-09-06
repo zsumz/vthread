@@ -55,10 +55,16 @@ impl Execution {
         self.synchronization_wait_for(token)?.select_timeout(token)
     }
 
-    pub(crate) fn abandon_synchronization_wait(&self, token: ParkToken) {
+    pub(crate) fn synchronization_publication(&self, token: ParkToken) -> crate::wait::Publication {
         self.synchronization_wait_for(token)
             .expect("parked synchronization wait identity")
-            .abandon(token);
+            .publication(token)
+    }
+
+    pub(crate) fn try_abandon_synchronization_wait(&self, token: ParkToken) -> bool {
+        self.synchronization_wait_for(token)
+            .expect("parked synchronization wait identity")
+            .try_abandon(token)
     }
 
     fn synchronization_wait_for(&self, token: ParkToken) -> Result<&crate::wait::WaitCell> {
