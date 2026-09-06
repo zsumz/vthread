@@ -1,0 +1,58 @@
+"""Negative controls for mandatory default-engine qualification."""
+
+import copy
+import importlib.util
+from pathlib import Path
+import tomllib
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+SPEC = importlib.util.spec_from_file_location("guardrail_policy", ROOT / "scripts/guardrail-policy.py")
+POLICY = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(POLICY)
+
+
+class NativeQualificationTests(unittest.TestCase):
+    def setUp(self):
+        self.tasks = tomllib.loads((ROOT / "zcheck.toml").read_text())["tasks"]
+
+    def errors(self, tasks):
+        errors = []
+        POLICY.check_native_qualification(errors, tasks)
+        return errors
+
+    def test_current_matrix_is_required(self):
+        self.assertEqual(self.errors(self.tasks), [])
+
+    def test_missing_native_gate_is_rejected(self):
+        for name in ("test-native", "test-native-release"):
+            with self.subTest(name=name):
+                tasks = copy.deepcopy(self.tasks)
+                del tasks[name]
+                self.assertTrue(self.errors(tasks))
+
+    def test_diagnostic_features_cannot_replace_default_tests(self):
+        for name in ("test-native", "test-native-release"):
+            with self.subTest(name=name):
+                tasks = copy.deepcopy(self.tasks)
+                tasks[name]["run"].append("--all-features")
+                self.assertTrue(self.errors(tasks))
+
+    def test_release_profile_cannot_be_omitted(self):
+        self.tasks["test-native-release"]["run"].remove("--release")
+        self.assertTrue(self.errors(self.tasks))
+
+    def test_optional_or_unordered_tests_do_not_qualify(self):
+        for task, required in (
+            ("check", "test-native-release"),
+            ("test-native-release", "test-native"),
+            ("test-native", "test"),
+        ):
+            with self.subTest(task=task):
+                tasks = copy.deepcopy(self.tasks)
+                tasks[task]["needs"].remove(required)
+                self.assertTrue(self.errors(tasks))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -72,11 +72,31 @@ def check_core_dependencies(errors: list[str]) -> None:
     manifest = ROOT / "crates" / "vthread" / "Cargo.toml"
     parsed = tomllib.loads(manifest.read_text(encoding="utf-8"))
     dependencies = set(parsed.get("dependencies", {}))
+    if "vthread-stack" not in dependencies:
+        errors.append("vthread must retain the native vthread-stack dependency")
+    if parsed.get("features", {}).get("default") != []:
+        errors.append("default vthread qualification requires uninstrumented features")
     unexpected = sorted(dependencies - PUBLIC_DEPENDENCIES)
     if unexpected:
         errors.append(
             f"{relative(manifest)} contains unreviewed core dependencies: {', '.join(unexpected)}"
         )
+
+
+def check_native_qualification(errors: list[str], tasks: dict) -> None:
+    command = ["cargo", "test", "--locked", "--workspace", "--all-targets"]
+    for name, expected in (
+        ("test-native", command),
+        ("test-native-release", [*command, "--release"]),
+    ):
+        if tasks.get(name, {}).get("run") != expected:
+            errors.append(f"{name} must run the exact default-feature workspace test command")
+    if "test-native-release" not in tasks.get("check", {}).get("needs", []):
+        errors.append("check must require test-native-release")
+    if "test-native" not in tasks.get("test-native-release", {}).get("needs", []):
+        errors.append("test-native-release must require test-native")
+    if "test" not in tasks.get("test-native", {}).get("needs", []):
+        errors.append("test-native must follow all-feature tests, not overlap their execution")
 
 
 def check_blocking_boundaries(errors: list[str]) -> None:
@@ -98,6 +118,8 @@ def main() -> int:
     check_sibling_tests(errors)
     check_unsafe_boundary(errors)
     check_core_dependencies(errors)
+    config = tomllib.loads((ROOT / "zcheck.toml").read_text(encoding="utf-8"))
+    check_native_qualification(errors, config["tasks"])
     check_blocking_boundaries(errors)
 
     if errors:
@@ -107,6 +129,8 @@ def main() -> int:
         return 1
 
     print("vthread guardrail policy passed")
+    print("qualification engine=vthread-stack configuration=default profiles=debug,release")
+    print("qualification engine=vthread-stack configuration=all-features profile=debug")
     return 0
 
 

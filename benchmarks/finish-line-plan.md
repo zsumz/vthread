@@ -1,5 +1,8 @@
 # Finish-line review plan
 
+The [finishing pass after `0b67337`](finishing-pass.md) is the active work order.
+This document retains the earlier slice history and its evidence boundaries.
+
 Starting checkpoint: `6853fb8` on `perf/scheduler-hot-path`. The user's follow-up
 review changes the order of work: correctness and bounded progress precede further
 handoff tuning. The pasted review is available in the session; its linked ZIP and

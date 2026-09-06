@@ -1,5 +1,10 @@
 # Core vthread performance status: 2026-09-06
 
+The subsequent [finishing pass](finishing-pass.md) supersedes this report's
+channel-first next-step order: required default debug/release coverage and the
+paused-publisher progress repair come first. Historical measurements below remain
+unchanged; the all-features engine-selection claim has been corrected.
+
 This is the consolidated status of `perf/scheduler-hot-path` at `ff45f2b`, not a
 new benchmark run. Production source remains the qualified `3161514` baseline,
 SHA-256 `f57b1db1457fc45f855e561e5eb89e489c72bcf166ef4c50400596057840c976`.
@@ -162,7 +167,7 @@ candidate that fails its own screen.
   and deadline-first joins. They are unresolved findings, not six established
   production defects and not waived because quiet reruns passed.
 - **Release evidence:** archive exact-revision cross-platform native logs; qualify
-  full native runtime behavior separately from all-features compatibility builds;
+  default-feature native runtime behavior separately from instrumented all-feature builds;
   document sanitizer/alternate-stack support; finish replayable large-population
   mixed-lifetime stress, memory, loaded tails, worst-task progress and idle CPU.
   A full 10-million mixed-lifetime release qualification remains open.
