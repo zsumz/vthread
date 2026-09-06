@@ -155,6 +155,14 @@ is explicitly pending, not replaced by smoke medians. Ordered loaded-finding
 repairs are the next independent work; no ownership or polling candidate follows
 these incomplete performance observations.
 
+A [frozen-source mutex resumption](mutex-mechanism-partial-review.md) now records
+twelve completed default processes, eleven with clear build guards, before another
+guard stop. Six default and all nine diagnostic processes remain unrun. The partial
+long controls distinguish roughly 190 ns local / 330 ns remote-active medians from
+10.5 us after observed sleep, while retaining maxima near 19 ms. These forced-state
+controls do not establish production state frequencies or a new May comparison.
+No mutex or polling change follows the incomplete panel.
+
 The [readiness retry finding](io-retry-order-review.md) is closed as a test-oracle
 defect. Ordered real-kernel/socket regressions cover materialized peers, the exact
 128-yield boundary and legal admission after selection. Three negative controls,

@@ -95,3 +95,8 @@ controls, raw smoke samples/counters, host observations and guarded non-runs.
 Archive SHA-256:
 `09a0228a1e9f4d6641f49b07f1ccfc78437d16599a39890fdfdeaab4999ca6db`.
 No new May, loaded-tail, ARM64, sanitizer or large-lifetime result is claimed.
+
+A later [partial resumption](mutex-mechanism-partial-review.md) on this exact source
+completed twelve default processes, eleven with clear endpoint guards. It stopped
+on another build; six default and all nine diagnostic processes remain unrun.
+The original zero-process checkpoint above and its immutable bundle are unchanged.
