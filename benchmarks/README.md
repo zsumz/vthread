@@ -1,5 +1,11 @@
 # Scheduler benchmarks
 
+The separate [fixed offered-load control](offered-load-review.md) extends the
+existing non-HTTP application harness with scheduled arrivals, bounded client
+admission, explicit backpressure and arrival-to-completion distributions. It
+complements these closed-loop mechanism benchmarks; its shared-host qualification
+is not a new May comparison or release-tail result.
+
 See the [current performance status](performance-status.md) for landed work,
 rejected experiments, remaining gaps and next steps. The
 [2026-09-05 checkpoint overview](checkpoint-overview.md) is the last complete May

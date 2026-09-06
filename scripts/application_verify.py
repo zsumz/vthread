@@ -11,6 +11,8 @@ import evidence
 
 
 def matrix(args):
+    from application_offered_verify import bounds
+
     carriers, clients = args["carriers"], args["concurrency"]
     assert 1 <= len(carriers) <= 4 and 1 <= len(clients) <= 8
     assert len(set(carriers)) == len(carriers) and len(set(clients)) == len(clients)
@@ -18,6 +20,9 @@ def matrix(args):
     assert all(1 <= value <= 256 for value in clients)
     assert 1 <= args["rounds"] <= 512 and 1 <= args["fault_rounds"] <= 10
     assert len(carriers) * sum(clients) * args["rounds"] <= 1_000_000
+    rates, count = args.get('offered_rates', []), args.get('offered_count', 1000)
+    bounds(rates, count)
+    assert len(carriers) * len(clients) * len(rates) * count <= 1_000_000
     full = ({1, 4}.issubset(carriers) and {1, 16, 64, 256}.issubset(clients)
             and args["rounds"] >= 128 and args["fault_rounds"] >= 3)
     return "full" if full else "smoke"
@@ -121,13 +126,15 @@ def server_record(record, config, linux, recovery):
 
 
 def verify(path, current=False):
+    from application_offered_verify import offered
+
     receipt = json.loads(path.read_text())
     assert receipt["schema"] == 1 and receipt["status"] == "passed"
     root = path.parent.resolve()
     assert receipt["coverage"] == matrix(receipt["arguments"])
     assert 0 < receipt["wall_seconds"] <= 1800
     inventory(root, receipt["files"])
-    observed_load, observed_faults = set(), set()
+    observed_load, observed_faults, observed_offered = set(), set(), set()
     expected_servers = {}
     for case in receipt["cases"]:
         relative = case["path"]
@@ -139,6 +146,14 @@ def verify(path, current=False):
             assert key not in observed_load
             observed_load.add(key)
             assert report["rounds"] == receipt["arguments"]["rounds"]
+            name = str(Path(relative).parent / "server.json")
+            expected_servers[name] = (dict(carriers=key[0], workers=key[1], queue=key[1], timeout_ms=10000), True)
+        elif case["kind"] == "offered-load":
+            offered(report)
+            key = (report['carriers'], report['concurrency'], report['rate'])
+            assert key not in observed_offered
+            observed_offered.add(key)
+            assert report['count'] == receipt['arguments']['offered_count']
             name = str(Path(relative).parent / "server.json")
             expected_servers[name] = (dict(carriers=key[0], workers=key[1], queue=key[1], timeout_ms=10000), True)
         else:
@@ -154,6 +169,8 @@ def verify(path, current=False):
     args = receipt["arguments"]
     assert observed_load == {(c, n) for c in args["carriers"] for n in args["concurrency"]}
     assert observed_faults == {(c, n) for c in args["carriers"] for n in range(args["fault_rounds"])}
+    assert observed_offered == {(c, n, rate) for c in args['carriers'] for n in args['concurrency']
+                               for rate in args.get('offered_rates', [])}
     servers = {name for name in receipt["files"] if name.endswith("server.json")}
     assert servers == set(expected_servers)
     for name in servers:

@@ -81,13 +81,13 @@ description = "Check the complete vthread source checkout."
 needs = ["zrail", "application-smoke", "test-native-release"]
 
 [tasks.application-evidence-test]
-description = "Reject corrupt payloads, missing samples, incomplete application matrices and failed recovery."
-run = ["python3", "scripts/application_verify_test.py"]
+description = "Reject corrupt payloads, hidden offered arrivals, unbounded client admission and incomplete recovery evidence."
+run = ["python3", "-m", "unittest", "discover", "-s", "scripts", "-p", "application_*test.py"]
 tools = ["python3"]
 needs = ["policy"]
 
 [tasks.application-smoke]
 description = "Exercise bounded public-API TCP load, overload, deadline recovery and loaded shutdown."
-run = ["python3", "scripts/run-application.py", "--carriers", "1", "--concurrency", "1", "16", "--rounds", "8", "--fault-rounds", "1"]
+run = ["python3", "scripts/run-application.py", "--carriers", "1", "--concurrency", "1", "16", "--rounds", "8", "--fault-rounds", "1", "--offered-rates", "2000", "--offered-count", "64"]
 tools = ["python3", "cargo"]
 needs = ["application-evidence-test", "test", "test-native-release"]

@@ -218,3 +218,11 @@ The historical cancellation-history timing excursion remains separately open.
 A longer timeout or quiet rerun is not closure. Native ARM64, sanitizer support
 and the full mixed-lifetime release matrix remain separate from a local canonical
 pass.
+
+The [fixed offered-load application control](offered-load-review.md) now records
+all scheduled arrivals independently of completion, uses bounded persistent
+client slots, and separates generator lag, accepted-request tails and client
+backpressure. Nineteen evidence tests, deliberate schedule/backpressure/tail
+mutations, 700 repeated ordered tests, a final one/four-carrier matrix and all
+fourteen canonical tasks pass. This is a Python-harness qualification slice with
+no runtime change, not controlled-host performance or large-lifetime acceptance.
