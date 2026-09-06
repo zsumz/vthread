@@ -155,8 +155,14 @@ is explicitly pending, not replaced by smoke medians. Ordered loaded-finding
 repairs are the next independent work; no ownership or polling candidate follows
 these incomplete performance observations.
 
-The six loaded findings remain unclassified release blockers: inbox refill,
+The [readiness retry finding](io-retry-order-review.md) is closed as a test-oracle
+defect. Ordered real-kernel/socket regressions cover materialized peers, the exact
+128-yield boundary and legal admission after selection. Three negative controls,
+fourteen canonical gates and 300 additional one-CPU native executions qualify the
+test-only repair; no retry or polling behavior changes.
+
+Five loaded findings remain unclassified release blockers: inbox refill,
 interrupted cross-runtime join, delayed selected timer, cancellation-history
-timing, readiness retry count and deadline-first join. A longer timeout or quiet
-rerun is not closure. Native ARM64, sanitizer support and the full mixed-lifetime
-release matrix remain separate from a local canonical pass.
+timing and deadline-first join. A longer timeout or quiet rerun is not closure.
+Native ARM64, sanitizer support and the full mixed-lifetime release matrix remain
+separate from a local canonical pass.

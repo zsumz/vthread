@@ -221,3 +221,7 @@ pub(super) fn write_all(
 #[cfg(test)]
 #[path = "io_test.rs"]
 mod io_test;
+
+#[cfg(test)]
+#[path = "io_retry_test.rs"]
+mod io_retry_test;
