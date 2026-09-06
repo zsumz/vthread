@@ -41,3 +41,7 @@ impl Kernel {
 #[cfg(test)]
 #[path = "kernel_timer_test.rs"]
 mod kernel_timer_test;
+
+#[cfg(test)]
+#[path = "kernel_timer_deadline_test.rs"]
+mod kernel_timer_deadline_test;
