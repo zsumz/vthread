@@ -9,9 +9,12 @@ the production baseline. HTTP is out of scope.
 ## Current checkpoint
 
 Runtime/test/harness source at `462c636` passes all fourteen canonical gates,
-including default-native debug/release. This is **not release completion** or a
-refreshed May scorecard. Source-keyed raw evidence and explicit stop decisions
-are linked below; later documentation-only commits do not imply another speedup.
+including default-native debug/release. The
+[quiet-window refresh](quiet-checkpoint-review.md) now measures that unchanged
+source: nine complete counter-free May cases, two unresolved May park timeouts,
+separate counter/crossover panels and tight/spare-capacity controls. This is
+**not release completion** or a fully qualified May panel. Later documentation-
+only commits do not imply another runtime speedup.
 
 | Work item | Retained result / remaining requirement |
 | --- | --- |
@@ -20,17 +23,26 @@ are linked below; later documentation-only commits do not imply another speedup.
 | Capacity maintenance | Four-arm zero-probe experiment and one 32-probe follow-up rejected on tight lifecycle/CPU; production scan remains |
 | Incremental readiness | Qualified candidate reduces the large idle-population control substantially; held off production because protected non-regression is not established |
 | Channel | Matching historical default-build attribution completed; no sixth implementation or polling rescue |
-| Mutex | Exact-owner fixture qualified; default observations remain partial and diagnostic panel pending because competing builds repeatedly trip guards |
+| Mutex | Exact-owner fixture now has 36 successful quiet-window controls; counter-free local/remote-active/sleep medians are 191 ns / 311 ns / 3.67 us; production state frequencies and multi-waiter fairness remain open |
 | Loaded findings | Four ordering/oracle repairs qualified; cancellation semantics separated from timing; historical refill stall and history timing excursion remain open |
 | Offered load | Bounded, fixed-arrival application case and verifier qualified; controlled-host tail/CPU acceptance still required |
-| Release | Current-source ARM64 execution, supported sanitizer integration, large mixed-lifetime/population evidence and final frozen-source May panel remain outstanding |
+| Release | Current-source ARM64, supported sanitizers, large mixed lifetimes/populations and offered-load/footprint acceptance remain open; May park control also needs classification before a complete comparison claim |
 
-The [final mutex guard](evidence/mutex-final-guard-f0ce5246.tar.gz) stopped before
-its first benchmark invocation after observing another cargo process. All 18
-default and nine diagnostic invocations in that attempt remain unrun; the earlier
-partial results are unchanged. A reserved quiet host is needed, not a relaxed
-guard. Its twelve internal hashes verify; archive SHA-256:
+The earlier [final mutex guard](evidence/mutex-final-guard-f0ce5246.tar.gz) stopped
+before its first invocation after observing another cargo process. That attempt
+and its unrun jobs remain unchanged; the later
+[complete quiet-window panel](mutex-mechanism-quiet-review.md) uses fresh processes
+with all guards clear. The historical guard's twelve internal hashes verify;
+archive SHA-256:
 `f8a8e01b7b41ade65e1021fe5a1b38b511a3e80672f9eafd6a00a51ba8059a99`.
+
+The new comparison records counter-collection effects explicitly: a reversed-order
+crossover substantially changes May lifecycle and both TCP timings. Counter-free
+lifecycle remains about 7.4x / 15.4x faster at 1,000 / 10,000 tasks; contended mutex
+still favors May about 2.65x. Wake median favors vthread about 2.55x, while p99.9
+favors May about 5.1x. No failed park run is silently replaced or credited as a win.
+Without counters, spare capacity still costs roughly 12x shared-channel / 17x park
+in the small-live-task controls. No capacity/polling/readiness candidate is promoted.
 
 No push or hosted workflow was initiated in this finishing pass. Real ARM64
 evidence still requires execution on that platform; merely having its workflow
@@ -193,6 +205,14 @@ long controls distinguish roughly 190 ns local / 330 ns remote-active medians fr
 10.5 us after observed sleep, while retaining maxima near 19 ms. These forced-state
 controls do not establish production state frequencies or a new May comparison.
 No mutex or polling change follows the incomplete panel.
+
+The subsequent [complete mutex controls](mutex-mechanism-quiet-review.md) preserve
+18 default counter processes, nine diagnostic processes and nine counter-free
+long controls, all successful with clear guards. Counter-free local/remote-active/
+observed-sleep p50 is 191 / 311 / 3,666 ns. The earlier counter-collected sleep
+p50 of 10,566 ns is not the default timing headline. Source, owner/TID evidence,
+all chronological samples, counters and qualification identities are durable;
+production state frequencies and multi-waiter fairness remain separate work.
 
 The [readiness retry finding](io-retry-order-review.md) is closed as a test-oracle
 defect. Ordered real-kernel/socket regressions cover materialized peers, the exact

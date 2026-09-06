@@ -6,10 +6,11 @@ admission, explicit backpressure and arrival-to-completion distributions. It
 complements these closed-loop mechanism benchmarks; its shared-host qualification
 is not a new May comparison or release-tail result.
 
-See the [current performance status](performance-status.md) for landed work,
-rejected experiments, remaining gaps and next steps. The
-[2026-09-05 checkpoint overview](checkpoint-overview.md) is the last complete May
-comparison, not a current-HEAD benchmark run.
+See the [finishing pass](finishing-pass.md) for retained work, rejected experiments
+and remaining gates. The [2026-09-06 quiet-window checkpoint](quiet-checkpoint-review.md)
+refreshes nine complete counter-free May cases and preserves two failed May park
+controls; its counter panel and collector crossover remain separately labeled.
+The [2026-09-05 overview](checkpoint-overview.md) remains historical.
 
 This standalone harness compares the default `vthread` scheduler with May 0.3.51. It uses
 structured scopes, 64 KiB stacks, the same worker and task counts, one untimed warm-up, and an odd

@@ -1,5 +1,9 @@
 # Core vthread performance status: 2026-09-06
 
+Historical consolidation. The later [quiet-window checkpoint](quiet-checkpoint-review.md)
+contains current-source measurements, counter-on/off controls and explicit May
+park failures; use the [finishing pass](finishing-pass.md) for current disposition.
+
 The subsequent [finishing pass](finishing-pass.md) supersedes this report's
 channel-first next-step order: required default debug/release coverage and the
 paused-publisher progress repair come first. Historical measurements below remain
