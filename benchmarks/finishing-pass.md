@@ -198,7 +198,22 @@ ordered case preserves valid local deadline policy alongside an unused observer'
 disconnection. Three negative controls, fourteen gates and 120 further native test
 executions pass. Join/wait, timer, ownership and ready policy remain unchanged.
 
-Inbox refill remains the last unclassified loaded correctness release blocker.
+The [inbox evidence repair](inbox-refill-evidence-review.md) now captures accepted,
+queued, started and completed work before cleanup can produce secondary rejection.
+Lost-notification and cleanup-order negative controls, fourteen canonical gates,
+forty targeted repetitions and four full oversubscribed suites pass. No production
+change follows. The historical refill stall remains the last unclassified loaded
+correctness release blocker; its missing state cannot be reconstructed by reruns.
+
+| Loaded finding | Current disposition |
+| --- | --- |
+| Inbox refill | Pre-cleanup evidence repaired and qualified; historical stall still unclassified and release-blocking |
+| Cross-runtime join | Ordered deadline/handle recovery and completed-panic controls qualify the test-oracle repair |
+| Deadline-first join | Exact selected notice retained through child completion; owned/borrowed recovery and unused-observer counterexample qualify the test repair |
+| Selected timer | Exact selection before delayed mount and late-admission counterexample qualify the test repair |
+| Cancellation history | Semantic bounds and timing gate separated with negative controls; historical timing excursion still open |
+| Readiness retry count | Ordered materialization, retry boundary and late-admission controls qualify the test-oracle repair |
+
 The historical cancellation-history timing excursion remains separately open.
 A longer timeout or quiet rerun is not closure. Native ARM64, sanitizer support
 and the full mixed-lifetime release matrix remain separate from a local canonical
