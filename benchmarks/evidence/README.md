@@ -7,6 +7,7 @@ release qualification or an archive of executed binaries.
 
 | Bundle | Review | SHA-256 |
 | --- | --- | --- |
+| `io-retry-order-7bb05ae6.tar.gz` | [Ordered readiness retry contract](../io-retry-order-review.md) | `fc1a613a968e627a7e1f2572c59e7c8327a74db749bd5dcdf34edaedc5044c69` |
 | `mutex-mechanism-f0ce5246.tar.gz` | [Qualified mutex controls, formal panel pending](../mutex-mechanism-review.md) | `09a0228a1e9f4d6641f49b07f1ccfc78437d16599a39890fdfdeaab4999ca6db` |
 | `publication-observer-266e8624.tar.gz` | [Test-only publication observer ordering](../publication-observer-review.md) | `b411fd245b7f5e438da2d2d533570656f700b3ef007a9b39a21efb21f98f220a` |
 | `channel-attribution-56f61f86.tar.gz` | [Channel rearming and publication attribution](../channel-attribution-review.md) | `1159959bd818adf21ee07aefa0eb954a16b8b8053326542443984beb8de3e38c` |
@@ -65,7 +66,9 @@ qualification, 1,140 repeated ordered test executions and 778,182 mixed lifetime
 Its cost panel selects 104 complete guarded processes from 181 total invocations;
 two observed build overlaps and incomplete/preliminary groups remain separate.
 The repair has a repeatable park cycle cost, not a qualified throughput/tail win.
-The six loaded findings and cross-platform release matrix remain open.
+At that checkpoint all six loaded findings remained open. The later ordered I/O
+test bundle closes one; see the [current finishing pass](../finishing-pass.md).
+The cross-platform release matrix remains open.
 
 The publication-deferral bundle preserves thirteen passing model tests with two
 negative controls, an actual proposed abandonment bug, an explicitly classified
