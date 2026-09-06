@@ -128,7 +128,7 @@ impl Shared {
                     .iter()
                     .map(crate::task_progress::CarrierProgress::mounted)
                     .collect::<Vec<_>>();
-                state.last_stall = Some(std::sync::Arc::new(crate::StallSnapshot {
+                let stall = std::sync::Arc::new(crate::StallSnapshot {
                     policy: self.config.stall_policy(),
                     scope,
                     detected_at,
@@ -146,14 +146,18 @@ impl Shared {
                             include.then(|| record.record.snapshot(&mounted))
                         })
                         .collect(),
-                }));
+                });
+                // Admission credits can outlive terminal completion. Report the
+                // same live-task observation as the retained stall evidence.
+                let live = stall.tasks.len();
+                state.last_stall = Some(stall);
                 reported = true;
                 if !self.config.stall_policy().aborts() {
                     drop(state);
                     self.changed.notify();
                     continue;
                 }
-                stalled = Some(active);
+                stalled = Some(live);
                 if let Some(scope) = state.scopes.get_mut(&scope) {
                     scope.aborting = Some(TaskFailure::ScopeStalled);
                 }

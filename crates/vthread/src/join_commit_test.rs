@@ -200,3 +200,61 @@ fn cancellation_selecting_before_completion_interrupts_both_handle_types() {
         policy_first(local, false);
     }
 }
+
+#[test]
+fn stall_counts_live_tasks_while_terminal_credit_retirement_is_paused() {
+    let runtime = Runtime::builder()
+        .carriers(2)
+        .max_vthreads(4)
+        .stack_cache_capacity(4)
+        .stall_policy(crate::StallPolicy::AbortAfter(Duration::ZERO))
+        .build()
+        .unwrap();
+    let (parker, _unparker) = park_pair();
+    let (finish, may_finish) = mpsc::sync_channel(1);
+    let (committed, is_committed) = mpsc::sync_channel(1);
+    let (release, held) = mpsc::sync_channel(1);
+    let observed = Arc::clone(&runtime.shared);
+    let observer = std::thread::spawn(move || {
+        // Release the carrier only after the stall decision, never on elapsed time.
+        // Dropping this sender on test failure also releases the paused hook.
+        until(|| observed.snapshot().last_stall.is_some());
+        let stall = observed.snapshot().last_stall.unwrap();
+        release.send(()).unwrap();
+        stall
+    });
+    let error = runtime
+        .run_scope(|scope| {
+            let _parked = scope.spawn("parked", move || parker.park())?;
+            until(|| runtime.snapshot().parked == 1);
+            let mut terminal = scope.spawn("terminal", move || {
+                may_finish.recv_timeout(Duration::from_secs(5)).unwrap();
+                42
+            })?;
+            *lock(&terminal.record.completion().after_notify) = Some(Box::new(move |_| {
+                committed.send(()).unwrap();
+                // Disconnection is a cleanup release if the observer asserts.
+                let _released = held.recv();
+            }));
+            finish.send(()).unwrap();
+            is_committed.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert!(terminal.is_finished());
+            assert!(terminal.record.lock().status.is_terminal());
+            assert_eq!(runtime.snapshot().active, 2, "credit is still held");
+            assert_eq!(terminal.join()?, 42);
+            Ok(())
+        })
+        .expect_err("one live parked child must trigger recovery");
+    let stall = observer.join().unwrap();
+    assert_eq!(stall.tasks.len(), 1, "{stall:?}");
+    assert_eq!(stall.tasks[0].name, "parked");
+    assert!(
+        matches!(error.primary(), Error::RuntimeStalled { active: 1 }),
+        "{error:?}; stall: {stall:?}"
+    );
+    assert_eq!(runtime.snapshot().active, 0);
+    runtime
+        .run_scope(|scope| scope.spawn("reused", || ())?.join())
+        .expect("reusable after both credits retire");
+    runtime.shutdown().unwrap();
+}

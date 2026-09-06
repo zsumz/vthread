@@ -227,10 +227,11 @@ fn a_terminal_sibling_does_not_hide_an_indefinitely_parked_child() {
             Ok(())
         })
         .expect_err("parked child must be reclaimed");
-    assert!(matches!(
-        error.primary(),
-        Error::RuntimeStalled { active: 1 }
-    ));
+    assert!(
+        matches!(error.primary(), Error::RuntimeStalled { active: 1 }),
+        "{error:?}; snapshot: {:?}",
+        runtime.snapshot()
+    );
     assert_eq!(runtime.snapshot().active, 0);
     runtime
         .run_scope(|scope| scope.spawn("reused", || ())?.join())
