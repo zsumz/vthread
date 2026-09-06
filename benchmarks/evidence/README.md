@@ -7,6 +7,7 @@ release qualification or an archive of executed binaries.
 
 | Bundle | Review | SHA-256 |
 | --- | --- | --- |
+| `publication-deferral-e9214dc3.tar.gz` | [Publication deferral model, not runtime integration](../publication-deferral-review.md) | `bbae5ee124ef57a618aa351d320598d450b9a99d37ab03bc1b54b65eaa7d9144` |
 | `native-qualification-f57b1db1.tar.gz` | [Required native qualification and pristine control](../finishing-pass.md) | `966e766560aa17696263f1211f7b0e0ae995792d0475e8d346bf99a487e4e6a8` |
 | `ready-fairness-bd80c2f1.tar.gz` | [Ready fairness](../ready-fairness-review.md) | `a60f5ed413af10412e64dbed83a9e8c0dcd5b02fc3735195eaa768f5b58071e8` |
 | `wait-qualification-22558d5c.tar.gz` | [Ordered wait qualification](../wait-qualification-review.md) | `eb70809ed123b79cd9d0c3b79cfaef32725b4b2520fc18dfc86d50d42b38518d` |
@@ -25,6 +26,12 @@ release qualification or an archive of executed binaries.
 | `adaptive-idle-af71b577.tar.gz` | [Adaptive polling screen](../adaptive-idle-review.md) | `139a5e4cfc729a32ed0ce65e787238dd280f69872d40d786aaa9856357ef9f7b` |
 | `handoff-attribution-f57b1db1.tar.gz` | [Useful handoff, polling and capacity attribution](../handoff-attribution-review.md) | `d816a803b2ef6d29556801f7e3ce1978cf63596d9029a3860a6bd1197dad3431` |
 | `channel-publication-56f61f86.tar.gz` | [Rejected channel reservation/publication prototypes](../channel-publication-review.md) | `888f1481a6d90424877022aaaf0b1fc77b70ab78e10f637c3e892b6166e043dc` |
+
+The publication-deferral bundle preserves thirteen passing model tests with two
+negative controls, an actual proposed abandonment bug, an explicitly classified
+SC-adapter false alarm, and a stopped exploration. It includes the limited model's
+source patch, final binary hashes and fourteen-gate canonical qualification with
+native debug/release. It does not contain a runtime repair or benchmark claim.
 
 The native-qualification bundle preserves a pristine `0b67337` control, the
 qualification-only patch, five policy tests with negative controls, and both
