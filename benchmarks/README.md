@@ -227,6 +227,11 @@ lock contention. Use these counts to form experiments, never as default performa
 or end-to-end tail claims. See [handoff-attribution-review.md](handoff-attribution-review.md)
 for the instrumented/default cross-checks and capacity-scan evidence.
 
+The [channel publication review](channel-publication-review.md) preserves five
+cancellation-safe out-of-lock prototypes and their rejection screens. Sampled
+tail improvements did not compensate for uninstrumented cycle regressions; none
+of those runtime changes is retained.
+
 Heap allocation counts are independently available with `--features allocation-probe`. They cover
 the measured process-wide interval and therefore should be collected with one worker on a quiet
 machine. The TCP count also includes its native peer, so use the scheduler-only scenarios for clean
