@@ -1,7 +1,9 @@
 # Scheduler benchmarks
 
-See the [current checkpoint overview](checkpoint-overview.md) for measured results,
-remaining May gaps, and qualification limits.
+See the [current performance status](performance-status.md) for landed work,
+rejected experiments, remaining gaps and next steps. The
+[2026-09-05 checkpoint overview](checkpoint-overview.md) is the last complete May
+comparison, not a current-HEAD benchmark run.
 
 This standalone harness compares the default `vthread` scheduler with May 0.3.51. It uses
 structured scopes, 64 KiB stacks, the same worker and task counts, one untimed warm-up, and an odd

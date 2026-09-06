@@ -8,6 +8,8 @@ the source rather than treating the supplied patches as already qualified.
 
 Each item is a separate source and performance-attribution baseline. HTTP remains
 out of scope. The overall May goal and stable-release qualification remain open.
+See the [consolidated performance status](performance-status.md) for the current
+landed/rejected boundary and the historical May comparison's scope.
 
 | Order | Slice | Exit evidence | State |
 | --- | --- | --- | --- |
@@ -17,7 +19,7 @@ out of scope. The overall May goal and stable-release qualification remain open.
 | 4 | Unexplained stall test | Actual failure state; ordered evidence replacing unproven temporal assumptions | Captured Stored watchdog permit with zero parks; ordered tests qualified; additional loaded-suite findings open |
 | 5 | Handoff publication evidence | Publisher-pause regressions and stage attribution without changing production ordering | Native/optimized probes and canonical gates pass; owner-wide dependency confirmed; repair and OS-tail attribution open |
 | 6 | Capacity/admission/idle interaction | Scan-free maintenance without rejected lifecycle/idle costs, multiple provisioned capacities | Visible-ingress repair qualified; uninstrumented cycle attribution confirms capacity scan; scan-free lifecycle/admission/idle acceptance remains open |
-| 7 | Useful channel handoff | Notification/progress counts; reserve under lock, publish outside, cancellation/close/panic proof | Exact MPMC, endpoint-latency and opt-in handoff attribution implemented; ineligible notifications/retries reproduced; fixed/adaptive polling remains shelved; safe out-of-lock publication remains open |
+| 7 | Useful channel handoff | Notification/progress counts; reserve under lock, publish outside, cancellation/close/panic proof | Measurement landed; five reservation/publication prototypes race/model tested and rejected by performance screening; 203 counter processes preserved; production publication remains unchanged |
 | 8 | Mutex round-trip cost | Local/remote and active/sleeping recipient attribution; exact ownership and waiter progress | Pending |
 | 9 | Incremental readiness | Bounded command processing proportional to changes/events and large-connection validation | Pending |
 | 10 | Release evidence | Durable source-keyed cross-platform correctness, stress, footprint, CPU and performance bundle | Pending |
@@ -217,3 +219,13 @@ owner-local policy, 40 balanced screening runs and two retained build-overlap ru
 Its 32-37% shared-channel cycle gains still fail the combined burst-CPU/p99.9 gate,
 so that source is also shelved. No runtime polling or channel eligibility change
 is included in these evidence checkpoints, and no May control has been rerun.
+
+[channel-publication-review.md](channel-publication-review.md) records five
+cancellation-safe reservation/publication prototypes. They retain FIFO accounting
+under selection and publish owned RAII guards outside the metadata lock; native
+race tests and production-adapted models exercise the ownership boundary. All
+five fail the combined performance screen, so none is retained in production.
+The durable bundle preserves 203 completed counter processes, all source patches,
+negative controls and the restored-baseline canonical receipt. The next channel
+slice must isolate local reservation/retirement/rearming costs before another
+candidate; capacity maintenance, idle policy and readiness remain separate work.
