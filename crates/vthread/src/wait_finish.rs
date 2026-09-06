@@ -83,12 +83,20 @@ impl WaitCell {
     }
 
     fn finish_slow(&self, token: ParkToken) -> Result<WakeCause> {
+        #[cfg(feature = "handoff-profiling")]
+        let mut claim_span = None;
         loop {
             let word = self.state.load();
             if word.generation() != token.generation() {
                 return Err(resumed_generation_fault());
             }
             if word.is_claimed() || word.phase() == wait_state::Phase::Binding {
+                #[cfg(feature = "handoff-profiling")]
+                claim_span.get_or_insert_with(|| {
+                    crate::handoff_span::Span::new(
+                        crate::handoff_profile::HandoffStage::ClaimFinish,
+                    )
+                });
                 #[cfg(test)]
                 self.state.observe_publication(
                     super::wait_publication_probe_test::Stage::FinishWaiting,
@@ -114,12 +122,20 @@ impl WaitCell {
     #[cold]
     #[inline(never)]
     fn finish_permit_slow(&self, token: ParkToken) -> Result<WakeCause> {
+        #[cfg(feature = "handoff-profiling")]
+        let mut claim_span = None;
         loop {
             let word = self.state.load();
             if word.generation() != token.generation() {
                 return Err(resumed_generation_fault());
             }
             if word.is_claimed() || word.phase() == wait_state::Phase::Binding {
+                #[cfg(feature = "handoff-profiling")]
+                claim_span.get_or_insert_with(|| {
+                    crate::handoff_span::Span::new(
+                        crate::handoff_profile::HandoffStage::ClaimFinish,
+                    )
+                });
                 #[cfg(test)]
                 self.state.observe_publication(
                     super::wait_publication_probe_test::Stage::FinishWaiting,

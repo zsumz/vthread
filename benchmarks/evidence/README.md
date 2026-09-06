@@ -22,6 +22,14 @@ release qualification or an archive of executed binaries.
 | `channel-latency-30bb4869.tar.gz` | [Channel endpoint latency](../channel-latency-review.md) | `631d49058c0d7df9524c26b11edabf8dca6cac33d497d40f079c019217da356a` |
 | `channel-tail-c6a2bd0a.tar.gz` | [Channel gains and burst-CPU rejection](../channel-tail-review.md) | `7cd42245ad82c5333b09b0b0c251b03ae2ba4276dc2ea83b67367983f619d861` |
 | `adaptive-idle-af71b577.tar.gz` | [Adaptive polling screen](../adaptive-idle-review.md) | `139a5e4cfc729a32ed0ce65e787238dd280f69872d40d786aaa9856357ef9f7b` |
+| `handoff-attribution-f57b1db1.tar.gz` | [Useful handoff, polling and capacity attribution](../handoff-attribution-review.md) | `d816a803b2ef6d29556801f7e3ce1978cf63596d9029a3860a6bd1197dad3431` |
+
+The handoff-attribution bundle contains 72 instrumented/default counter processes,
+the diagnostic-only source patch against `88e2fd1`, default `.text` equivalence
+hashes, final canonical/native/benchmark qualification and mixed soaks. Four raw
+compressed perf recordings retain both useful cycle attribution and two lossy,
+perturbative syscall tracing attempts; the latter are not quantitative acceptance
+evidence. `LEDGER.md`, `SHA256SUMS` and `analyze.py` provide scope and replay checks.
 
 The ready-fairness bundle includes original, FIFO, cohort-32 and cohort-2 logs;
 the original failing production-queue regression; counter CSVs; native tests and

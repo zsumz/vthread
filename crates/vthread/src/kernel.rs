@@ -223,6 +223,8 @@ impl Kernel {
             stacks: StackSnapshot::from(self.local.stacks.borrow().snapshot()),
             #[cfg(feature = "scheduler-profiling")]
             scheduler_profile: self.scheduler_profile,
+            #[cfg(feature = "handoff-profiling")]
+            handoff_profile: *self.local.handoff_profile.borrow(),
         }
     }
 }

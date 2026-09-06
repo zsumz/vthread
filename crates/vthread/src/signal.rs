@@ -61,12 +61,20 @@ impl Signal {
                 if remaining.is_zero() {
                     break;
                 }
+                #[cfg(feature = "handoff-profiling")]
+                let _native = crate::handoff_span::Span::new(
+                    crate::handoff_profile::HandoffStage::NativeWait,
+                );
                 let (guard, _) = self
                     .changed
                     .wait_timeout(gate, remaining)
                     .unwrap_or_else(|poison| poison.into_inner());
                 guard
             } else {
+                #[cfg(feature = "handoff-profiling")]
+                let _native = crate::handoff_span::Span::new(
+                    crate::handoff_profile::HandoffStage::NativeWait,
+                );
                 self.changed
                     .wait(gate)
                     .unwrap_or_else(|poison| poison.into_inner())

@@ -91,6 +91,8 @@ struct Core<T> {
     state: SpinMutex<State<T>>,
 }
 struct State<T> {
+    #[cfg(feature = "handoff-profiling")]
+    capacity: usize,
     values: VecDeque<T>,
     senders: usize,
     receivers: usize,
@@ -129,6 +131,8 @@ pub fn bounded_with_wait_capacity<T>(
         capacity,
         wait_capacity,
         state: SpinMutex::new(State {
+            #[cfg(feature = "handoff-profiling")]
+            capacity,
             values: VecDeque::new(),
             senders: 1,
             receivers: 1,

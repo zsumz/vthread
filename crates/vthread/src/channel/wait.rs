@@ -28,16 +28,45 @@ impl<T> State<T> {
     pub(super) fn wake_fronts(&self) {
         // These only route generation-checked metadata; no user code runs here.
         if let Some(wait) = self.send_waits.front() {
-            wait.notify();
+            let _outcome = wait.notify();
+            #[cfg(feature = "handoff-profiling")]
+            crate::handoff_channel::notified(
+                crate::handoff_channel::ChannelDirection::Send,
+                _outcome,
+                self.values.len() < self.capacity || self.closed || self.receivers == 0,
+            );
         }
         if let Some(wait) = self.recv_waits.front() {
-            wait.notify();
+            let _outcome = wait.notify();
+            #[cfg(feature = "handoff-profiling")]
+            crate::handoff_channel::notified(
+                crate::handoff_channel::ChannelDirection::Receive,
+                _outcome,
+                !self.values.is_empty() || self.closed || self.senders == 0,
+            );
         }
     }
 
     pub(super) fn wake_all(&self) {
+        #[cfg(not(feature = "handoff-profiling"))]
         for wait in self.send_waits.iter().chain(&self.recv_waits) {
             wait.notify();
+        }
+        #[cfg(feature = "handoff-profiling")]
+        for (direction, waits) in [
+            (
+                crate::handoff_channel::ChannelDirection::Send,
+                &self.send_waits,
+            ),
+            (
+                crate::handoff_channel::ChannelDirection::Receive,
+                &self.recv_waits,
+            ),
+        ] {
+            for wait in waits {
+                let outcome = wait.notify();
+                crate::handoff_channel::notified(direction, outcome, true);
+            }
         }
     }
 }

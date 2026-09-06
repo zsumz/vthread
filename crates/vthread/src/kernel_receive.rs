@@ -2,6 +2,11 @@
 
 use super::Kernel;
 use crate::{CarrierStatus, TaskFailure, TaskStatus, kernel_tasks::OwnedTask};
+#[cfg(feature = "handoff-profiling")]
+use crate::{
+    handoff_profile::HandoffStage,
+    handoff_span::{Span, duration},
+};
 use std::sync::Arc;
 use vthread_stack::Fiber;
 
@@ -152,6 +157,8 @@ impl Kernel {
     }
 
     pub(crate) fn wait_for_work(&mut self, observed: u64) {
+        #[cfg(feature = "handoff-profiling")]
+        let _episode = Span::new(HandoffStage::IdleEpisode);
         #[cfg(feature = "scheduler-profiling")]
         self.scheduler_profile.record_idle(self.stats.mounts);
         self.flush_completions();
@@ -165,24 +172,46 @@ impl Kernel {
             return;
         }
         if deadline.is_none() && self.shared.config.carriers() > 1 {
+            #[cfg(feature = "handoff-profiling")]
+            let polling = std::time::Instant::now();
             for _probe in 0..IDLE_SIGNAL_PROBES {
                 for _ in 0..SPINS_PER_SIGNAL_PROBE {
                     std::hint::spin_loop();
                 }
-                if self.observe_idle_work() || self.inbox.signal.version() != observed {
+                let work = self.observe_idle_work();
+                if work || self.inbox.signal.version() != observed {
+                    #[cfg(feature = "handoff-profiling")]
+                    duration(
+                        if work {
+                            HandoffStage::PollWork
+                        } else {
+                            HandoffStage::PollControl
+                        },
+                        polling.elapsed(),
+                    );
                     #[cfg(feature = "scheduler-profiling")]
                     self.scheduler_profile.record_poll(_probe + 1, true);
                     return;
                 }
             }
+            #[cfg(feature = "handoff-profiling")]
+            duration(HandoffStage::PollExhausted, polling.elapsed());
             #[cfg(feature = "scheduler-profiling")]
             self.scheduler_profile
                 .record_poll(IDLE_SIGNAL_PROBES, false);
         }
         #[cfg(feature = "scheduler-profiling")]
         self.scheduler_profile.record_wait(deadline.is_some());
-        self.publish(CarrierStatus::Idle);
-        self.inbox.hub.wait(observed, deadline);
+        {
+            #[cfg(feature = "handoff-profiling")]
+            let _publication = Span::new(HandoffStage::IdlePublication);
+            self.publish(CarrierStatus::Idle);
+        }
+        {
+            #[cfg(feature = "handoff-profiling")]
+            let _wait = Span::new(HandoffStage::WaitApi);
+            self.inbox.hub.wait(observed, deadline);
+        }
         #[cfg(feature = "scheduler-profiling")]
         self.scheduler_profile.record_wait_return(
             self.inbox.pending() != 0

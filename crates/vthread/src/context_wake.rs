@@ -27,6 +27,18 @@ pub(crate) fn mount_carrier(hub: &Arc<WaitHub>, local: &Rc<LocalCarrier>) -> Car
     CarrierRouteGuard { previous }
 }
 
+#[cfg(feature = "handoff-profiling")]
+pub(crate) fn with_handoff_profile(
+    update: impl FnOnce(&mut crate::handoff_profile::HandoffProfile),
+) {
+    CARRIER_ROUTE.with(|current| {
+        let current = current.borrow();
+        if let Some(route) = current.as_ref() {
+            update(&mut route.local.handoff_profile.borrow_mut());
+        }
+    });
+}
+
 pub(crate) fn enqueue_local_wake(hub: &Arc<WaitHub>, notice: WakeNotice) -> bool {
     let routed = CARRIER_ROUTE.with(|current| {
         let current = current.borrow();
