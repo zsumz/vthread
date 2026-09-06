@@ -162,6 +162,9 @@ impl Kernel {
             if let Some(direction) = direction {
                 self.local.handoff_profile.borrow_mut().channels[direction as usize].parks += 1;
             }
+            if reason == SuspensionReason::Mutex {
+                self.local.handoff_profile.borrow_mut().mutex.parks += 1;
+            }
         }
         self.task(task)
             .execution()

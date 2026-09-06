@@ -14,6 +14,26 @@ pub(crate) struct ResourcePublication {
 }
 
 impl ResourcePublication {
+    #[cfg(feature = "handoff-profiling")]
+    pub(crate) fn mutex_grant(&self) -> Option<crate::handoff_mutex::Grant> {
+        use crate::handoff_mutex::Grant;
+        let Some(claimed) = self.claimed else {
+            // An inactive grant does not protect target metadata: it can be
+            // consumed, retired and rebound before this guard is dropped.
+            return Some(Grant::Stored);
+        };
+        self.wait.state.with_target(claimed, |_, _, hub| {
+            // This guard owns Claim until publication; the target cannot rebind.
+            crate::context::wake::is_owner_hub(hub).map(|same| {
+                if same {
+                    Grant::SameOwner
+                } else {
+                    Grant::OtherOwner
+                }
+            })
+        })
+    }
+
     pub(crate) fn publish(self) {
         drop(self);
     }

@@ -56,13 +56,24 @@ impl<T> Mutex<T> {
     /// Locks the value, parking the current virtual thread under contention.
     pub fn lock(&self) -> Result<MutexGuard<'_, T>> {
         crate::context::check_current()?;
+        #[cfg(feature = "handoff-profiling")]
+        let mut call = crate::handoff_mutex::MutexCall::new();
         if let Some(value) = self.value.try_lock() {
+            #[cfg(feature = "handoff-profiling")]
+            {
+                crate::handoff_span::record(|profile| profile.mutex.immediate += 1);
+                call.acquired();
+            }
             return Ok(self.guard(value));
         }
         let wait = Wait::enter_after_check(SuspensionReason::Mutex)?;
         let synchronization_wait = wait.synchronization_wait()?;
         let value = match self.queue.subscribe(&self.value, synchronization_wait)? {
-            Subscription::Acquired(value) => value,
+            Subscription::Acquired(value) => {
+                #[cfg(feature = "handoff-profiling")]
+                crate::handoff_span::record(|profile| profile.mutex.recheck += 1);
+                value
+            }
             Subscription::Waiting(ticket) => {
                 let ownership = ticket.wait(&wait)?;
                 match self.value.claim(ownership) {
@@ -77,6 +88,8 @@ impl<T> Mutex<T> {
                 }
             }
         };
+        #[cfg(feature = "handoff-profiling")]
+        call.acquired();
         Ok(self.guard(value))
     }
 

@@ -57,7 +57,7 @@ pub(crate) fn report(
         .map_err(|error| error.to_string())?;
     }
     #[cfg(feature = "handoff-profiling")]
-    crate::handoff_profile::report(output, snapshot, transfers)?;
+    crate::handoff_profile::report(output, snapshot, transfers, mutex_acquisitions(config)?)?;
     Ok(())
 }
 
@@ -74,6 +74,21 @@ fn channel_transfers(config: &Config) -> Result<Option<u64>, String> {
         .and_then(|calls| u64::try_from(calls).ok())
         .map(Some)
         .ok_or_else(|| "handoff profile channel transfer count overflow".into())
+}
+
+#[cfg(feature = "handoff-profiling")]
+fn mutex_acquisitions(config: &Config) -> Result<Option<u64>, String> {
+    let crate::config::Scenario::Mutex { per_task, .. } = config.scenario else {
+        return Ok(None);
+    };
+    config
+        .samples
+        .checked_add(1)
+        .and_then(|rounds| rounds.checked_mul(config.tasks))
+        .and_then(|calls| calls.checked_mul(per_task))
+        .and_then(|calls| u64::try_from(calls).ok())
+        .map(Some)
+        .ok_or_else(|| "handoff profile mutex acquisition count overflow".into())
 }
 
 fn validate(snapshot: &RuntimeSnapshot, expected: u64) -> Result<(), String> {

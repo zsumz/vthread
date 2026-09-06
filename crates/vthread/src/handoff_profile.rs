@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 pub use crate::handoff_channel::{ChannelCounters, ChannelDirection};
+pub use crate::handoff_mutex::MutexCounters;
 
 /// Inclusive duration histogram bounds in nanoseconds; the last bin includes all
 /// larger observations. Clock overhead is not subtracted.
@@ -132,6 +133,7 @@ impl HandoffDuration {
 pub struct HandoffProfile {
     durations: [HandoffDuration; 11],
     pub(crate) channels: [ChannelCounters; 2],
+    pub(crate) mutex: MutexCounters,
     pub(crate) local_publications: u64,
     pub(crate) remote_publications: u64,
 }
@@ -149,6 +151,11 @@ impl HandoffProfile {
     /// Actual park crossings are counted on the same non-migrating owner.
     pub fn channel(&self, direction: ChannelDirection) -> &ChannelCounters {
         &self.channels[direction as usize]
+    }
+    /// Useful mutex acquisitions, ticket lifetimes and selected owner identities.
+    /// Source-side grants and recipient-side receipts may belong to different carriers.
+    pub fn mutex(&self) -> &MutexCounters {
+        &self.mutex
     }
     /// Selected notices routed through the source carrier's local queue.
     pub fn local_publications(&self) -> u64 {

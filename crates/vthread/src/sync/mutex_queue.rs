@@ -72,6 +72,8 @@ impl MutexQueue {
             }
             QueueDecision::Queued => {
                 entries.push_back(wait.clone());
+                #[cfg(feature = "handoff-profiling")]
+                crate::handoff_span::record(|profile| profile.mutex.queued += 1);
                 Ok(Subscription::Waiting(Ticket {
                     queue: self,
                     value,
@@ -114,6 +116,14 @@ impl MutexQueue {
                 // removes a queued ticket or observes its ownership grant.
                 wait.reserve_resource(ResourceSelection::Permit)
             };
+            #[cfg(feature = "handoff-profiling")]
+            if let Some(publication) = &publication {
+                if let Some(grant) = publication.mutex_grant() {
+                    crate::handoff_mutex::grant(grant);
+                }
+            } else {
+                crate::handoff_mutex::grant(crate::handoff_mutex::Grant::Rejected);
+            }
             #[cfg(test)]
             let hook = crate::signal::lock(&self.after_dequeue).take();
             #[cfg(test)]
@@ -162,6 +172,8 @@ impl<T> Ticket<'_, '_, T> {
     pub(super) fn wait(mut self, wait: &Wait) -> Result<Ownership> {
         let wait_cell = self.wait.expect("live mutex ticket");
         wait.park_permit(wait_cell, &mut self.selected)?;
+        #[cfg(feature = "handoff-profiling")]
+        crate::handoff_span::record(|profile| profile.mutex.park_returns += 1);
         let ownership = self.queue.handoff.take().ok_or_else(ownership_fault)?;
         self.complete();
         Ok(ownership)
@@ -170,6 +182,8 @@ impl<T> Ticket<'_, '_, T> {
     fn complete(&mut self) {
         assert!(self.wait.take().is_some(), "live mutex ticket");
         self.queue.retire();
+        #[cfg(feature = "handoff-profiling")]
+        crate::handoff_span::record(|profile| profile.mutex.completed += 1);
     }
 }
 
@@ -191,6 +205,12 @@ impl<T> Drop for Ticket<'_, '_, T> {
         self.queue.retire();
         let selected =
             self.selected || (!queued && wait.take_resource() == Some(ResourceSelection::Permit));
+        #[cfg(feature = "handoff-profiling")]
+        crate::handoff_span::record(|profile| {
+            profile.mutex.dropped += 1;
+            profile.mutex.removed += u64::from(queued);
+            profile.mutex.abandoned += u64::from(!queued && selected);
+        });
         if !queued && selected {
             let ownership = self.queue.handoff.take().expect("selected mutex owner");
             self.queue.release_ownership(self.value, ownership);
