@@ -23,6 +23,17 @@ release qualification or an archive of executed binaries.
 | `channel-tail-c6a2bd0a.tar.gz` | [Channel gains and burst-CPU rejection](../channel-tail-review.md) | `7cd42245ad82c5333b09b0b0c251b03ae2ba4276dc2ea83b67367983f619d861` |
 | `adaptive-idle-af71b577.tar.gz` | [Adaptive polling screen](../adaptive-idle-review.md) | `139a5e4cfc729a32ed0ce65e787238dd280f69872d40d786aaa9856357ef9f7b` |
 | `handoff-attribution-f57b1db1.tar.gz` | [Useful handoff, polling and capacity attribution](../handoff-attribution-review.md) | `d816a803b2ef6d29556801f7e3ce1978cf63596d9029a3860a6bd1197dad3431` |
+| `channel-publication-56f61f86.tar.gz` | [Rejected channel reservation/publication prototypes](../channel-publication-review.md) | `888f1481a6d90424877022aaaf0b1fc77b70ab78e10f637c3e892b6166e043dc` |
+
+The channel-publication bundle preserves five independent candidate patches,
+203 completed counter processes (202 in complete analysis pairs), the paused-
+publisher old-code failure, targeted native race tests, production-source Loom
+adapters and their failed/passing model iterations. All candidates are rejected:
+sampled-tail gains do not offset uninstrumented cycle regressions. The final
+inlining control does not recover the local penalty. The restored production
+checkout's 11-gate canonical receipt, exact source/binary identities, guard
+failures, replay scripts and analysis tests are included. No runtime change,
+capacity-maintenance change or readiness redesign is retained.
 
 The handoff-attribution bundle contains 72 instrumented/default counter processes,
 the diagnostic-only source patch against `88e2fd1`, default `.text` equivalence
