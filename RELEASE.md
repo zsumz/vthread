@@ -96,8 +96,10 @@ the root Apache-2.0 license was added byte-for-byte. Final archives match
 the clean source commit `58976649f5fb2bf716cb5e2a3694dbb6bf2b2548`, include every
 package's license, and have exact internal version pins and archive checksums.
 
-[Durable qualification evidence](release-evidence/0.0.2-rc.2/README.md) contains
-the source snapshot, raw logs, negative controls, receipts and final crate archives.
+Raw qualification artifacts are archived separately from the source checkout.
+The [historical evidence index](https://github.com/zsumz/vthread/blob/12bac5291b4c262a01ace65330903789880e15cf/release-evidence/0.0.2-rc.2/README.md)
+records the preserved bundle's hashes and replay instructions.
+
 Later documentation presentation edits do not change executable source, but their
 bytes are outside that archived source and package snapshot. The recorded hashes
 identify the archived artifacts; they do not attest to newly packaged files.
