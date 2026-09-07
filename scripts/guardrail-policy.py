@@ -139,6 +139,40 @@ def check_history_performance(errors: list[str], tasks: dict) -> None:
         errors.append("perf-cancellation-history must retain its explicit optimized timing guard")
 
 
+def check_release_qualification(errors: list[str], workflow: str) -> None:
+    job = workflow.partition("  qualification:\n")[2]
+    job = re.split(r"^  \S", job, maxsplit=1, flags=re.MULTILINE)[0]
+    steps = {}
+    for step in re.split(r"^      - name: ", job, flags=re.MULTILINE)[1:]:
+        name, _, body = step.partition("\n")
+        steps[name] = body
+    application = steps.get("Qualify application", "")
+    command = " ".join(application.partition("        run: >-\n")[2].split())
+    expected = (
+        "python3 scripts/run-application.py --out .qualification/application "
+        "--offered-rates 2000 --offered-count 256 "
+        '--context "GitHub release qualification ${{ matrix.target }}"'
+    )
+    if command != expected or "        if:" in application:
+        errors.append("release qualification must retain the full application and offered-load matrix")
+    package = steps.get("Verify workspace packages", "")
+    expected_package = (
+        "        shell: bash\n"
+        "        run: |\n"
+        "          set -euo pipefail\n"
+        "          mkdir -p .qualification/package\n"
+        "          cargo package --locked --offline --workspace --exclude vthread-lab "
+        "2>&1 | tee .qualification/package/verification.log\n"
+    )
+    if (package != expected_package or "Qualify application" not in steps
+            or list(steps).index("Verify workspace packages") <= list(steps).index("Qualify application")):
+        errors.append("release qualification must verify workspace packages offline after the application")
+    upload = steps.get("Upload qualification evidence", "")
+    if ("            .qualification/\n" not in upload
+            or "            ${{ env.CARGO_TARGET_DIR }}/package/*.crate\n" not in upload):
+        errors.append("release qualification must upload application evidence, package logs and archives")
+
+
 def main() -> int:
     errors: list[str] = []
     check_line_limits(errors)
@@ -149,6 +183,7 @@ def main() -> int:
     check_native_qualification(errors, config["tasks"])
     check_history_performance(errors, config["tasks"])
     check_benchmark_qualification(errors, config["tasks"])
+    check_release_qualification(errors, (ROOT / ".github/workflows/ci.yml").read_text())
     check_blocking_boundaries(errors)
 
     if errors:

@@ -92,12 +92,21 @@ jobs:
         run: >-
           python3 scripts/run-application.py
           --out .qualification/application
+          --offered-rates 2000 --offered-count 256
           --context "GitHub release qualification ${{ matrix.target }}"
+      - name: Verify workspace packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .qualification/package
+          cargo package --locked --offline --workspace --exclude vthread-lab 2>&1 | tee .qualification/package/verification.log
       - name: Upload qualification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: qualification-${{ github.run_id }}-${{ matrix.target }}
-          path: .qualification/
+          path: |
+            .qualification/
+            ${{ env.CARGO_TARGET_DIR }}/package/*.crate
           include-hidden-files: true
           if-no-files-found: warn
