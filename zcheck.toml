@@ -78,7 +78,31 @@ needs = ["docs"]
 
 [tasks.check]
 description = "Check the complete vthread source checkout."
-needs = ["zrail", "application-smoke", "test-native-release"]
+needs = ["zrail", "application-smoke", "test-native-release", "benchmark-test-features"]
+
+[tasks.benchmark-format]
+description = "Validate formatting in the standalone scheduler harness."
+run = ["cargo", "fmt", "--manifest-path", "benchmarks/Cargo.toml", "--", "--check"]
+tools = ["cargo"]
+needs = ["application-smoke", "zrail"]
+
+[tasks.benchmark-clippy]
+description = "Reject warnings in every scheduler-harness feature."
+run = ["cargo", "clippy", "--locked", "--manifest-path", "benchmarks/Cargo.toml", "--all-targets", "--all-features", "--", "-D", "warnings"]
+tools = ["cargo"]
+needs = ["benchmark-format"]
+
+[tasks.benchmark-test]
+description = "Test the standalone scheduler harness without instrumentation."
+run = ["cargo", "test", "--locked", "--manifest-path", "benchmarks/Cargo.toml", "--all-targets"]
+tools = ["cargo"]
+needs = ["benchmark-clippy"]
+
+[tasks.benchmark-test-features]
+description = "Test the standalone scheduler harness with every diagnostic feature."
+run = ["cargo", "test", "--locked", "--manifest-path", "benchmarks/Cargo.toml", "--all-targets", "--all-features"]
+tools = ["cargo"]
+needs = ["benchmark-test"]
 
 [tasks.application-evidence-test]
 description = "Reject corrupt payloads, hidden offered arrivals, unbounded client admission and incomplete recovery evidence."

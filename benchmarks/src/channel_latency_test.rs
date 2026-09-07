@@ -1,9 +1,8 @@
 use super::{direction_summary, validate};
-use crate::config::{Config, Engine, Scenario};
+use crate::config::{Config, Scenario};
 
 fn config() -> Config {
     Config {
-        engine: Engine::Vthread,
         scenario: Scenario::ChannelMpmc {
             per_task: 3,
             capacity: 1,
@@ -40,9 +39,6 @@ fn untimed_and_unrelated_controls_cannot_silently_accept_channel_sampling() {
     validate(&config, &[]).unwrap();
     assert!(validate(&config, &vec![vec![1, 2, 3]; 4]).is_err());
     config.sample_channel_latency = true;
-    config.engine = Engine::May;
-    assert!(validate(&config, &vec![vec![1, 2, 3]; 4]).is_err());
-    config.engine = Engine::Vthread;
     config.scenario = Scenario::Spawn;
     assert!(validate(&config, &[]).is_err());
 }
@@ -71,7 +67,6 @@ fn missing_latency_evidence_is_rejected_in_warmup_and_measured_rounds() {
                     vec![vec![1, 2, 3]; 4]
                 },
                 pair_owners: Vec::new(),
-                task_migrations: Vec::new(),
                 channel_delivery: Some(crate::channel_delivery::Delivery::new(vec![
                     vec![0, 1, 2],
                     vec![3, 4, 5],

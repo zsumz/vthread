@@ -14,6 +14,7 @@ STACK = ROOT / "crates" / "vthread-stack" / "src"
 SYNC_CORE = ROOT / "crates" / "vthread-sync-core" / "src"
 LAB = ROOT / "crates" / "vthread-lab" / "src"
 REFERENCE = ROOT / "reference" / "src"
+BENCHMARKS = ROOT / "benchmarks" / "src"
 MAX_LINES = 300
 PUBLIC_DEPENDENCIES = {
     "crossbeam-queue",
@@ -34,14 +35,14 @@ def relative(path: pathlib.Path) -> str:
 
 
 def check_line_limits(errors: list[str]) -> None:
-    for path in sorted((ROOT / "crates").rglob("*.rs")) + sorted(REFERENCE.rglob("*.rs")):
+    for path in sorted((ROOT / "crates").rglob("*.rs")) + sorted(REFERENCE.rglob("*.rs")) + sorted(BENCHMARKS.rglob("*.rs")):
         lines = path.read_text(encoding="utf-8").splitlines()
         if len(lines) > MAX_LINES:
             errors.append(f"{relative(path)} has {len(lines)} lines; hard limit is {MAX_LINES}")
 
 
 def check_sibling_tests(errors: list[str]) -> None:
-    roots = (PUBLIC, STACK, SYNC_CORE, LAB, REFERENCE)
+    roots = (PUBLIC, STACK, SYNC_CORE, LAB, REFERENCE, BENCHMARKS)
     for path in (path for root in roots for path in rust_sources(root)):
         sibling = path.with_name(f"{path.stem}_test.rs")
         if not sibling.is_file():
@@ -112,6 +113,22 @@ def check_blocking_boundaries(errors: list[str]) -> None:
                 )
 
 
+def check_benchmark_qualification(errors: list[str], tasks: dict) -> None:
+    manifest = ["--manifest-path", "benchmarks/Cargo.toml"]
+    checks = (
+        ("benchmark-format", ["cargo", "fmt", *manifest, "--", "--check"], "application-smoke"),
+        ("benchmark-clippy", ["cargo", "clippy", "--locked", *manifest, "--all-targets", "--all-features", "--", "-D", "warnings"], "benchmark-format"),
+        ("benchmark-test", ["cargo", "test", "--locked", *manifest, "--all-targets"], "benchmark-clippy"),
+        ("benchmark-test-features", ["cargo", "test", "--locked", *manifest, "--all-targets", "--all-features"], "benchmark-test"),
+    )
+    for name, command, dependency in checks:
+        task = tasks.get(name, {})
+        if task.get("run") != command or dependency not in task.get("needs", []):
+            errors.append(f"{name} must retain its standalone command and ordered dependency")
+    if "benchmark-test-features" not in tasks.get("check", {}).get("needs", []):
+        errors.append("check must require standalone benchmark qualification")
+
+
 def check_history_performance(errors: list[str], tasks: dict) -> None:
     expected = [
         "cargo", "test", "--locked", "-p", "vthread", "--release",
@@ -131,6 +148,7 @@ def main() -> int:
     config = tomllib.loads((ROOT / "zcheck.toml").read_text(encoding="utf-8"))
     check_native_qualification(errors, config["tasks"])
     check_history_performance(errors, config["tasks"])
+    check_benchmark_qualification(errors, config["tasks"])
     check_blocking_boundaries(errors)
 
     if errors:

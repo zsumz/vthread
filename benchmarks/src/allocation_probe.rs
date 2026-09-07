@@ -13,6 +13,7 @@ pub(crate) struct CountingAllocator;
 #[global_allocator]
 static ALLOCATOR: CountingAllocator = CountingAllocator;
 
+// SAFETY: every allocation operation delegates its unchanged request to System.
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         if ENABLED.load(Ordering::Relaxed) {
@@ -89,3 +90,7 @@ pub(crate) fn print_medians(config: &crate::config::Config, samples: &mut [Count
         allocated_bytes as f64 / operations,
     );
 }
+
+#[cfg(test)]
+#[path = "allocation_probe_test.rs"]
+mod allocation_probe_test;

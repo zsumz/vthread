@@ -1,9 +1,8 @@
 use super::{Delivery, validate};
-use crate::config::{Config, Engine, Scenario};
+use crate::config::{Config, Scenario};
 
 fn config() -> Config {
     Config {
-        engine: Engine::Vthread,
         scenario: Scenario::ChannelMpmc {
             per_task: 3,
             capacity: 1,
@@ -53,7 +52,6 @@ fn measured_rounds_are_validated_as_well_as_warmup() {
             admission_ns: 0,
             operation_latency_groups_ns: Vec::new(),
             pair_owners: Vec::new(),
-            task_migrations: Vec::new(),
             channel_delivery: (calls == 1)
                 .then(|| Delivery::new(vec![vec![0, 1, 2], vec![3, 4, 5]])),
             #[cfg(feature = "lifecycle-profiling")]

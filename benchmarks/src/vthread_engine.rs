@@ -159,7 +159,6 @@ fn run_round(
         admission_ns,
         operation_latency_groups_ns,
         pair_owners,
-        task_migrations: Vec::new(),
         channel_delivery,
         #[cfg(feature = "lifecycle-profiling")]
         lifecycle,
@@ -295,3 +294,7 @@ fn spawn_wake_tail_pairs(
     }
     Ok(handles)
 }
+
+#[cfg(test)]
+#[path = "vthread_engine_test.rs"]
+mod vthread_engine_test;

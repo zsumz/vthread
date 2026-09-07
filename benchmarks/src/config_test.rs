@@ -25,8 +25,7 @@ fn carrier_pinning_is_explicit_and_composes_with_capacity_in_either_order() {
 }
 
 #[test]
-fn pinning_never_silently_changes_may_or_accepts_duplicate_options() {
-    assert!(parse(&["may", "mutex", "10", "4", "64", "3", "--pin-carriers"]).is_err());
+fn pinning_rejects_duplicate_and_unknown_options() {
     for options in [
         vec!["--pin-carriers", "--pin-carriers"],
         vec!["--max-vthreads", "128", "--max-vthreads", "128"],
@@ -41,7 +40,7 @@ fn pinning_never_silently_changes_may_or_accepts_duplicate_options() {
 #[test]
 fn paired_scenarios_require_even_task_counts() {
     assert!(parse(&["vthread", "park", "10", "1", "2", "3"]).is_ok());
-    assert!(parse(&["may", "channel", "10", "1", "3", "3"]).is_err());
+    assert!(parse(&["vthread", "channel", "10", "1", "3", "3"]).is_err());
 }
 
 #[test]
@@ -59,8 +58,7 @@ fn shared_mpmc_counts_transferred_values_not_both_endpoint_calls() {
 }
 
 #[test]
-fn shared_mpmc_rejects_may_invalid_lanes_and_unaddressable_evidence() {
-    assert!(parse(&["may", "channel-mpmc", "10", "64", "4", "8", "3"]).is_err());
+fn shared_mpmc_rejects_invalid_lanes_and_unaddressable_evidence() {
     for tasks in ["1", "2", "3", "5"] {
         assert!(parse(&["vthread", "channel-mpmc", "10", "1", "1", tasks, "3"]).is_err());
     }
@@ -71,7 +69,7 @@ fn shared_mpmc_rejects_may_invalid_lanes_and_unaddressable_evidence() {
 
 #[test]
 fn bounded_spsc_channels_require_and_report_their_capacity() {
-    let config = parse(&["may", "channel-bounded-spsc", "10", "64", "4", "8", "3"]).unwrap();
+    let config = parse(&["vthread", "channel-bounded-spsc", "10", "64", "4", "8", "3"]).unwrap();
     assert!(matches!(
         config.scenario,
         Scenario::Channel {
@@ -80,12 +78,12 @@ fn bounded_spsc_channels_require_and_report_their_capacity() {
         }
     ));
     assert_eq!(config.operation(), "bounded-spsc-channel-64-handoff");
-    assert!(parse(&["may", "channel-bounded-spsc", "10", "0", "4", "8", "3"]).is_err());
+    assert!(parse(&["vthread", "channel-bounded-spsc", "10", "0", "4", "8", "3"]).is_err());
     let excessive = isize::MAX.to_string();
     assert!(
         Config::parse_from(
             [
-                "may".to_owned(),
+                "vthread".to_owned(),
                 "channel-bounded-spsc".to_owned(),
                 "10".to_owned(),
                 excessive,
@@ -102,8 +100,8 @@ fn bounded_spsc_channels_require_and_report_their_capacity() {
 #[test]
 fn wake_tail_accepts_multiple_workers_but_still_requires_pairs() {
     assert!(parse(&["vthread", "wake-tail", "10", "1", "2", "3"]).is_ok());
-    assert!(parse(&["may", "wake-tail", "10", "2", "2", "3"]).is_ok());
-    assert!(parse(&["may", "wake-tail", "10", "1", "3", "3"]).is_err());
+    assert!(parse(&["vthread", "wake-tail", "10", "2", "2", "3"]).is_ok());
+    assert!(parse(&["vthread", "wake-tail", "10", "1", "3", "3"]).is_err());
 }
 
 #[test]
@@ -122,7 +120,7 @@ fn operation_count_includes_each_task() {
 #[test]
 fn mutex_requires_two_contending_tasks() {
     assert!(parse(&["vthread", "mutex", "10", "1", "2", "3"]).is_ok());
-    assert!(parse(&["may", "mutex", "10", "1", "1", "3"]).is_err());
+    assert!(parse(&["vthread", "mutex", "10", "1", "1", "3"]).is_err());
 }
 
 #[test]
@@ -136,12 +134,12 @@ fn uncontended_mutex_requires_exactly_one_task() {
         }
     ));
     assert_eq!(config.operation(), "mutex-uncontended");
-    assert!(parse(&["may", "mutex-uncontended", "10", "1", "2", "3"]).is_err());
+    assert!(parse(&["vthread", "mutex-uncontended", "10", "1", "2", "3"]).is_err());
 }
 
 #[test]
 fn tcp_accepts_unpaired_clients_and_counts_round_trips() {
-    let config = parse(&["may", "tcp", "11", "2", "3", "5"]).unwrap();
+    let config = parse(&["vthread", "tcp", "11", "2", "3", "5"]).unwrap();
     assert!(matches!(config.scenario, Scenario::Tcp { per_task: 11 }));
     assert_eq!(config.operations(), 33);
 }
@@ -171,7 +169,7 @@ fn runtime_capacity_can_exceed_the_live_task_count_without_changing_work() {
 }
 
 #[test]
-fn runtime_capacity_override_is_validated_and_never_silently_applied_to_may() {
+fn runtime_capacity_override_requires_valid_bounds_and_no_trailing_arguments() {
     for capacity in ["0", "1", "63", "invalid"] {
         assert!(
             parse(&[
@@ -197,19 +195,6 @@ fn runtime_capacity_override_is_validated_and_never_silently_applied_to_may() {
             "9",
             "--max-vthreads",
             "2",
-        ])
-        .is_err()
-    );
-    assert!(
-        parse(&[
-            "may",
-            "park",
-            "100",
-            "4",
-            "64",
-            "9",
-            "--max-vthreads",
-            "65536",
         ])
         .is_err()
     );

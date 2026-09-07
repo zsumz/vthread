@@ -9,11 +9,6 @@ mod config;
 mod handoff_profile;
 #[cfg(feature = "lifecycle-profiling")]
 mod lifecycle_profile;
-mod may_bounded_channel;
-mod may_channel;
-mod may_engine;
-mod may_mutex;
-mod may_placement;
 mod report;
 #[cfg(feature = "scheduler-profiling")]
 mod scheduler_profile;
@@ -25,23 +20,10 @@ mod vthread_placement;
 mod vthread_setup;
 mod wake_clock;
 
-use config::{Config, Engine};
+use config::Config;
 
 fn main() -> ExitCode {
-    let result = Config::parse().and_then(|config| match config.engine {
-        Engine::Vthread => {
-            println!(
-                "engine=vthread phase=configuration max_vthreads={} workers={} tasks={} pin_carriers={}",
-                config.vthread_capacity(),
-                config.workers,
-                config.tasks,
-                config.pin_carriers,
-            );
-            vthread_engine::run(&config)
-        }
-        Engine::May => may_engine::run(&config),
-    });
-    match result {
+    match run(std::env::args().skip(1)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("{error}");
@@ -49,3 +31,19 @@ fn main() -> ExitCode {
         }
     }
 }
+
+fn run(args: impl Iterator<Item = String>) -> Result<(), String> {
+    let config = Config::parse_from(args)?;
+    println!(
+        "engine=vthread phase=configuration max_vthreads={} workers={} tasks={} pin_carriers={}",
+        config.vthread_capacity(),
+        config.workers,
+        config.tasks,
+        config.pin_carriers,
+    );
+    vthread_engine::run(&config)
+}
+
+#[cfg(test)]
+#[path = "main_test.rs"]
+mod main_test;

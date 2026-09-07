@@ -1,7 +1,7 @@
 //! Contract checks and direction-specific summaries for sampled channel calls.
 
 use crate::{
-    config::{Config, Engine, Scenario},
+    config::{Config, Scenario},
     report::{latency_quantile_ratio, summarize_latency_groups},
 };
 
@@ -16,9 +16,6 @@ pub(crate) fn validate(config: &Config, groups: &[Vec<u64>]) -> Result<(), Strin
     let Scenario::ChannelMpmc { per_task, .. } = config.scenario else {
         return Err("channel latency sampling requires the shared MPMC control".into());
     };
-    if !matches!(config.engine, Engine::Vthread) {
-        return Err("channel latency sampling is a vthread-only control".into());
-    }
     if groups.len() != config.tasks || groups.iter().any(|group| group.len() != per_task) {
         return Err("channel latency evidence must cover every call in every task".into());
     }

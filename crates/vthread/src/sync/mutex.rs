@@ -24,7 +24,7 @@ pub struct Mutex<T> {
 }
 
 /// Exclusive access that stays on the current carrier and unlocks on drop.
-/// Forgetting a guard leaks the value and permanently retains the lock.
+/// Forgetting a guard retains the lock until the mutex is dropped along with its value.
 ///
 /// ```compile_fail
 /// let mutex = vthread::sync::Mutex::new(42);

@@ -40,15 +40,16 @@ fn main() -> vthread::Result<()> {
 
 ## Requirements
 
-vthread 0.0.2-rc.1 supports Linux x86_64 and macOS ARM64 with Rust 1.96 or newer. It
+vthread 0.0.2-rc.2 supports Linux x86_64 and macOS ARM64 with Rust 1.96 or newer. It
 requires unwinding panics; applications configured with `panic = "abort"` are rejected at
 compile time.
 
-Install from crates.io:
+Candidate status and qualification limits are tracked in [release preparation](RELEASE.md).
+Once this candidate is published, its crates.io dependency is:
 
 ```toml
 [dependencies]
-vthread = "0.0.2-rc.1"
+vthread = "0.0.2-rc.2"
 ```
 
 ## What it provides
@@ -89,10 +90,10 @@ controlled shutdown.
 
 ## Performance
 
-The standalone [scheduler harness](benchmarks/README.md) provides matched `vthread` and May
-measurements for yield, spawn/reclaim, park/wake, contended synchronization, bounded channels,
-readiness-driven TCP, and wake-to-resume tails. Worker, task, stack, warm-up, and sample settings
-are explicit.
+The standalone [scheduler harness](benchmarks/README.md) measures yield, spawn/reclaim,
+park/wake, contended synchronization, bounded channels, readiness-driven TCP, and
+wake-to-resume tails. Worker, task, stack, warm-up, and sample settings are explicit.
+Results describe the measured workload and host, not a universal latency guarantee.
 
 ## Check
 
