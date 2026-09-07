@@ -27,7 +27,7 @@ use std::sync::{Arc, Weak};
 /// Their results must also be transferable:
 /// ```compile_fail
 /// fn local_result(spawner: &vthread::Spawner) {
-///     spawner.spawn("child", || std::rc::Rc::new(42)).unwrap();
+///     spawner.spawn("child", || std::rc::Rc::new(52)).unwrap();
 /// }
 /// ```
 pub struct Spawner {

@@ -14,8 +14,8 @@
 //! let (sender, receiver) = bounded(1)?;
 //! runtime.run_scope(|scope| {
 //!     let mut consumer = scope.spawn("consumer", move || receiver.recv())?;
-//!     scope.spawn("producer", move || sender.send(42).map_err(|e| e.into_parts().0))?.join()??;
-//!     assert_eq!(consumer.join()??, 42);
+//!     scope.spawn("producer", move || sender.send(52).map_err(|e| e.into_parts().0))?.join()??;
+//!     assert_eq!(consumer.join()??, 52);
 //!     Ok(())
 //! })?;
 //! # Ok::<(), vthread::Error>(())

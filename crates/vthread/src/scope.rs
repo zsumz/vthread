@@ -28,7 +28,7 @@ impl<'runtime> Scope<'runtime> {
     ///
     /// ```compile_fail
     /// let runtime = vthread::Runtime::new().unwrap();
-    /// let local = std::rc::Rc::new(42);
+    /// let local = std::rc::Rc::new(52);
     /// runtime.run_scope(|scope| {
     ///     scope.spawn("not-transferable", move || *local)?;
     ///     Ok(())

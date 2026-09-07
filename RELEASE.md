@@ -1,7 +1,7 @@
-# Release 0.0.2
+# Release 0.1.0
 
-Status: preparing `0.0.2` for early evaluation; crates.io publication is pending.
-This version does not carry a production-readiness verdict. The
+Status: release closeout; no publication or tag is authorized. `0.1.0` is intended
+for evaluation and feedback, not a production-stability endorsement. The
 [recorded qualification](#recorded-qualification) and
 [remaining release gates](#remaining-release-gates-and-limitations) define its
 current evidence and limits.
@@ -10,9 +10,30 @@ The runtime retains carrier affinity, both cancellation checkpoints, exact wait
 generations, bounded resource accounting, structured scope ownership, and
 cancellation-safe direct mutex ownership transfer.
 
+## Compatibility
+
+The `0.1.x` series preserves public API compatibility. Breaking public API or
+contract changes move to `0.2`; `1.0` requires a separate durable-API commitment.
+Use `vthread = "0.1"` to receive compatible `0.1.x` releases.
+
+The exact dependency set includes `zio = "=0.0.1-dev.1"`. A normal vthread version
+does not imply that every dependency has a stable-version contract.
+
+## Known risk
+
+The historical coalesced-inbox refill stall remains **unclassified**, not fixed.
+The regression now records accepted, queued, started, returned and completed work
+before cleanup and requires all 4,096 tasks to finish. Passing reruns cannot
+reconstruct the missing historical state; the cleanup repairs are not assumed
+to explain it.
+
+The feedback-release policy retains this as a disclosed unresolved reliability
+risk. It remains a blocker for a production-stability endorsement. Public issue
+tracking and final publication approval are still required before distribution.
+
 ## Scope
 
-Version `0.0.2` retains the `0.0.2-rc.2` runtime: native guarded stacks and execution
+Version `0.1.0` retains the `0.0.2` runtime: native guarded stacks and execution
 reuse, compact carrier-owned task storage, resident synchronization waits, and
 owner-routed wakes.
 It also includes bounded wake cohorts and admission service, deferred publication
@@ -53,7 +74,8 @@ nor the passing tests establish an exhaustive runtime proof.
 | --- | --- |
 | Canonical `zcheck run check` | Native debug and release workspace tests; all-feature tests; documentation and compile-fail examples; source, layout and architecture policy; application evidence validation; public-API load and failure smoke tests. |
 | Standalone benchmark, also required by `zcheck run check` | Formatting, Clippy, default tests and all-feature tests. A workspace-only pass does not qualify this separate manifest. |
-| Additional release qualification | Distributable packages and their dependency closure, longer mixed traffic, full application qualification, and exact-source native execution on both advertised targets. |
+| Release CI, on both targets | Eight closed-loop loads, eight fixed-arrival cases at 2,000 arrivals/second, six failure rounds, then offline verification of all four distributable packages. Logs and package archives are uploaded. |
+| Distribution closeout | Audit clean final-version archives, licenses, normalized manifests, exact internal dependency closure and source identity. After publication, run the README example in a fresh registry-only consumer before announcement. |
 
 Package creation is not publication. The publication order is `vthread-stack`,
 `vthread-sync-core`, `vthread`, then `vthreads`; the lab, benchmark and reference
@@ -61,15 +83,33 @@ packages remain unpublished.
 
 ## Recorded qualification
 
-The `0.0.2` code and manifests passed all 18 canonical gates and all 13 standalone
-reference tests locally on Linux x86-64. This is not native macOS execution or
-production-readiness evidence.
+### Reviewed main baseline
+
+Commit `6882d708207e5549b86f4b76832d7f878f45799c` (`0.0.2`) has successful jobs on
+both advertised platforms:
+
+| Qualification | Linux x86-64 | macOS ARM64 |
+| --- | --- | --- |
+| Canonical repository check | [Passed](https://github.com/zsumz/vthread/actions/runs/34149732304/job/101829285225) | [Passed](https://github.com/zsumz/vthread/actions/runs/34149732304/job/101829285542) |
+| Native-stack debug | [Passed](https://github.com/zsumz/vthread/actions/runs/34149732339/job/101829285608) | [Passed](https://github.com/zsumz/vthread/actions/runs/34149732339/job/101829285669) |
+| Native-stack release | [Passed](https://github.com/zsumz/vthread/actions/runs/34149732339/job/101829285510) | [Passed](https://github.com/zsumz/vthread/actions/runs/34149732339/job/101829285607) |
+| Application load/failure | [Passed](https://github.com/zsumz/vthread/actions/runs/34149732304/job/101830730576) | [Passed](https://github.com/zsumz/vthread/actions/runs/34149732304/job/101830730549) |
+
+Public job metadata confirms successful execution, including native host checks.
+The baseline application configuration ran eight closed-loop cases and six failure
+rounds, **not** the full 22-case matrix: it supplied no fixed-arrival arguments.
+That scope follows from the pinned command, successful step and runner validation;
+raw CI logs and artifact downloads were not accessible during this closeout.
+
+These results qualify the reviewed baseline, not newly versioned `0.1.0` archives.
+Final-version local checks, package audits and both-target CI must be recorded
+separately before publication.
 
 ### Historical RC evidence
 
 These historical results describe `0.0.2-rc.2` on Linux x86-64 with Rust 1.96.1
 and the default native engine unless a feature set is named. They do not attest to
-newly versioned `0.0.2` package bytes. The archived code/manifest digest is:
+newly versioned `0.1.0` package bytes. The archived code/manifest digest is:
 
 `8ac4c314fdfe944a53ddf4395b1feb4cfa5bd18465f0c559201823030e3ef73d`.
 
@@ -109,7 +149,7 @@ Raw qualification artifacts are archived separately from the source checkout.
 The [historical evidence index](https://github.com/zsumz/vthread/blob/12bac5291b4c262a01ace65330903789880e15cf/release-evidence/0.0.2-rc.2/README.md)
 records the preserved bundle's hashes and replay instructions.
 
-The `0.0.2` version metadata, documentation and unsupported-platform diagnostic
+Subsequent version metadata, documentation and unsupported-platform diagnostic
 wording are outside that archived snapshot. The recorded hashes identify the
 historical artifacts, not newly packaged files.
 
@@ -117,13 +157,15 @@ historical artifacts, not newly packaged files.
 
 | Area | Open requirement or limitation |
 | --- | --- |
-| Historical refill stall | The coalesced-inbox refill stall remains unclassified. Its test captures accepted, queued, started and completed work before cleanup, but passing reruns cannot reconstruct the missing historical state. The cleanup repairs are not assumed to explain it. |
+| Historical refill stall | [Known unresolved reliability risk](#known-risk); public issue tracking remains required. |
 | Cancellation history | Semantic bounds and cancellation paths remain mandatory tests. The historical wall-time excursion remains separate performance evidence; `zcheck run perf-cancellation-history` retains its explicit optimized guard. |
-| macOS ARM64 | Current-source native execution is required. A workflow definition or cross-compilation is not an execution receipt. |
+| Final-version qualification | Both-platform baseline execution is recorded above. The full 22-case matrix and final `0.1.0` packages require their own source-keyed results. |
 | Alternate-stack sanitizers | Hooks are not qualified. Ordinary compiler sanitizer flags do not establish support for the native context-switch boundary. |
 | Scale and sustained load | Large simultaneous populations, the full mixed-lifetime stress target, memory footprint, loaded tails and controlled-host idle CPU require separate qualification. Short smoke runs do not replace it. |
 | Scaling costs | Wake-depth observation has provisioned-capacity-dependent cost; the readiness driver still reconciles registration maps. Neither held scaling candidate is included. |
 | Performance acceptance | No dedicated performance host is currently available. Local timing is observational, with no new performance acceptance or latency guarantee. |
 
-These items must remain visible when deciding whether to merge, tag or publish.
-Preparing `0.0.2` sources does not waive unresolved correctness or platform gates.
+Feedback release does not require every performance or scale objective to be
+complete. It does require accurate claims, final-version qualification, and an
+explicit decision to carry the disclosed stall risk. Publication remains a
+separate authorized action.

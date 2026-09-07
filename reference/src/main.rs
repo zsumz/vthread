@@ -116,7 +116,7 @@ fn observations() -> Result<()> {
         .stack_cache_capacity(1)
         .build()?;
     runtime.run_scope(|scope| {
-        let mut task = scope.spawn("owned result", || 42)?;
+        let mut task = scope.spawn("owned result", || 52)?;
         task.wait()?;
         assert!(matches!(
             scope.spawn("over capacity", || ()),
@@ -128,15 +128,15 @@ fn observations() -> Result<()> {
         let snapshot = scope.runtime_snapshot();
         assert_eq!(snapshot.runtime_id(), runtime.id());
         assert_eq!(snapshot.tasks()[0].name(), "owned result");
-        assert_eq!(task.take_result()?, 42);
+        assert_eq!(task.take_result()?, 52);
         assert!(matches!(task.take_result(), Err(Error::ResultAlreadyTaken)));
         Ok(())
     })?;
     let (sender, receiver) = channel::bounded_with_wait_capacity(1, 1)?;
     drop(receiver);
-    let rejected = sender.try_send(42).unwrap_err();
+    let rejected = sender.try_send(52).unwrap_err();
     assert!(matches!(rejected.error(), Error::Closed));
-    assert_eq!(rejected.into_inner(), 42);
+    assert_eq!(rejected.into_inner(), 52);
     runtime.shutdown()?;
     Ok(())
 }
