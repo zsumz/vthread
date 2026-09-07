@@ -21,12 +21,12 @@ pub(crate) fn verify() -> Result<()> {
     let capability = runtime.run_scope(|scope| {
         let capability: Spawner = scope.spawner();
         let mut child = scope.spawn_with(options, "borrowed owner", move || {
-            let value = Rc::new(42);
+            let value = Rc::new(52);
             vthread::local_scope(|local| {
                 let mut borrowed =
                     local.spawn_with(options, "borrowed result", || Rc::clone(&value))?;
                 let token: CancellationToken = borrowed.cancellation_token();
-                assert_eq!(*borrowed.join()?, 42);
+                assert_eq!(*borrowed.join()?, 52);
                 borrowed.cancel();
                 assert!(token.is_cancelled());
                 borrowed.wait()
@@ -46,10 +46,10 @@ pub(crate) fn verify() -> Result<()> {
     let configured = runtime.supervisor_with(ScopeOptions::default())?;
     let mut first = default_owner
         .spawner()
-        .spawn_with(options, "default owner", || 42)?;
-    let mut second = configured.spawn_with(options, "configured owner", || 43)?;
-    assert_eq!(first.join()?, 42);
-    assert_eq!(second.join()?, 43);
+        .spawn_with(options, "default owner", || 52)?;
+    let mut second = configured.spawn_with(options, "configured owner", || 53)?;
+    assert_eq!(first.join()?, 52);
+    assert_eq!(second.join()?, 53);
     default_owner.shutdown()?;
     configured.shutdown()?;
     runtime.shutdown()?;

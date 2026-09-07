@@ -10,19 +10,23 @@ Supported targets are Linux x86_64 and macOS ARM64, with Rust 1.96 or newer and
 See [release notes](https://github.com/zsumz/vthread/blob/main/RELEASE.md)
 for verification coverage and known limitations.
 
+vthread is in early development, intended for evaluation and feedback. The `0.1.x`
+series preserves public API compatibility; breaking API or contract changes move
+to `0.2`.
+
 ## A first task
 
 Add vthread to your project:
 
 ```toml
 [dependencies]
-vthread = "0.0.2"
+vthread = "0.1"
 ```
 
 ```rust
 fn main() -> vthread::Result<()> {
     vthread::run(|scope| {
-        let mut task = scope.spawn("answer", || 42)?;
+        let mut task = scope.spawn("answer", || 52)?;
         println!("{}", task.join()?);
         Ok(())
     })

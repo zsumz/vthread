@@ -3,7 +3,7 @@
 //! ```
 //! fn main() -> vthread::Result<()> {
 //!     vthread::run(|scope| {
-//!         let mut answer = scope.spawn("answer", || 42)?;
+//!         let mut answer = scope.spawn("answer", || 52)?;
 //!         println!("{}", answer.join()?);
 //!         Ok(())
 //!     })

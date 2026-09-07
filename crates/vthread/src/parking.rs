@@ -10,13 +10,13 @@
 //!         let (parker, unparker) = park_pair();
 //!         let mut waiter = scope.spawn("waiter", move || {
 //!             let owner = thread::current().id();
-//!             let local = Rc::new(42);
+//!             let local = Rc::new(52);
 //!             let outcome = parker.park_timeout(Duration::from_secs(5))?;
 //!             assert_eq!(thread::current().id(), owner);
 //!             Ok::<_, vthread::Error>((*local, outcome))
 //!         })?;
 //!         thread::spawn(move || unparker.unpark()).join().expect("remote waker");
-//!         assert_eq!(waiter.join()??, (42, ParkOutcome::Ready));
+//!         assert_eq!(waiter.join()??, (52, ParkOutcome::Ready));
 //!         Ok(())
 //!     })?;
 //!     runtime.shutdown().map(|_| ())

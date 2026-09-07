@@ -27,7 +27,7 @@ pub struct Mutex<T> {
 /// Forgetting a guard retains the lock until the mutex is dropped along with its value.
 ///
 /// ```compile_fail
-/// let mutex = vthread::sync::Mutex::new(42);
+/// let mutex = vthread::sync::Mutex::new(52);
 /// let guard = mutex.try_lock().unwrap();
 /// std::thread::scope(|scope| { scope.spawn(move || drop(guard)); });
 /// ```

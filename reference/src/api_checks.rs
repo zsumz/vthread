@@ -25,7 +25,7 @@ pub(crate) fn verify() -> Result<()> {
 fn generic_application_errors() {
     // The top-level runner preserves the same borrowed, non-Send error behavior.
     let message = String::from("caller-owned application error");
-    let error = (&message, Rc::new(Cell::new(42)));
+    let error = (&message, Rc::new(Cell::new(52)));
     let result = vthread::try_run(|_| Err::<(), _>(error));
     let Err(failure) = result else {
         panic!("application body failure lost")
@@ -35,7 +35,7 @@ fn generic_application_errors() {
     assert!(failure.scope().is_none() && failure.shutdown().is_none());
     let (body, scope, shutdown) = failure.into_parts();
     assert!(scope.is_none() && shutdown.is_none());
-    assert_eq!(body.unwrap().1.get(), 42);
+    assert_eq!(body.unwrap().1.get(), 52);
     let error = Runtime::builder().blocking_capacity(0).build().unwrap_err();
     assert!(matches!(
         error,
@@ -152,7 +152,7 @@ fn caller_owned_io_sources() -> Result<()> {
 }
 
 fn default_waiter_budgets() -> Result<()> {
-    let mutex = Mutex::new(42);
+    let mutex = Mutex::new(52);
     let condition = Condvar::new();
     let notify = Notify::new();
     let semaphore = Semaphore::new(1)?;
@@ -168,12 +168,12 @@ fn default_waiter_budgets() -> Result<()> {
     assert_eq!(sender.capacity(), 1);
     assert_eq!(sender.wait_capacity(), channel::DEFAULT_WAIT_CAPACITY);
     assert_eq!(receiver.wait_capacity(), DEFAULT_WAIT_CAPACITY);
-    sender.try_send(42).map_err(|error| error.into_parts().0)?;
-    let rejected = sender.try_send(43).unwrap_err();
+    sender.try_send(52).map_err(|error| error.into_parts().0)?;
+    let rejected = sender.try_send(53).unwrap_err();
     assert!(matches!(rejected.error(), Error::WouldBlock));
-    assert_eq!(rejected.into_inner(), 43);
-    assert_eq!(receiver.try_recv()?, 42);
-    assert_eq!(*mutex.try_lock()?, 42);
+    assert_eq!(rejected.into_inner(), 53);
+    assert_eq!(receiver.try_recv()?, 52);
+    assert_eq!(*mutex.try_lock()?, 52);
     let permit = semaphore.try_acquire()?;
     assert!(matches!(semaphore.try_acquire(), Err(Error::WouldBlock)));
     drop(permit);

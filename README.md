@@ -42,13 +42,13 @@ Add vthread to your project:
 
 ```toml
 [dependencies]
-vthread = "0.0.2"
+vthread = "0.1"
 ```
 
 ```rust
 fn main() -> vthread::Result<()> {
     vthread::run(|scope| {
-        let mut answer = scope.spawn("answer", || 42)?;
+        let mut answer = scope.spawn("answer", || 52)?;
         println!("{}", answer.join()?);
         Ok(())
     })
@@ -70,6 +70,12 @@ feature combinations, rustdoc, architecture, and application and benchmark check
 vthread requires Rust 1.96 or newer, Linux x86_64 or macOS ARM64, and unwinding
 panics. Builds with `panic = "abort"` are rejected. See [release notes](RELEASE.md)
 for verification coverage and known limitations.
+
+## Compatibility
+
+vthread is in early development, intended for evaluation and feedback. The `0.1.x`
+series preserves public API compatibility; breaking API or contract changes move
+to `0.2`. Tested configurations and known limitations are in the [release notes](RELEASE.md).
 
 ## Docs
 

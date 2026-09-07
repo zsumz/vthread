@@ -12,19 +12,22 @@ It shares vthread's Linux x86_64 and macOS ARM64 targets, Rust 1.96 minimum, and
 See [release notes](https://github.com/zsumz/vthread/blob/main/RELEASE.md)
 for verification coverage and known limitations.
 
+This alias follows vthread's early-development compatibility policy: compatible
+public API updates within `0.1.x`, breaking API or contract changes in `0.2`.
+
 ## Using the alias
 
 Add the alias to your project:
 
 ```toml
 [dependencies]
-vthreads = "0.0.2"
+vthreads = "0.1"
 ```
 
 ```rust
 fn main() -> vthreads::Result<()> {
     vthreads::run(|scope| {
-        let mut task = scope.spawn("answer", || 42)?;
+        let mut task = scope.spawn("answer", || 52)?;
         println!("{}", task.join()?);
         Ok(())
     })

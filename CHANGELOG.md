@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.1.0 - 2026-09-07
+
+- Prepare an early public-feedback release with compatible public API updates in
+  `0.1.x`; breaking API or contract changes move to `0.2`.
+- Retain the existing runtime without promoting held performance experiments.
+- Require the full fixed-arrival application matrix and offline package builds in
+  release qualification on Linux x86_64 and macOS ARM64.
+- Update installation examples to `0.1` and use `52` throughout the examples.
+- Keep the historical refill stall unresolved and visible in [release notes](RELEASE.md).
+
 ## 0.0.2 - 2026-09-07
 
 - Prepared the retained `0.0.2-rc.2` runtime for early evaluation as `0.0.2`.
