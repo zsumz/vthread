@@ -102,8 +102,33 @@ That scope follows from the pinned command, successful step and runner validatio
 raw CI logs and artifact downloads were not accessible during this closeout.
 
 These results qualify the reviewed baseline, not newly versioned `0.1.0` archives.
-Final-version local checks, package audits and both-target CI must be recorded
-separately before publication.
+Final-version qualification is recorded separately below.
+
+### 0.1.0 closeout
+
+The `0.1.0` code and configuration passed all 18 canonical gates locally on Linux
+x86-64 with Rust 1.96.1, including native debug/release tests and doctests. The
+code/configuration digest is:
+
+`801397809bd0bcb1aa990d583764029c4db7c668f446ca6fe01b68f17847b730`.
+
+Clean commit `46c9ce6e0d358f9ff19f620e2f6ec2f075507476` additionally passed:
+
+| Check | Result |
+| --- | --- |
+| Full application matrix | 22 cases: eight closed-loop loads, eight fixed-arrival cases, six failure rounds |
+| Standalone reference | All 13 tests passed, including the updated `52` examples |
+| Distributable packages | All four archives built offline from packaged contents and passed an independent audit |
+
+The audit verifies committed source bytes, licenses, normalized manifests, exact
+internal pins, registry dependency closure and sibling archive checksums. Evidence
+and archives are kept outside the source checkout. These results are not a
+registry-consumer check, a controlled performance result or a stability verdict.
+
+Both-target CI must also qualify the publication candidate. The required release
+jobs now run the full 22-case application matrix and package verification; their
+uploaded artifacts identify each run and target. Rebuilding after any source
+commit changes requires a fresh archive audit, even for documentation-only edits.
 
 ### Historical RC evidence
 
@@ -159,7 +184,7 @@ historical artifacts, not newly packaged files.
 | --- | --- |
 | Historical refill stall | [Known unresolved reliability risk](#known-risk); public issue tracking remains required. |
 | Cancellation history | Semantic bounds and cancellation paths remain mandatory tests. The historical wall-time excursion remains separate performance evidence; `zcheck run perf-cancellation-history` retains its explicit optimized guard. |
-| Final-version qualification | Both-platform baseline execution is recorded above. The full 22-case matrix and final `0.1.0` packages require their own source-keyed results. |
+| Distribution qualification | Preserve exact-source both-target CI and final archive audit results. Run a fresh registry-only README consumer after authorized publication, before announcement. |
 | Alternate-stack sanitizers | Hooks are not qualified. Ordinary compiler sanitizer flags do not establish support for the native context-switch boundary. |
 | Scale and sustained load | Large simultaneous populations, the full mixed-lifetime stress target, memory footprint, loaded tails and controlled-host idle CPU require separate qualification. Short smoke runs do not replace it. |
 | Scaling costs | Wake-depth observation has provisioned-capacity-dependent cost; the readiness driver still reconciles registration maps. Neither held scaling candidate is included. |
