@@ -48,6 +48,15 @@ Most active grants in the longer four-carrier diagnostic cells target another
 owner, but stage time and actual recipient sleep remain unmeasured. No new
 default-path speedup or May comparison is claimed.
 
+The next [resident wait fault slice](resident-wait-fault-review.md) proves two
+unnecessary global incident-counter updates on an ordinary successful resident
+handoff. Lazy fault construction improves the local/default mutex screens, but
+the protected TCP confirmation misses time/CPU/tail acceptance. The exact
+`c2289e69` candidate passes all fourteen canonical gates and is preserved, not
+promoted. The retained source remains `325396ac`; this checkpoint adds evidence
+only. Scheduler/CPU traces also demonstrate virtual-CPU steal, without attributing
+every slow handoff to the host or qualifying any previously held candidate.
+
 | Work item | Retained result / remaining requirement |
 | --- | --- |
 | Native qualification | Default debug/release now mandatory; all-feature diagnostics remain covered |
