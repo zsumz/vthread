@@ -1,7 +1,8 @@
-# Release candidate 0.0.2-rc.2
+# Release 0.0.2
 
-Status: prepared, not published. This candidate does not carry a stable-release
-verdict. The [recorded qualification](#recorded-qualification) and
+Status: preparing `0.0.2` for early evaluation; crates.io publication is pending.
+This version does not carry a production-readiness verdict. The
+[recorded qualification](#recorded-qualification) and
 [remaining release gates](#remaining-release-gates-and-limitations) define its
 current evidence and limits.
 
@@ -9,23 +10,24 @@ The runtime retains carrier affinity, both cancellation checkpoints, exact wait
 generations, bounded resource accounting, structured scope ownership, and
 cancellation-safe direct mutex ownership transfer.
 
-## Candidate scope
+## Scope
 
-The candidate includes native guarded stacks and execution reuse, compact
-carrier-owned task storage, resident synchronization waits, and owner-routed wakes.
+Version `0.0.2` retains the `0.0.2-rc.2` runtime: native guarded stacks and execution
+reuse, compact carrier-owned task storage, resident synchronization waits, and
+owner-routed wakes.
 It also includes bounded wake cohorts and admission service, deferred publication
 and cleanup, cached ingress visibility, routed timers, and revocation-epoch
 maintenance. Diagnostic features remain opt-in; default builds do not enable
 timing instrumentation.
 
 Held capacity, readiness, channel, mailbox, polling, and lazy-fault experiments
-are not included in this candidate. Their earlier performance results
-are not claims about this candidate. The standalone benchmark workspace measures
+are not included in this version. Their earlier performance results
+are not claims about this version. The standalone benchmark workspace measures
 only this runtime. HTTP remains outside the core project.
 
 Historical experiment reports and raw evidence remain on the preserved
 `perf/scheduler-hot-path` branch at `6e7121cd00dc7b3efdc93e128b55f83cdf89c2d0`.
-They are not part of the RC checkout or distributed crates. Git history is not
+They are not part of the release checkout or distributed crates. Git history is not
 rewritten.
 
 ## Correctness repairs
@@ -51,7 +53,7 @@ nor the passing tests establish an exhaustive runtime proof.
 | --- | --- |
 | Canonical `zcheck run check` | Native debug and release workspace tests; all-feature tests; documentation and compile-fail examples; source, layout and architecture policy; application evidence validation; public-API load and failure smoke tests. |
 | Standalone benchmark, also required by `zcheck run check` | Formatting, Clippy, default tests and all-feature tests. A workspace-only pass does not qualify this separate manifest. |
-| Additional RC qualification | Distributable packages and their dependency closure, longer mixed traffic, full application qualification, and exact-source native execution on both advertised targets. |
+| Additional release qualification | Distributable packages and their dependency closure, longer mixed traffic, full application qualification, and exact-source native execution on both advertised targets. |
 
 Package creation is not publication. The publication order is `vthread-stack`,
 `vthread-sync-core`, `vthread`, then `vthreads`; the lab, benchmark and reference
@@ -59,8 +61,15 @@ packages remain unpublished.
 
 ## Recorded qualification
 
-These preserved results describe Linux x86-64 with Rust 1.96.1 and the default
-native engine unless a feature set is named. The archived code/manifest digest is:
+The `0.0.2` code and manifests passed all 18 canonical gates and all 13 standalone
+reference tests locally on Linux x86-64. This is not native macOS execution or
+production-readiness evidence.
+
+### Historical RC evidence
+
+These historical results describe `0.0.2-rc.2` on Linux x86-64 with Rust 1.96.1
+and the default native engine unless a feature set is named. They do not attest to
+newly versioned `0.0.2` package bytes. The archived code/manifest digest is:
 
 `8ac4c314fdfe944a53ddf4395b1feb4cfa5bd18465f0c559201823030e3ef73d`.
 
@@ -100,9 +109,9 @@ Raw qualification artifacts are archived separately from the source checkout.
 The [historical evidence index](https://github.com/zsumz/vthread/blob/12bac5291b4c262a01ace65330903789880e15cf/release-evidence/0.0.2-rc.2/README.md)
 records the preserved bundle's hashes and replay instructions.
 
-Later documentation presentation edits do not change executable source, but their
-bytes are outside that archived source and package snapshot. The recorded hashes
-identify the archived artifacts; they do not attest to newly packaged files.
+The `0.0.2` version metadata, documentation and unsupported-platform diagnostic
+wording are outside that archived snapshot. The recorded hashes identify the
+historical artifacts, not newly packaged files.
 
 ## Remaining release gates and limitations
 
@@ -117,4 +126,4 @@ identify the archived artifacts; they do not attest to newly packaged files.
 | Performance acceptance | No dedicated performance host is currently available. Local timing is observational, with no new performance acceptance or latency guarantee. |
 
 These items must remain visible when deciding whether to merge, tag or publish.
-Preparing RC sources does not waive unresolved correctness or platform gates.
+Preparing `0.0.2` sources does not waive unresolved correctness or platform gates.

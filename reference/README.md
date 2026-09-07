@@ -4,8 +4,8 @@ This standalone crate depends only on vthread's public API. It demonstrates stru
 pipelines, virtual TCP, dynamic services, notifications, blocking work, and controlled
 shutdown.
 
-It follows the unpublished `0.0.2-rc.2` release candidate; see the [release status](../RELEASE.md)
-for qualification progress.
+It follows the prepared `0.0.2` release for early development and evaluation; crates.io
+publication is pending. See the [release status and limitations](../RELEASE.md).
 
 ## Run it
 
@@ -26,7 +26,7 @@ For an application beside a checkout named `vthread`:
 
 ```toml
 [dependencies]
-vthread = { path = "../vthread/crates/vthread", version = "=0.0.2-rc.2" }
+vthread = { path = "../vthread/crates/vthread", version = "=0.0.2" }
 ```
 
 - Give the runtime one application-level owner. Use scopes for requests and operations,
