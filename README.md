@@ -1,32 +1,36 @@
 <p align="center">
-  <img src="./vthread-logo.svg" alt="vthread" width="720">
+  <img src="./vthread-logo.svg" alt="vthread — virtual threads for Rust" width="680">
 </p>
 
 <p align="center">
-  <strong>Carrier-affine virtual threads for Rust.</strong>
+  <strong>Synchronous Rust. Lightweight tasks. Structured lifetimes.</strong>
 </p>
 
 <p align="center">
-  vthread runs ordinary synchronous functions on reusable stacks. A task suspends at
-  explicit vthread operations, stays on one carrier thread after it starts, and always
-  belongs to a scope or supervisor.
+  <a href="#quick-start">Quick start</a>
+  <span> · </span>
+  <a href="#built-in">Features</a>
+  <span> · </span>
+  <a href="#the-contract">Guarantees</a>
+  <span> · </span>
+  <a href="#explore">Explore</a>
 </p>
 
-<p align="center">
-  <a href="#start">Start</a>
-  <span> · </span>
-  <a href="#requirements">Requirements</a>
-  <span> · </span>
-  <a href="#what-it-provides">Features</a>
-  <span> · </span>
-  <a href="#how-it-behaves">Behavior</a>
-  <span> · </span>
-  <a href="#check">Check</a>
-</p>
+Run ordinary functions on reusable stacks. Each task stays on one carrier thread
+after it starts and belongs to a scope or supervisor.
 
-<br />
+## Quick start
 
-## Start
+Requires **Rust 1.96+**, Linux x86_64 or macOS ARM64, and unwinding panics.
+`panic = "abort"` builds are rejected at compile time.
+
+Try the unpublished `0.0.2-rc.2` candidate from Git.
+[Release status](RELEASE.md) tracks qualification and open gates.
+
+```toml
+[dependencies]
+vthread = { git = "https://github.com/zsumz/vthread", branch = "release/0.0.2-rc.2" }
+```
 
 ```rust
 fn main() -> vthread::Result<()> {
@@ -38,69 +42,35 @@ fn main() -> vthread::Result<()> {
 }
 ```
 
-## Requirements
+## Built in
 
-vthread 0.0.2-rc.2 supports Linux x86_64 and macOS ARM64 with Rust 1.96 or newer. It
-requires unwinding panics; applications configured with `panic = "abort"` are rejected at
-compile time.
+- **Scoped tasks** — typed joins, borrowed children, cancellation and deadlines.
+- **Synchronization** — FIFO mutexes, condition variables, semaphores and bounded channels.
+- **Synchronous I/O** — TCP, UDP, Unix sockets, DNS and filesystem operations.
+- **Blocking delegation** — a bounded native pool for work that cannot suspend.
+- **Diagnostics** — named tasks, park reasons, snapshots, stall policies and opt-in evidence.
 
-Candidate status and qualification limits are tracked in [release preparation](RELEASE.md).
-Once this candidate is published, its crates.io dependency is:
+Task admission, queues, stacks, waiters, timers, I/O registrations and native jobs
+have explicit bounds.
 
-```toml
-[dependencies]
-vthread = "0.0.2-rc.2"
-```
+## The contract
 
-## What it provides
+- **Owned lifetimes.** Scopes own their children; dropping a join handle never detaches work.
+- **Stable carriers.** Started tasks never migrate and can keep values such as `Rc` across suspension.
+- **Cooperative cancellation.** Tasks observe cancellation at checkpoints and vthread operations.
 
-- Structured tasks with typed joins, borrowed local children, cancellation, and deadlines.
-- FIFO virtual mutexes, condition variables, semaphores, notifications, and bounded channels.
-- TCP, UDP, Unix sockets, DNS, and filesystem operations that suspend virtual threads.
-- A bounded native pool for blocking functions that cannot run on a carrier.
-- Named tasks, park reasons, runtime snapshots, stall policies, and explicit shutdown reports.
-- Opt-in bounded runtime evidence with exact wait generations and reusable stack identities.
-- Bounded task admission, queues, stacks, waiters, timers, readiness registrations, and native jobs.
+Standard-library blocking calls are **not** virtualized. Use vthread APIs or
+`vthread::blocking::run`; direct native I/O, sleeps, locks and blocking FFI occupy
+the task's carrier.
 
-## How it behaves
+## Explore
 
-Scopes own their children. Dropping a join handle does not detach work. A started virtual
-thread never migrates, so it can keep carrier-local values such as `Rc` across suspension.
-Cancellation is cooperative and is observed at checkpoints and vthread operations.
+[Reference application](reference/README.md) ·
+[Benchmarks](benchmarks/README.md) ·
+[Runtime evidence](crates/vthread/README.md#runtime-evidence) ·
+[Contributing](CONTRIBUTING.md) ·
+[Security](SECURITY.md)
 
-Standard-library blocking calls are not virtualized. Calling `std::fs`, `std::net`,
-`std::thread::sleep`, a native mutex, or unknown FFI from a virtual thread blocks its carrier.
-Use the matching vthread API or `vthread::blocking::run`.
-
-## Runtime evidence
-
-Qualification tools can enable the `runtime-evidence` feature for a bounded, typed event stream
-covering owned roots and supervisors, tasks, stacks, waits, wake origins, timers, queues, and
-shutdown. Borrowed local scopes reuse their containing owned scope. Recording remains off until
-the builder receives `evidence_capacity`; a full or disconnected buffer reports exact loss
-instead of blocking the runtime. Consumers can wait for one bounded batch without busy polling.
-The `qualification` feature also exposes a generation-bound wake probe for proving stale wakes
-are rejected by the real selector.
-
-## Reference application
-
-The standalone [reference application](reference/README.md) uses only the public API. It
-shows structured services, virtual networking, notifications, blocking delegation, and
-controlled shutdown.
-
-## Performance
-
-The standalone [scheduler harness](benchmarks/README.md) measures yield, spawn/reclaim,
-park/wake, contended synchronization, bounded channels, readiness-driven TCP, and
-wake-to-resume tails. Worker, task, stack, warm-up, and sample settings are explicit.
-Results describe the measured workload and host, not a universal latency guarantee.
-
-## Check
-
-```sh
-zcheck run check
-```
-
-## License
+Run the complete project check with `zcheck run check`.
 
 [Apache License 2.0](LICENSE)

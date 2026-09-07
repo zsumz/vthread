@@ -4,10 +4,10 @@
 
 ## 0.0.2-rc.2 - 2026-09-07
 
-- Replaced the corosensei dependency with a native stack engine for Linux x86_64 and macOS
-  ARM64 that owns guard-page-backed stack mappings, stack identities, and forced reclamation
-  of suspended stacks. Fiber control blocks and entries live on the fiber's own stack, so a
-  pooled fiber start performs no heap allocation.
+### Runtime
+
+- Replaced corosensei with native guarded stacks on Linux x86_64 and macOS ARM64.
+  Stack-resident control blocks and entries make pooled fiber starts allocation-free.
 - Reused carrier-owned task, execution, stack and synchronization-wait storage; kept ready
   entries compact and started tasks permanently carrier-affine.
 - Added cancellation-safe direct mutex ownership transfer without a second native value lock.
@@ -15,14 +15,22 @@
   and cleanup without occupying a carrier on a paused publisher.
 - Routed expired timers directly, gated borrowed-scope maintenance by revocation epochs, and
   cached visible ingress while preserving bounded admission and shutdown ownership.
-- Repaired exact-once ready-queue cleanup, mounted-context borrowing across suspension,
-  unstarted-fiber destructor mounting, and permanent forced-unwind identity exhaustion.
+
+### Correctness
+
+- Made ready-queue cleanup inspect every entry exactly once.
+- Prevented mounted-context borrows from surviving their resume through suspension.
+- Preserved the caller's mount when dropping an unstarted fiber.
+- Made forced-unwind identity exhaustion permanent, even after caught panics.
+
+### Qualification
+
 - Added opt-in scheduler and handoff diagnostics, ordered concurrency regressions and modeled
   ownership/publication protocols; native debug and release tests are mandatory qualification.
 - Kept a standalone runtime-only benchmark harness and added its formatting, lint and test
   checks to canonical qualification. Experimental reports remain outside the release tree.
 
-See [release preparation](RELEASE.md) for qualification status and unresolved release gates.
+See [release status](RELEASE.md) for qualification results and open gates.
 
 ## 0.0.2-rc.1 - 2026-09-01
 
