@@ -6,7 +6,8 @@ Applications should depend on [`vthread`](https://github.com/zsumz/vthread), who
 forbids unsafe Rust. This support crate isolates the unsafe stack mechanics and has no
 compatibility contract for direct downstream use.
 
-Version `0.0.2-rc.2` is an unpublished release candidate, not yet release-qualified.
+Version `0.0.2` is prepared for early development and evaluation; crates.io publication is
+pending. See the [release status and limitations](https://github.com/zsumz/vthread/blob/release/0.0.2/RELEASE.md).
 
 ## Ownership and safety
 

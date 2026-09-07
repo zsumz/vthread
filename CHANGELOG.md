@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.0.2 - 2026-09-07
+
+- Prepared the retained `0.0.2-rc.2` runtime for early evaluation as `0.0.2`.
+- Updated all package versions and exact internal dependency pins together.
+- Switched installation examples to crates.io and kept qualification limitations
+  explicit in [release status](RELEASE.md).
+
 ## 0.0.2-rc.2 - 2026-09-07
 
 ### Runtime
