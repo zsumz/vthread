@@ -73,7 +73,7 @@ Linux x86-64, Rust 1.96.1, default native engine unless a feature set is named.
 | Standalone reference | 13 tests passed |
 | Full application matrix | 22 cases passed: eight loads, eight fixed-arrival cases, six failure rounds |
 | Bounded mixed soak | Three 30-second processes passed; 530,361 task lifetimes completed and reclaimed |
-| Distributable crates | Initial four build verifications passed; clean archives require final audit |
+| Distributable crates | All four clean archives built, verified and independently audited |
 
 The soak covered one/four carriers and 64/1,024-task batches on the preceding
 digest `a794281116bfb7708c564345e5b740d9da4bb70389e1502c711a570088f5f3ed`.
@@ -84,10 +84,14 @@ three failure rounds per carrier count, and 256 offered arrivals at 2,000/second
 Its timing samples are local observations, not controlled-host tail acceptance.
 
 The initial package audit found a missing license file in `vthread-sync-core`;
-the root Apache-2.0 license has been added byte-for-byte. Final clean packaging
-and archive identity verification follow the committed source checkpoint.
+the root Apache-2.0 license has been added byte-for-byte. Final archives match
+clean source commit `58976649f5fb2bf716cb5e2a3694dbb6bf2b2548`, include every
+package's license, and have exact internal version pins and archive checksums.
 The two existing manual performance probes are intentionally excluded from the
 canonical test count; mandatory cancellation semantics and bounds still pass.
+
+[Durable qualification evidence](release-evidence/0.0.2-rc.2/README.md) contains
+the source snapshot, raw logs, negative controls, receipts and final crate archives.
 
 ## Remaining release gates and limitations
 
