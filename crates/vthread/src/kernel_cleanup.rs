@@ -59,15 +59,19 @@ impl Kernel {
         if let Some(task) = retained_flight {
             self.ready.push_front(task);
         }
-        for _ in 0..self.ready.len() {
-            let task = self.ready.pop_front().expect("ready task");
-            if scope.is_none_or(|scope| self.task(task).execution().record().lock().scope == scope)
-            {
-                self.in_flight = Some(task);
-                self.discard_in_flight(reason);
-            } else {
-                self.ready.push_back(task);
-            }
+        let mut inspection = self.ready.inspection();
+        while let Some(task) = self.ready.remove_matching(&mut inspection, |task| {
+            scope.is_none_or(|scope| {
+                self.tasks
+                    .get(task)
+                    .expect("ready task")
+                    .execution()
+                    .scope()
+                    == scope
+            })
+        }) {
+            self.in_flight = Some(task);
+            self.discard_in_flight(reason);
         }
         let tasks = self
             .parked
@@ -110,9 +114,8 @@ impl Kernel {
             self.discard_in_flight(reason);
         }
         if let Some(retained) = retained_flight {
-            let restored = self.ready.pop_front().expect("retained in-flight task");
-            assert_eq!(restored, retained, "retained in-flight task moved");
-            self.in_flight = Some(restored);
+            assert!(self.ready.remove(retained), "retained in-flight task moved");
+            self.in_flight = Some(retained);
         }
         self.refresh_borrowed();
         self.publish(CarrierStatus::Running);

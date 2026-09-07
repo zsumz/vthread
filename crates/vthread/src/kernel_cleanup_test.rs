@@ -111,3 +111,64 @@ fn selective_abort_keeps_a_retained_in_flight_task_located() {
     assert_eq!(shared.snapshot().active, 1);
     kernel.abort(None, TaskFailure::RuntimeStopped);
 }
+
+#[test]
+fn selective_abort_reclaims_a_middle_wake_exactly_once() {
+    let shared = Arc::new(Shared::new(RuntimeConfig::default()));
+    let retained = shared.begin_scope().unwrap();
+    let aborted = shared
+        .begin_owned(crate::ScopeOptions::default(), true)
+        .unwrap();
+    for (index, scope) in [retained, aborted, retained, retained]
+        .into_iter()
+        .enumerate()
+    {
+        shared
+            .submit(scope, format!("wake-{index}"), || ())
+            .unwrap();
+    }
+    let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
+    kernel.receive();
+    let tasks = (0..4)
+        .map(|_| kernel.ready.pop_front().unwrap())
+        .collect::<Vec<_>>();
+    for task in tasks {
+        kernel.ready.push_wake(task);
+    }
+
+    assert!(kernel.abort(Some(aborted), TaskFailure::ScopeStalled));
+
+    assert_eq!(shared.scope_report(aborted).aborted, 1);
+    assert_eq!(kernel.ready.len(), 3);
+    kernel.abort(None, TaskFailure::RuntimeStopped);
+}
+
+#[test]
+fn selective_abort_restores_in_flight_identity_beside_wakes() {
+    let shared = Arc::new(Shared::new(RuntimeConfig::default()));
+    let retained = shared.begin_scope().unwrap();
+    let aborted = shared
+        .begin_owned(crate::ScopeOptions::default(), true)
+        .unwrap();
+    for index in 0..3 {
+        shared
+            .submit(retained, format!("retained-{index}"), || ())
+            .unwrap();
+    }
+    let mut kernel = Kernel::new(shared, CarrierId(0));
+    kernel.receive();
+    kernel.in_flight = kernel.ready.pop_front();
+    let retained = kernel.in_flight;
+    let wakes = (0..2)
+        .map(|_| kernel.ready.pop_front().unwrap())
+        .collect::<Vec<_>>();
+    for task in wakes {
+        kernel.ready.push_wake(task);
+    }
+
+    assert!(kernel.abort(Some(aborted), TaskFailure::ScopeStalled));
+
+    assert_eq!(kernel.in_flight, retained);
+    assert_eq!(kernel.ready.len(), 2);
+    kernel.abort(None, TaskFailure::RuntimeStopped);
+}

@@ -12,6 +12,9 @@ use std::collections::VecDeque;
 
 use crate::task_slab::TaskKey;
 
+#[path = "ready_queue_inspection.rs"]
+mod inspection;
+
 const WAKE_BURST: u8 = 2;
 
 pub(crate) struct ReadyQueue {

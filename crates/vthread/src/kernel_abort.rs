@@ -60,17 +60,14 @@ impl Kernel {
 
     #[cold]
     pub(super) fn select_unblocked(&mut self) -> Option<crate::task_slab::TaskKey> {
-        for _ in 0..self.ready.len() {
-            let task = self.ready.pop_front().expect("ready task");
-            if self.pending_aborts.iter().any(|(scope, _)| {
-                scope.is_none_or(|scope| self.task(task).execution().scope() == scope)
-            }) {
-                self.ready.push_back(task);
-            } else {
-                return Some(task);
-            }
-        }
-        None
+        let tasks = &self.tasks;
+        let pending = &self.pending_aborts;
+        self.ready.pop_matching(|task| {
+            let task = tasks.get(task).expect("ready task");
+            !pending
+                .iter()
+                .any(|(scope, _)| scope.is_none_or(|scope| task.execution().scope() == scope))
+        })
     }
 }
 

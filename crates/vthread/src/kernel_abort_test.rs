@@ -18,3 +18,37 @@ fn deferred_cleanup_is_coalesced_and_global_stop_dominates() {
     kernel.retry_aborts();
     assert!(kernel.pending_aborts.is_empty());
 }
+
+#[test]
+fn deferred_abort_finds_an_unblocked_middle_wake() {
+    let shared = Arc::new(Shared::new(crate::RuntimeConfig::default()));
+    let blocked = shared.begin_scope().unwrap();
+    let unblocked = shared
+        .begin_owned(crate::ScopeOptions::default(), true)
+        .unwrap();
+    for (index, scope) in [blocked, unblocked, blocked, blocked]
+        .into_iter()
+        .enumerate()
+    {
+        shared
+            .submit(scope, format!("wake-{index}"), || ())
+            .unwrap();
+    }
+    let mut kernel = Kernel::new(shared, CarrierId(0));
+    kernel.receive();
+    let tasks = (0..4)
+        .map(|_| kernel.ready.pop_front().unwrap())
+        .collect::<Vec<_>>();
+    for &task in &tasks {
+        kernel.ready.push_wake(task);
+    }
+    kernel.defer_abort(Some(blocked), TaskFailure::ScopeStalled);
+
+    let selected = kernel.select_unblocked();
+
+    // Newest-to-oldest is blocked, blocked, eligible, blocked. A four-pop
+    // scheduling rotation revisits the newest task and misses the eligible one.
+    assert_eq!(selected, Some(tasks[1]));
+    kernel.ready.push_back(selected.unwrap());
+    kernel.abort(None, TaskFailure::RuntimeStopped);
+}
