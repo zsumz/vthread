@@ -2,11 +2,11 @@
 
 The narrow exclusive-value and protocol core supporting `vthread` synchronization.
 
-Applications should depend on [`vthread`](https://github.com/zsumz/vthread). This support crate
+Use [`vthread`](https://github.com/zsumz/vthread) in applications. This support crate
 has no compatibility contract for direct downstream use.
 
-Version `0.0.2` is prepared for early development and evaluation; crates.io publication is
-pending. See the [release status and limitations](https://github.com/zsumz/vthread/blob/release/0.0.2/RELEASE.md).
+See [release notes](https://github.com/zsumz/vthread/blob/main/RELEASE.md)
+for verification coverage and known limitations.
 
 ## Runtime boundary
 

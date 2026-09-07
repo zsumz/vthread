@@ -2,12 +2,12 @@
 
 The stack and context-switching backend used by `vthread`.
 
-Applications should depend on [`vthread`](https://github.com/zsumz/vthread), whose public crate
+Use [`vthread`](https://github.com/zsumz/vthread) in applications. Its public crate
 forbids unsafe Rust. This support crate isolates the unsafe stack mechanics and has no
 compatibility contract for direct downstream use.
 
-Version `0.0.2` is prepared for early development and evaluation; crates.io publication is
-pending. See the [release status and limitations](https://github.com/zsumz/vthread/blob/release/0.0.2/RELEASE.md).
+See [release notes](https://github.com/zsumz/vthread/blob/main/RELEASE.md)
+for verification coverage and known limitations.
 
 ## Ownership and safety
 

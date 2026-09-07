@@ -38,7 +38,7 @@ names, park reasons, and snapshots.
 
 ## Start
 
-Once published, add the crates.io dependency:
+Add vthread to your project:
 
 ```toml
 [dependencies]
@@ -68,9 +68,8 @@ The complete gate covers formatting, Clippy, native debug and release tests,
 feature combinations, rustdoc, architecture, and application and benchmark checks.
 
 vthread requires Rust 1.96 or newer, Linux x86_64 or macOS ARM64, and unwinding
-panics. Builds with `panic = "abort"` are rejected. Version `0.0.2` is intended
-for early evaluation; crates.io publication is pending. See
-[release status](RELEASE.md) for qualification and known limitations.
+panics. Builds with `panic = "abort"` are rejected. See [release notes](RELEASE.md)
+for verification coverage and known limitations.
 
 ## Docs
 
