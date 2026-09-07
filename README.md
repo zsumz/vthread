@@ -1,31 +1,44 @@
 <p align="center">
-  <img src="./vthread-logo.svg" alt="vthread — virtual threads for Rust" width="680">
+  <img src="./vthread-logo.svg" alt="vthread" width="720">
 </p>
 
 <p align="center">
-  <strong>Synchronous Rust. Lightweight tasks. Structured lifetimes.</strong>
+  <strong>Carrier-affine virtual threads for Rust.</strong>
 </p>
 
 <p align="center">
-  <a href="#quick-start">Quick start</a>
-  <span> · </span>
-  <a href="#built-in">Features</a>
-  <span> · </span>
-  <a href="#the-contract">Guarantees</a>
-  <span> · </span>
-  <a href="#explore">Explore</a>
+  vthread runs ordinary synchronous functions on reusable stacks, with structured
+  task ownership, bounded resources, and explicit suspension.
 </p>
 
-Run ordinary functions on reusable stacks. Each task stays on one carrier thread
-after it starts and belongs to a scope or supervisor.
+<p align="center">
+  <a href="#model">Model</a>
+  <span> · </span>
+  <a href="#start">Start</a>
+  <span> · </span>
+  <a href="#qualification">Qualification</a>
+  <span> · </span>
+  <a href="#docs">Docs</a>
+</p>
 
-## Quick start
+<br />
 
-Requires **Rust 1.96+**, Linux x86_64 or macOS ARM64, and unwinding panics.
-`panic = "abort"` builds are rejected at compile time.
+## Model
 
-Try the unpublished `0.0.2-rc.2` candidate from Git.
-[Release status](RELEASE.md) tracks qualification and open gates.
+Tasks belong to a scope or supervisor. Scopes own their children; dropping a join
+handle never detaches work. Started tasks never migrate between carrier threads,
+so they can keep values such as `Rc` across suspension.
+
+Task admission, queues, stacks, waiters, timers, I/O registrations, and native jobs
+have explicit bounds. Cancellation is cooperative and observed at checkpoints.
+
+The runtime provides synchronization, bounded channels, networking, DNS,
+filesystem operations, and native blocking delegation. Diagnostics expose task
+names, park reasons, and snapshots.
+
+## Start
+
+Use the release candidate from Git:
 
 ```toml
 [dependencies]
@@ -42,28 +55,23 @@ fn main() -> vthread::Result<()> {
 }
 ```
 
-## Built in
+Standard-library blocking calls are not virtualized. Use vthread operations or
+`vthread::blocking::run`; blocking native calls occupy the task's carrier.
 
-- **Scoped tasks** — typed joins, borrowed children, cancellation and deadlines.
-- **Synchronization** — FIFO mutexes, condition variables, semaphores and bounded channels.
-- **Synchronous I/O** — TCP, UDP, Unix sockets, DNS and filesystem operations.
-- **Blocking delegation** — a bounded native pool for work that cannot suspend.
-- **Diagnostics** — named tasks, park reasons, snapshots, stall policies and opt-in evidence.
+## Qualification
 
-Task admission, queues, stacks, waiters, timers, I/O registrations and native jobs
-have explicit bounds.
+```sh
+zcheck run check
+```
 
-## The contract
+The complete gate covers formatting, Clippy, native debug and release tests,
+feature combinations, rustdoc, architecture, and application and benchmark checks.
 
-- **Owned lifetimes.** Scopes own their children; dropping a join handle never detaches work.
-- **Stable carriers.** Started tasks never migrate and can keep values such as `Rc` across suspension.
-- **Cooperative cancellation.** Tasks observe cancellation at checkpoints and vthread operations.
+vthread requires Rust 1.96 or newer, Linux x86_64 or macOS ARM64, and unwinding
+panics. Builds with `panic = "abort"` are rejected. `0.0.2-rc.2` is unpublished
+and not yet release-qualified; see [release status](RELEASE.md) for open gates.
 
-Standard-library blocking calls are **not** virtualized. Use vthread APIs or
-`vthread::blocking::run`; direct native I/O, sleeps, locks and blocking FFI occupy
-the task's carrier.
-
-## Explore
+## Docs
 
 [Reference application](reference/README.md) ·
 [Benchmarks](benchmarks/README.md) ·
@@ -71,6 +79,6 @@ the task's carrier.
 [Contributing](CONTRIBUTING.md) ·
 [Security](SECURITY.md)
 
-Run the complete project check with `zcheck run check`.
+## License
 
-[Apache License 2.0](LICENSE)
+Apache-2.0. See [LICENSE](LICENSE).
