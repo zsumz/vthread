@@ -1,9 +1,8 @@
 use super::report;
-use crate::config::{Config, Engine, Scenario};
+use crate::config::{Config, Scenario};
 
 fn config() -> Config {
     Config {
-        engine: Engine::Vthread,
         scenario: Scenario::Spawn,
         workers: 2,
         tasks: 8,

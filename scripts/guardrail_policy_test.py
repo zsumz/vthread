@@ -77,5 +77,44 @@ class HistoryPerformanceQualificationTests(unittest.TestCase):
             self.assertTrue(self.errors(tasks))
 
 
+class BenchmarkQualificationTests(unittest.TestCase):
+    def setUp(self):
+        self.tasks = tomllib.loads((ROOT / "zcheck.toml").read_text())["tasks"]
+
+    def errors(self, tasks):
+        errors = []
+        POLICY.check_benchmark_qualification(errors, tasks)
+        return errors
+
+    def test_current_harness_is_required(self):
+        self.assertEqual(self.errors(self.tasks), [])
+
+    def test_omitted_stage_is_rejected(self):
+        for name in ("benchmark-format", "benchmark-clippy", "benchmark-test", "benchmark-test-features"):
+            tasks = copy.deepcopy(self.tasks)
+            del tasks[name]
+            self.assertTrue(self.errors(tasks))
+
+    def test_unchecked_workspace_cannot_substitute_for_the_harness(self):
+        self.tasks["benchmark-test"]["run"] = ["cargo", "test", "--locked", "--workspace"]
+        self.assertTrue(self.errors(self.tasks))
+
+    def test_instrumentation_cannot_replace_default_harness_tests(self):
+        self.tasks["benchmark-test"]["run"].append("--all-features")
+        self.assertTrue(self.errors(self.tasks))
+
+    def test_optional_or_unordered_harness_is_rejected(self):
+        for name, prerequisite in (
+            ("check", "benchmark-test-features"),
+            ("benchmark-format", "application-smoke"),
+            ("benchmark-clippy", "benchmark-format"),
+            ("benchmark-test", "benchmark-clippy"),
+            ("benchmark-test-features", "benchmark-test"),
+        ):
+            tasks = copy.deepcopy(self.tasks)
+            tasks[name]["needs"].remove(prerequisite)
+            self.assertTrue(self.errors(tasks))
+
+
 if __name__ == "__main__":
     unittest.main()

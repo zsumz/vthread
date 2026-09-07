@@ -14,7 +14,7 @@ workspace checkout:
 
 ```toml
 [dependencies]
-vthread = { path = "../vthread/crates/vthread", version = "=0.0.2-rc.1" }
+vthread = { path = "../vthread/crates/vthread", version = "=0.0.2-rc.2" }
 ```
 
 A runtime should usually have one application-level owner. Set explicit limits for tasks,

@@ -9,11 +9,10 @@ native mutex. Queueing, cancellation, bounds, and scheduling remain in the safe 
 The entirely safe `WakeMailbox` kernel is experimental; the runtime does not use it.
 A test-only `WakeInbox` composes its first 63 encoded routes with reserved payloads and a bounded
 overflow list. Shared standard/Loom tests cover payload publication, route reuse, captured-batch
-and lane fairness, and carrier sleep registration. Runtime integration was measured and rejected
-because handoff throughput regressed. See the
-[mailbox review](../../benchmarks/mailbox-review.md) and
-[integration evidence](../../benchmarks/mailbox-integration-review.md) for the proof boundary,
-sleep-handshake correction, and complete retention decision.
+and lane fairness, and carrier sleep registration. These models qualify that bounded
+experimental protocol, not the runtime's production wake queue or native signaling.
+The runtime retains its existing owner-routed wake mechanism; this experiment is not
+part of the runtime scheduling path.
 
 ```sh
 cargo test --locked -p vthread-sync-core --all-targets

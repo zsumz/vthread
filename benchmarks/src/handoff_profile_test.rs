@@ -50,10 +50,9 @@ fn handoff_report_requires_final_shutdown_and_exact_transfers() {
 
 #[test]
 fn mutex_report_requires_every_warmup_and_measured_acquisition() {
-    use crate::config::{Config, Engine, Scenario};
+    use crate::config::{Config, Scenario};
     for workers in [1, 4] {
         let config = Config {
-            engine: Engine::Vthread,
             scenario: Scenario::Mutex {
                 per_task: 50,
                 contended: true,

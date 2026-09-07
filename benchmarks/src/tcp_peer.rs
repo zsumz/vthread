@@ -75,3 +75,7 @@ fn echo(mut stream: TcpStream, round_trips: usize) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "tcp_peer_test.rs"]
+mod tcp_peer_test;

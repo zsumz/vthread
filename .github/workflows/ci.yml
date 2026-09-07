@@ -37,6 +37,7 @@ jobs:
         run: |
           cargo fetch --locked
           cargo fetch --locked --manifest-path reference/Cargo.toml
+          cargo fetch --locked --manifest-path benchmarks/Cargo.toml
       - name: Check
         env:
           CARGO_NET_OFFLINE: 'true'

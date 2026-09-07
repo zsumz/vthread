@@ -1,6 +1,6 @@
 use crate::{
     channel_delivery, channel_latency,
-    config::{Config, Engine, Scenario},
+    config::{Config, Scenario},
 };
 use std::time::Instant;
 
@@ -10,7 +10,6 @@ fn sampled_and_plain_controls_preserve_exact_delivery_on_native_carriers() {
         for capacity in [1, 64, 1_024] {
             for sample_channel_latency in [false, true] {
                 let config = Config {
-                    engine: Engine::Vthread,
                     scenario: Scenario::ChannelMpmc {
                         per_task: 128,
                         capacity,

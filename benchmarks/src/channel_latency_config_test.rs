@@ -37,11 +37,10 @@ fn channel_sampling_is_explicit_and_does_not_change_the_transfer_denominator() {
 }
 
 #[test]
-fn sampling_rejects_other_scenarios_engines_and_duplicate_options() {
+fn sampling_rejects_other_scenarios_and_duplicate_options() {
     for arguments in [
         vec!["vthread", "park", "10", "1", "4", "3"],
         vec!["vthread", "channel", "10", "1", "4", "3"],
-        vec!["may", "channel-mpmc", "10", "1", "1", "4", "3"],
         vec![
             "vthread",
             "channel-mpmc",

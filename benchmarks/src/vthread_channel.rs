@@ -1,4 +1,4 @@
-//! Paired historical controls and one shared bounded MPMC transfer workload.
+//! Paired bounded-channel controls and one shared bounded MPMC transfer workload.
 
 use std::{hint::black_box, time::Instant};
 
