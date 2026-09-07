@@ -26,6 +26,9 @@ impl<T> ContextKey<T> {
     }
 
     /// Runs `body` with the matching context from the current fiber mount.
+    ///
+    /// Suspending this fiber inside `body` returns [`SuspendError`], keeping the
+    /// borrowed context within its resume. Nested fibers may still suspend themselves.
     #[doc(hidden)]
     #[inline]
     pub fn with<R>(&'static self, body: impl for<'context> FnOnce(&'context T) -> R) -> Option<R> {
@@ -39,8 +42,9 @@ impl<T> ContextKey<T> {
             if slot.key != ptr::from_ref(self).cast() {
                 return None;
             }
-            // SAFETY: ContextSlot::new paired this key with a live shared reference to T.
-            // The higher-ranked callback prevents that reference from escaping this call.
+            let _borrow = CoreMount::install(ptr::null());
+            // SAFETY: the key identifies a live T, and suspension is disabled until body returns.
+            // The higher-ranked callback also prevents the reference from escaping its result.
             Some(body(unsafe { &*slot.value.cast::<T>() }))
         })
     }
@@ -163,3 +167,7 @@ pub fn suspend(reason: Suspension) -> Result<Resume, SuspendError> {
 #[cfg(test)]
 #[path = "mount_test.rs"]
 mod mount_test;
+
+#[cfg(test)]
+#[path = "mount_borrow_test.rs"]
+mod mount_borrow_test;

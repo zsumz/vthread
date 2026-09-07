@@ -82,9 +82,10 @@ impl Fiber {
 
     /// Reclaims the stack after completion so it can be reused.
     ///
-    /// Panics if incomplete; the fiber is still reclaimed with its control block mounted.
+    /// Panics if incomplete; suspended frames unwind on their fiber, while an
+    /// unstarted entry is reclaimed on the caller's stack.
     pub fn into_stack(mut self) -> MappedStack {
-        // Keep ownership here on failure so Drop mounts the fiber for unwinding.
+        // Keep ownership here on failure so Drop selects the correct reclamation context.
         assert!(
             self.is_complete(),
             "an incomplete fiber cannot be extracted"
@@ -99,7 +100,11 @@ impl Fiber {
 impl Drop for Fiber {
     fn drop(&mut self) {
         if let Some(execution) = self.execution.take() {
-            let _mount = CoreMount::install(execution.core_ptr());
+            // An unstarted entry is dropped on the caller's stack. Its destructors
+            // must retain that caller's suspension context, if any.
+            let _mount = execution
+                .is_suspended()
+                .then(|| CoreMount::install(execution.core_ptr()));
             drop(execution);
         }
     }
@@ -108,3 +113,7 @@ impl Drop for Fiber {
 #[cfg(test)]
 #[path = "fiber_test.rs"]
 mod fiber_test;
+
+#[cfg(test)]
+#[path = "fiber_drop_test.rs"]
+mod fiber_drop_test;

@@ -63,19 +63,24 @@ thread_local! {
 }
 
 fn next_cookie() -> u64 {
-    NEXT_COOKIE.with(|next| {
-        let mut cookie = next.get();
-        if cookie & ((1 << COOKIE_BLOCK_BITS) - 1) == 0 {
-            // The first cookie on this carrier, or an exhausted block: claim a fresh one.
-            let block = NEXT_BLOCK.fetch_add(1, Ordering::Relaxed);
-            cookie = block
-                .checked_shl(COOKIE_BLOCK_BITS)
-                .filter(|cookie| *cookie != 0)
-                .expect("unwind cookie blocks exhausted");
-        }
-        next.set(cookie + 1);
-        cookie
-    })
+    NEXT_COOKIE.with(|next| allocate_cookie(next, &NEXT_BLOCK))
+}
+
+fn allocate_cookie(next: &Cell<u64>, blocks: &AtomicU64) -> u64 {
+    let mut cookie = next.get();
+    if cookie & ((1 << COOKIE_BLOCK_BITS) - 1) == 0 {
+        // The first cookie on this carrier, or an exhausted block: claim a fresh one.
+        let block = blocks
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |block| {
+                (block <= u64::MAX >> COOKIE_BLOCK_BITS).then(|| block + 1)
+            })
+            .expect("unwind cookie blocks exhausted");
+        cookie = block << COOKIE_BLOCK_BITS;
+    }
+    // Zero requests a fresh block after the final cookie; an exhausted allocator
+    // permanently rejects that request instead of reissuing an earlier identity.
+    next.set(cookie.wrapping_add(1));
+    cookie
 }
 
 /// Where a fiber's control block and first frame sit on its stack.
@@ -214,3 +219,7 @@ pub(crate) extern "C" fn fiber_root(core: *const FiberCore) -> ! {
 #[cfg(test)]
 #[path = "context_test.rs"]
 mod context_test;
+
+#[cfg(test)]
+#[path = "context_cookie_test.rs"]
+mod context_cookie_test;

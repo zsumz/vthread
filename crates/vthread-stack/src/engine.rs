@@ -108,6 +108,11 @@ impl Execution {
         self.stage == Stage::Terminal
     }
 
+    /// Whether reclamation must switch to live frames on this fiber's stack.
+    pub(crate) fn is_suspended(&self) -> bool {
+        self.stage == Stage::Suspended
+    }
+
     /// Reclaims the stack; the caller guarantees completion.
     pub(crate) fn into_stack(mut self) -> MappedStack {
         assert!(
