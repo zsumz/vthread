@@ -5,14 +5,14 @@ Carrier-affine virtual threads for Rust.
 Write ordinary Rust functions with structured ownership, bounded resources, and explicit
 suspension points. The public runtime crate forbids unsafe Rust.
 
-Version `0.0.2` is prepared for early development and evaluation; crates.io publication is
-pending. See the [release status and limitations](https://github.com/zsumz/vthread/blob/release/0.0.2/RELEASE.md).
 Supported targets are Linux x86_64 and macOS ARM64, with Rust 1.96 or newer and
 `panic = "unwind"`. Builds with `panic = "abort"` are rejected.
+See [release notes](https://github.com/zsumz/vthread/blob/main/RELEASE.md)
+for verification coverage and known limitations.
 
 ## A first task
 
-Once published, add the crates.io dependency:
+Add vthread to your project:
 
 ```toml
 [dependencies]

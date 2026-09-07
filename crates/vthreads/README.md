@@ -3,18 +3,18 @@
 Compatibility alias for [`vthread`](https://github.com/zsumz/vthread), the bounded
 carrier-affine virtual-thread runtime for Rust.
 
-New applications should depend on `vthread` directly. This crate re-exports the public
-`vthread 0.0.2` API without adding another runtime or a separate API.
+Use `vthread` for new applications. This crate re-exports the same public API
+without adding another runtime.
 Its `runtime-evidence` and `qualification` features forward directly to `vthread`.
 
-Version `0.0.2` is prepared for early development and evaluation; crates.io publication is
-pending. See the [release status and limitations](https://github.com/zsumz/vthread/blob/release/0.0.2/RELEASE.md).
 It shares vthread's Linux x86_64 and macOS ARM64 targets, Rust 1.96 minimum, and
 `panic = "unwind"` requirement.
+See [release notes](https://github.com/zsumz/vthread/blob/main/RELEASE.md)
+for verification coverage and known limitations.
 
 ## Using the alias
 
-Once published, add the crates.io dependency:
+Add the alias to your project:
 
 ```toml
 [dependencies]

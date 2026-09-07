@@ -4,9 +4,6 @@ This standalone crate depends only on vthread's public API. It demonstrates stru
 pipelines, virtual TCP, dynamic services, notifications, blocking work, and controlled
 shutdown.
 
-It follows the prepared `0.0.2` release for early development and evaluation; crates.io
-publication is pending. See the [release status and limitations](../RELEASE.md).
-
 ## Run it
 
 From the repository root:
@@ -21,7 +18,7 @@ The default run exercises all scenarios. To run one example, append `-- dynamic-
 
 ## Use it as a guide
 
-Applications consume `vthread`; its support crates remain internal dependencies.
+Depend on `vthread` directly; its support crates are internal dependencies.
 For an application beside a checkout named `vthread`:
 
 ```toml
@@ -38,4 +35,6 @@ vthread = { path = "../vthread/crates/vthread", version = "=0.0.2" }
 - Treat cancellation as cooperative. It can stop queued work, but cannot undo a completed
   write or interrupt native work that is already running.
 
-[Runtime overview](../README.md) · [Apache License 2.0](../LICENSE)
+[Runtime overview](../README.md) ·
+[Release notes](../RELEASE.md) ·
+[Apache License 2.0](../LICENSE)
