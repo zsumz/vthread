@@ -54,6 +54,7 @@ jobs:
   qualification:
     name: qualify release (${{ matrix.target }})
     if: >-
+      github.ref == 'refs/heads/main' ||
       startsWith(github.ref, 'refs/tags/v') ||
       startsWith(github.ref, 'refs/heads/release/')
     needs: check
@@ -77,6 +78,7 @@ jobs:
         run: |
           version="$(awk -F '"' '/^version = "/ { print $2; exit }' Cargo.toml)"
           case "$GITHUB_REF" in
+            refs/heads/main) test "$GITHUB_REF_NAME" = main ;;
             refs/tags/v*) test "$GITHUB_REF_NAME" = "v$version" ;;
             refs/heads/release/*) test "$GITHUB_REF_NAME" = "release/$version" ;;
             *) exit 1 ;;
