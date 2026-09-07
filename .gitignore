@@ -2,6 +2,7 @@
 /benchmarks/target
 /release-evidence
 /.zcheck
+/.qualification
 .DS_Store
 *.profraw
 
