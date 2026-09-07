@@ -13,18 +13,16 @@ impl Kernel {
             return;
         }
         self.observed_borrowed_scope_epoch = epoch;
-        for _ in 0..self.ready.len() {
-            let task = self.ready.pop_front().expect("ready task");
+        let mut inspection = self.ready.inspection();
+        while let Some(task) = self.ready.remove_matching(&mut inspection, |task| {
             #[cfg(test)]
             {
                 self.revocation_inspections += 1;
             }
-            if self.task(task).revoked() {
-                self.in_flight = Some(task);
-                self.discard_in_flight(TaskFailure::ScopeClosed);
-            } else {
-                self.ready.push_back(task);
-            }
+            self.tasks.get(task).expect("ready task").revoked()
+        }) {
+            self.in_flight = Some(task);
+            self.discard_in_flight(TaskFailure::ScopeClosed);
         }
         let tasks = self
             .parked
@@ -73,3 +71,7 @@ impl Kernel {
 #[cfg(test)]
 #[path = "kernel_revoked_test.rs"]
 mod kernel_revoked_test;
+
+#[cfg(test)]
+#[path = "kernel_revoked_queue_test.rs"]
+mod kernel_revoked_queue_test;
