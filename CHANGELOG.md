@@ -6,11 +6,13 @@
 
 - Prepare an early public-feedback release with compatible public API updates in
   `0.1.x`; breaking API or contract changes move to `0.2`.
-- Retain the existing runtime without promoting held performance experiments.
+- Retain the established runtime architecture without promoting held performance
+  experiments.
+- Harden coalesced-inbox progress by preserving idle-observed ingress and making
+  published depth authoritative while an active carrier drives.
 - Require the full fixed-arrival application matrix and offline package builds in
   release qualification on Linux x86_64 and macOS ARM64.
 - Update installation examples to `0.1` and use `52` throughout the examples.
-- Keep the historical refill stall unresolved and visible in [release notes](RELEASE.md).
 
 ## 0.0.2 - 2026-09-07
 

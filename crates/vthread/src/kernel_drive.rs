@@ -22,6 +22,8 @@ impl Kernel {
             self.process_wakes()?;
         }
         self.select_ready();
+        #[cfg(test)]
+        self.record_test_progress(crate::signal::TestCarrierPhase::Tick);
         if self.in_flight.is_none()
             && (self.local.pending_wakes() != 0 || self.inbox.hub.has_pending())
         {

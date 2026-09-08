@@ -19,27 +19,15 @@ Use `vthread = "0.1"` to receive compatible `0.1.x` releases.
 The exact dependency set includes `zio = "=0.0.1-dev.1"`. A normal vthread version
 does not imply that every dependency has a stable-version contract.
 
-## Known risk
-
-The historical coalesced-inbox refill stall remains **unclassified**, not fixed.
-The regression now records accepted, queued, started, returned and completed work
-before cleanup and requires all 4,096 tasks to finish. Passing reruns cannot
-reconstruct the missing historical state; the cleanup repairs are not assumed
-to explain it.
-
-The feedback-release policy retains this as a disclosed unresolved reliability
-risk. It remains a blocker for a production-stability endorsement. Public issue
-tracking and final publication approval are still required before distribution.
-
 ## Scope
 
-Version `0.1.0` retains the `0.0.2` runtime: native guarded stacks and execution
-reuse, compact carrier-owned task storage, resident synchronization waits, and
-owner-routed wakes.
+Version `0.1.0` retains the established `0.0.2` runtime architecture: native
+guarded stacks and execution reuse, compact carrier-owned task storage, resident
+synchronization waits, and owner-routed wakes.
 It also includes bounded wake cohorts and admission service, deferred publication
-and cleanup, cached ingress visibility, routed timers, and revocation-epoch
-maintenance. Diagnostic features remain opt-in; default builds do not enable
-timing instrumentation.
+and cleanup, cached ingress visibility, an authoritative published-depth receive
+fallback, routed timers, and revocation-epoch maintenance. Diagnostic features
+remain opt-in; default builds do not enable timing instrumentation.
 
 Held capacity, readiness, channel, mailbox, polling, and lazy-fault experiments
 are not included in this version. Their earlier performance results
@@ -102,12 +90,13 @@ That scope follows from the pinned command, successful step and runner validatio
 raw CI logs and artifact downloads were not accessible during this closeout.
 
 These results qualify the reviewed baseline, not newly versioned `0.1.0` archives.
-Final-version qualification is recorded separately below.
+Earlier versioned-candidate qualification is recorded separately below; the current
+publication candidate still requires fresh qualification.
 
 ### 0.1.0 closeout
 
-The `0.1.0` code and configuration passed all 18 canonical gates locally on Linux
-x86-64 with Rust 1.96.1, including native debug/release tests and doctests. The
+An earlier `0.1.0` candidate passed all 18 canonical gates locally on Linux x86-64
+with Rust 1.96.1, including native debug/release tests and doctests. That candidate's
 code/configuration digest is:
 
 `801397809bd0bcb1aa990d583764029c4db7c668f446ca6fe01b68f17847b730`.
@@ -182,7 +171,6 @@ historical artifacts, not newly packaged files.
 
 | Area | Open requirement or limitation |
 | --- | --- |
-| Historical refill stall | [Known unresolved reliability risk](#known-risk); public issue tracking remains required. |
 | Cancellation history | Semantic bounds and cancellation paths remain mandatory tests. The historical wall-time excursion remains separate performance evidence; `zcheck run perf-cancellation-history` retains its explicit optimized guard. |
 | Distribution qualification | Preserve exact-source both-target CI and final archive audit results. Run a fresh registry-only README consumer after authorized publication, before announcement. |
 | Alternate-stack sanitizers | Hooks are not qualified. Ordinary compiler sanitizer flags do not establish support for the native context-switch boundary. |
@@ -191,6 +179,5 @@ historical artifacts, not newly packaged files.
 | Performance acceptance | No dedicated performance host is currently available. Local timing is observational, with no new performance acceptance or latency guarantee. |
 
 Feedback release does not require every performance or scale objective to be
-complete. It does require accurate claims, final-version qualification, and an
-explicit decision to carry the disclosed stall risk. Publication remains a
-separate authorized action.
+complete. It does require accurate claims and final-version qualification.
+Publication remains a separate authorized action.

@@ -19,6 +19,8 @@ const SPINS_PER_SIGNAL_PROBE: usize = 1;
 
 impl Kernel {
     pub(crate) fn receive(&mut self) -> bool {
+        #[cfg(test)]
+        self.record_test_progress(crate::signal::TestCarrierPhase::Receive);
         // The carrier checks once per drive iteration while backlog remains,
         // independent of the previous dispatch outcome. Keep this off task paths.
         self.admission_pressure += u32::from(self.remote_pending);
@@ -34,8 +36,15 @@ impl Kernel {
         self.remote_pending
     }
 
+    #[cfg(test)]
     pub(crate) fn remote_pending(&self) -> bool {
         self.remote_pending
+    }
+
+    pub(crate) fn remote_receive_required(&self) -> bool {
+        // Published depth is authoritative while this carrier is driving, even
+        // before notification. The cached bit keeps batch draining hot.
+        self.remote_pending || self.inbox.pending() != 0
     }
 
     pub(crate) fn receive_local(&mut self) {
@@ -157,6 +166,8 @@ impl Kernel {
     }
 
     pub(crate) fn wait_for_work(&mut self, observed: u64) {
+        #[cfg(test)]
+        self.record_test_progress(crate::signal::TestCarrierPhase::Idle);
         #[cfg(feature = "handoff-profiling")]
         let _episode = Span::new(HandoffStage::IdleEpisode);
         #[cfg(feature = "scheduler-profiling")]
@@ -210,6 +221,8 @@ impl Kernel {
         {
             #[cfg(feature = "handoff-profiling")]
             let _wait = Span::new(HandoffStage::WaitApi);
+            #[cfg(test)]
+            self.record_test_progress(crate::signal::TestCarrierPhase::Waiting);
             self.inbox.hub.wait(observed, deadline);
         }
         #[cfg(feature = "scheduler-profiling")]

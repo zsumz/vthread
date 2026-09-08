@@ -37,6 +37,29 @@ fn remote_starts_refill_a_bounded_runnable_window() {
 }
 
 #[test]
+fn published_depth_is_an_authoritative_receive_obligation() {
+    let config = Runtime::builder()
+        .max_vthreads(1)
+        .carrier_queue_capacity(1)
+        .stack_cache_capacity(1)
+        .build()
+        .unwrap()
+        .config();
+    let shared = Arc::new(Shared::new(config));
+    let scope = shared.begin_scope().unwrap();
+    let mut kernel = Kernel::new(Arc::clone(&shared), CarrierId(0));
+    shared.submit(scope, "published".into(), || ()).unwrap();
+
+    assert!(!kernel.remote_pending());
+    assert!(kernel.remote_receive_required());
+    kernel.receive();
+    assert_eq!(kernel.inbox.pending(), 0);
+    assert!(kernel.tick(true).unwrap());
+    assert_eq!(shared.scope_report(scope).completed, 1);
+    shared.finish_scope(scope);
+}
+
+#[test]
 fn yielding_window_cannot_starve_later_admissions() {
     let config = Runtime::builder()
         .max_vthreads(65)

@@ -52,6 +52,31 @@ fn queued_starts_coalesce_notifications_until_the_inbox_is_drained() {
 }
 
 #[test]
+fn before_notify_hook_runs_without_holding_its_slot() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    let config = Runtime::builder().build().expect("config").config();
+    let shared = Arc::new(Shared::new(config));
+    let scope = shared.begin_scope().expect("scope");
+    let observed_unlocked = Arc::new(AtomicBool::new(false));
+    let hook_shared = Arc::clone(&shared);
+    let hook_observed = Arc::clone(&observed_unlocked);
+    *crate::signal::lock(&shared.inboxes[0].before_notify_hook) = Some(Box::new(move || {
+        hook_observed.store(
+            hook_shared.inboxes[0].before_notify_hook.try_lock().is_ok(),
+            Ordering::Release,
+        );
+    }));
+
+    shared.submit(scope, "task".into(), || ()).expect("submit");
+
+    assert!(observed_unlocked.load(Ordering::Acquire));
+}
+
+#[test]
 fn concurrent_push_and_batch_drain_publish_exact_pending_depth() {
     use std::{sync::Arc, thread, time::Instant};
 
