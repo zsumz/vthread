@@ -8,7 +8,7 @@ use std::{
 };
 
 pub(crate) fn run(shared: Arc<Shared>, id: CarrierId) {
-    #[cfg(feature = "runtime-evidence")]
+    #[cfg(any(test, feature = "runtime-evidence"))]
     crate::worker_context::set_carrier(id);
     // A cleanup fault must retain affine stacks rather than run fallible field drops
     // during unwinding. Such stacks are never resumed and remain allocated until exit.
@@ -77,6 +77,8 @@ fn drive(kernel: &mut Kernel) -> Result<()> {
     // One empty-to-nonempty signal covers every bounded receive batch until drained.
     loop {
         let observed = kernel.inbox.signal.version();
+        #[cfg(test)]
+        kernel.record_test_loop(observed, handled);
         let signal_changed = handled != Some(observed);
         if signal_changed {
             if kernel.inbox.stopped() {
@@ -90,11 +92,15 @@ fn drive(kernel: &mut Kernel) -> Result<()> {
                 kernel.receive();
             }
             handled = Some(observed);
-        } else if kernel.remote_pending() {
+        } else if kernel.remote_receive_required() {
             kernel.receive();
         } else {
             kernel.receive_local();
         }
+        #[cfg(test)]
+        kernel.inbox.signal.test_progress.record_handled(observed);
+        #[cfg(test)]
+        kernel.record_test_progress(crate::signal::TestCarrierPhase::Tick);
         if !kernel.tick(signal_changed)? {
             kernel.wait_for_work(observed);
         }
@@ -112,3 +118,11 @@ mod carrier_ingress_test;
 #[cfg(test)]
 #[path = "carrier_refill_test.rs"]
 mod carrier_refill_test;
+
+#[cfg(test)]
+#[path = "carrier_refill_matrix_test.rs"]
+mod carrier_refill_matrix_test;
+
+#[cfg(test)]
+#[path = "carrier_published_depth_test.rs"]
+mod carrier_published_depth_test;

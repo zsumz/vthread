@@ -103,6 +103,33 @@ impl Kernel {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn record_test_loop(&self, observed: u64, handled: Option<u64>) {
+        self.inbox
+            .signal
+            .test_progress
+            .record_loop(observed, handled);
+        self.record_test_progress(crate::signal::TestCarrierPhase::Drive);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn record_test_progress(&self, phase: crate::signal::TestCarrierPhase) {
+        self.inbox.signal.test_progress.record_state(
+            phase,
+            crate::signal::TestCarrierState {
+                remote_pending: self.remote_pending,
+                admission_pressure: self.admission_pressure,
+                ready: self.ready.len(),
+                incoming: self.incoming.len(),
+                pending_task: self.pending.as_ref().map(|packet| packet.test_id.get()),
+                completions: self.completions.len(),
+                in_flight: self
+                    .in_flight
+                    .map(|task| self.task(task).execution().id.get()),
+            },
+        );
+    }
+
     pub(crate) fn execution(&self, task: TaskKey) -> Rc<Execution> {
         Rc::clone(self.task(task).execution())
     }

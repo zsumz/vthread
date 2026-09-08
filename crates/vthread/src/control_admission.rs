@@ -1,6 +1,8 @@
 //! Atomic bounded admission of transferable and carrier-local work.
 
 use super::{Shared, control_scope::ScopeRecord};
+#[cfg(test)]
+use crate::support_test::{TestAdmissionPhase, record_admission_phase, record_admission_rejection};
 use crate::{
     CarrierId, Error, Result, TaskId, TaskStatus,
     id_map::IdHashSet,
@@ -224,8 +226,16 @@ impl Shared {
     ) -> Result<Spawned<T>> {
         #[cfg(feature = "lifecycle-profiling")]
         let reservation_started = std::time::Instant::now();
-        let Reservation { record, id, owner } =
-            self.reserve_with(scope, name, None, options, parent)?;
+        #[cfg(test)]
+        record_admission_phase(TestAdmissionPhase::Reserving);
+        let reservation = self.reserve_with(scope, name, None, options, parent);
+        #[cfg(test)]
+        if let Err(error) = &reservation {
+            record_admission_rejection(TestAdmissionPhase::ReserveRejected, error);
+        }
+        let Reservation { record, id, owner } = reservation?;
+        #[cfg(test)]
+        record_admission_phase(TestAdmissionPhase::Reserved);
         #[cfg(feature = "lifecycle-profiling")]
         let reservation_elapsed = reservation_started.elapsed();
         #[cfg(feature = "lifecycle-profiling")]
@@ -234,11 +244,15 @@ impl Shared {
         let packet = SpawnPacket {
             record: Arc::clone(&record),
             entry: Some(entry),
+            #[cfg(test)]
+            test_id: id,
         };
         #[cfg(feature = "lifecycle-profiling")]
         let envelope_elapsed = envelope_started.elapsed();
         #[cfg(feature = "lifecycle-profiling")]
         let inbox_started = std::time::Instant::now();
+        #[cfg(test)]
+        record_admission_phase(TestAdmissionPhase::Publishing);
         if let Err(packet) = self.inboxes[owner].push(packet) {
             self.release_reservation(&record);
             drop(packet);
@@ -255,8 +269,12 @@ impl Shared {
                     limit: self.config.carrier_queue_capacity(),
                 }
             };
+            #[cfg(test)]
+            record_admission_rejection(TestAdmissionPhase::PublishRejected, &error);
             return Err(error);
         }
+        #[cfg(test)]
+        record_admission_phase(TestAdmissionPhase::Published);
         #[cfg(feature = "lifecycle-profiling")]
         self.lifecycle_probe.record_admission(
             reservation_elapsed,

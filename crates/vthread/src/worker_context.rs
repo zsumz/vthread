@@ -9,7 +9,7 @@ use std::{
 thread_local! {
     static MANAGED: Cell<bool> = const { Cell::new(false) };
     static OWNER: RefCell<Option<(Weak<Shared>, ThreadComponent)>> = const { RefCell::new(None) };
-    #[cfg(feature = "runtime-evidence")]
+    #[cfg(any(test, feature = "runtime-evidence"))]
     static CARRIER: Cell<Option<crate::CarrierId>> = const { Cell::new(None) };
 }
 
@@ -48,12 +48,12 @@ pub(crate) fn is_managed() -> bool {
     MANAGED.try_with(Cell::get).unwrap_or(true)
 }
 
-#[cfg(feature = "runtime-evidence")]
+#[cfg(any(test, feature = "runtime-evidence"))]
 pub(crate) fn set_carrier(id: crate::CarrierId) {
     CARRIER.with(|carrier| carrier.set(Some(id)));
 }
 
-#[cfg(feature = "runtime-evidence")]
+#[cfg(any(test, feature = "runtime-evidence"))]
 pub(crate) fn current_carrier() -> Option<crate::CarrierId> {
     CARRIER.try_with(Cell::get).ok().flatten()
 }

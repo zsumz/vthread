@@ -1,5 +1,10 @@
 //! Bounded transferable start packets and coalesced carrier control requests.
-
+use crate::{
+    TaskFailure,
+    signal::{Signal, lock},
+    task::SharedTaskRecord,
+    wait::WaitHub,
+};
 use std::{
     collections::{BTreeMap, VecDeque},
     sync::{
@@ -7,24 +12,18 @@ use std::{
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
 };
-
-use crate::{
-    TaskFailure,
-    signal::{Signal, lock},
-    task::SharedTaskRecord,
-    wait::WaitHub,
-};
 #[cfg(feature = "runtime-evidence")]
 type EvidenceEmitter = crate::diagnostics::evidence::Emitter;
 #[cfg(not(feature = "runtime-evidence"))]
 type EvidenceEmitter = ();
-
 #[repr(align(64))]
 struct RetiredTasks(AtomicU64);
 
 pub(crate) struct SpawnPacket {
     pub(crate) record: SharedTaskRecord,
     pub(crate) entry: Option<crate::task_body::TaskStart>,
+    #[cfg(test)]
+    pub(crate) test_id: crate::TaskId,
 }
 
 #[derive(Default)]
@@ -142,7 +141,9 @@ impl Inbox {
         }
         drop(state);
         #[cfg(test)]
-        if let Some(hook) = lock(&self.before_notify_hook).take() {
+        let hook = lock(&self.before_notify_hook).take();
+        #[cfg(test)]
+        if let Some(hook) = hook {
             hook();
         }
         if was_empty {
@@ -293,7 +294,6 @@ impl Inbox {
         );
     }
 }
-
 #[cfg(test)]
 #[path = "inbox_test.rs"]
 mod inbox_test;
