@@ -7,7 +7,7 @@ suspension points. The public runtime crate forbids unsafe Rust.
 
 Supported targets are Linux x86_64 and macOS ARM64, with Rust 1.96 or newer and
 `panic = "unwind"`. Builds with `panic = "abort"` are rejected.
-See [release notes](https://github.com/zsumz/vthread/blob/main/RELEASE.md)
+See [release notes](https://github.com/zsumz/vthread/blob/v0.1.0-rc.1/RELEASE.md)
 for verification coverage and known limitations.
 
 vthread `0.1.0-rc.1` is a candidate for production use on its supported platforms
