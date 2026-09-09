@@ -291,7 +291,7 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "vthread"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "crossbeam-queue",
  "libc",
@@ -303,28 +303,28 @@ dependencies = [
 
 [[package]]
 name = "vthread-lab"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "vthread",
 ]
 
 [[package]]
 name = "vthread-stack"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "vthread-sync-core"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "loom",
 ]
 
 [[package]]
 name = "vthreads"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "vthread",
 ]
