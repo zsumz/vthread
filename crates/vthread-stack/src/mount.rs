@@ -152,13 +152,28 @@ pub(crate) fn mounted_core() -> *const FiberCore {
     CURRENT_MOUNT.with(|current| current.get().core)
 }
 
+fn suspendable_core() -> Result<*const FiberCore, SuspendError> {
+    let core = mounted_core();
+    if core.is_null() {
+        return Err(SuspendError::NotMounted);
+    }
+    if std::thread::panicking() {
+        return Err(SuspendError::Panicking);
+    }
+    Ok(core)
+}
+
+/// Checks whether the current carrier can safely suspend its mounted fiber.
+#[doc(hidden)]
+#[inline]
+pub fn check_suspend() -> Result<(), SuspendError> {
+    suspendable_core().map(|_| ())
+}
+
 /// Suspends the currently mounted fiber.
 #[inline]
 pub fn suspend(reason: Suspension) -> Result<Resume, SuspendError> {
-    let core = mounted_core();
-    if core.is_null() {
-        return Err(SuspendError);
-    }
+    let core = suspendable_core()?;
     // The pointer is carrier-local and restored before leaving this mount.
     // SAFETY: it belongs to the currently mounted, non-Send execution.
     unsafe { Ok(engine::suspend(core, reason)) }

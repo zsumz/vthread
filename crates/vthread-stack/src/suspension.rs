@@ -78,13 +78,25 @@ pub enum Resume {
     Interrupt,
 }
 
-/// Suspension was requested without a mounted fiber.
+/// Why a requested fiber suspension could not safely start.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SuspendError;
+pub enum SuspendError {
+    /// No virtual-thread stack is mounted on this carrier.
+    NotMounted,
+    /// The carrier is running a panic hook or unwinding a panic.
+    Panicking,
+}
 
 impl fmt::Display for SuspendError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("no virtual-thread stack is mounted on this carrier")
+        match self {
+            Self::NotMounted => {
+                formatter.write_str("no virtual-thread stack is mounted on this carrier")
+            }
+            Self::Panicking => formatter.write_str(
+                "a virtual-thread stack cannot suspend while its carrier is handling a panic",
+            ),
+        }
     }
 }
 

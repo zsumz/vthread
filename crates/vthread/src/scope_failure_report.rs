@@ -59,6 +59,8 @@ pub enum FailureKind {
     TaskAborted,
     /// Suspension was attempted outside a virtual thread.
     OutsideVThread,
+    /// Suspension was rejected while the carrier was handling a panic.
+    SuspensionDuringPanic,
     /// A parker already owned a generation.
     ParkerBusy,
     /// A monotonic deadline could not be represented.

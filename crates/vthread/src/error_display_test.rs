@@ -18,3 +18,11 @@ fn stack_errors_preserve_the_os_error() {
     assert!(error.to_string().contains("no memory"));
     assert!(error.source().is_some());
 }
+
+#[test]
+fn panic_suspension_error_explains_the_carrier_boundary() {
+    assert_eq!(
+        Error::SuspensionDuringPanic.to_string(),
+        "a virtual thread cannot suspend while its carrier is handling a panic"
+    );
+}

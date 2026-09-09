@@ -31,6 +31,9 @@ so they can keep values such as `Rc` across suspension.
 
 Task admission, queues, stacks, waiters, timers, I/O registrations, and native jobs
 have explicit bounds. Cancellation is cooperative and observed at checkpoints.
+An operation that reaches a suspension boundary returns
+`Error::SuspensionDuringPanic` instead of switching tasks while its carrier is
+handling a panic.
 
 The runtime provides synchronization, bounded channels, networking, DNS,
 filesystem operations, and native blocking delegation. Diagnostics expose task

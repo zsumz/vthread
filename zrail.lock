@@ -6,7 +6,7 @@ contract_sha256 = "8603e24df9addfcc603707c15027481b9ad5e11ada455e48eba1fb9de67b5
 ratchet = []
 
 [analysis]
-inventory_sha256 = "7399c8eb824cda33c9587c970c9de1a38e5362f04cf23586a5570a572d13c4c1"
+inventory_sha256 = "4a62ecdf3fdc56e181fd222db3a6954bb0a54c6c63e03e1585f82cb7753b99fd"
 exclusions_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 cargo_lock_sha256 = "efa8c535d9a7daef14c24d767b041d45136865a96808bd8397f9f9f4e30d6edc"
 cargo_features_sha256 = "3e43f336e44215719c080510ba8ce053576e4fa44eab81b200117ebcbf4d3d64"
@@ -14,11 +14,11 @@ feature_worlds_sha256 = "6edfb4a1172e614d373d2aba49cdfa4e544769ce212a82805cc63e4
 feature_worlds = 5
 packages = 5
 targets = 11
-physical_rust_files = 436
-base_source_contexts = 3032
+physical_rust_files = 439
+base_source_contexts = 3047
 derived_source_contexts = 0
-source_facts = 152569
-projection_queries = 4246663
+source_facts = 154992
+projection_queries = 4336431
 projected_facts = 29
 unresolved_bindings = 0
 analyzer_semantics = 4

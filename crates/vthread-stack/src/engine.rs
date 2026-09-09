@@ -207,3 +207,7 @@ fn encode_resume(resume: Resume) -> usize {
 #[cfg(test)]
 #[path = "engine_test.rs"]
 mod engine_test;
+
+#[cfg(test)]
+#[path = "engine_panic_reclaim_test.rs"]
+mod engine_panic_reclaim_test;

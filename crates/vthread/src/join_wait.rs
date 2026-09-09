@@ -31,6 +31,8 @@ pub(crate) fn wait_for(
     if mounted.task_id() == record.lock().id && Arc::ptr_eq(execution.record(), record) {
         return Err(Error::JoinSelf);
     }
+    // Completion subscription is externally visible wait state, so reject before it.
+    vthread_stack::check_suspend().map_err(Error::from)?;
     let data = Rc::clone(&execution.data);
     let _guard = WaitGuard {
         reason: data.replace_reason(reason),
