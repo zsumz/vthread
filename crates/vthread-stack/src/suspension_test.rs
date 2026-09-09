@@ -16,7 +16,15 @@ fn the_default_resume_decision_continues() {
 #[test]
 fn the_suspend_error_names_the_missing_mount() {
     assert_eq!(
-        SuspendError.to_string(),
+        SuspendError::NotMounted.to_string(),
         "no virtual-thread stack is mounted on this carrier"
+    );
+}
+
+#[test]
+fn the_suspend_error_names_panic_handling() {
+    assert_eq!(
+        SuspendError::Panicking.to_string(),
+        "a virtual-thread stack cannot suspend while its carrier is handling a panic"
     );
 }

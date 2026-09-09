@@ -46,9 +46,9 @@ mod suspension;
 
 pub use fiber::Fiber;
 pub use lease::FiberLease;
-#[doc(hidden)]
-pub use mount::ContextKey;
 pub use mount::suspend;
+#[doc(hidden)]
+pub use mount::{ContextKey, check_suspend};
 pub use pool::{StackPool, StackPoolSnapshot};
 pub use scoped::{FiberScope, fiber_scope};
 pub use stack::{MappedStack, STACK_ALIGNMENT};

@@ -63,6 +63,8 @@ impl fmt::Display for Error {
                 write!(formatter, "task {task} aborted: {reason:?}")
             }
             Self::OutsideVThread => formatter.write_str("no virtual thread is mounted"),
+            Self::SuspensionDuringPanic => formatter
+                .write_str("a virtual thread cannot suspend while its carrier is handling a panic"),
             Self::ParkerBusy => {
                 formatter.write_str("parker already owns an active wait generation")
             }
@@ -95,8 +97,11 @@ impl StdError for Error {
 }
 
 impl From<vthread_stack::SuspendError> for Error {
-    fn from(_: vthread_stack::SuspendError) -> Self {
-        Self::OutsideVThread
+    fn from(error: vthread_stack::SuspendError) -> Self {
+        match error {
+            vthread_stack::SuspendError::NotMounted => Self::OutsideVThread,
+            vthread_stack::SuspendError::Panicking => Self::SuspensionDuringPanic,
+        }
     }
 }
 

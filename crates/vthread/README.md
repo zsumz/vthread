@@ -41,6 +41,8 @@ fn main() -> vthread::Result<()> {
 - Admission, queues, stacks, timers, wake permits, native work, and channels have explicit bounds.
 - Every parked or yielded task has an observable reason. Each park generation selects one
   winner; timers and remote wakes carry the generation they target.
+- An operation that reaches a suspension boundary returns `Error::SuspensionDuringPanic`
+  instead of switching tasks while its carrier is handling a panic.
 
 The runtime includes cancellation, deadlines, virtual synchronization, bounded channels,
 readiness networking, native blocking delegation, diagnostics, and controlled shutdown.

@@ -31,6 +31,18 @@ parked carrier can be released by a later publisher while the first notifier is
 delayed, and waiter registration rechecks the queue under its mutex before sleep.
 Focused regressions fail when either half of that parked-carrier handoff is removed.
 
+## Panic isolation
+
+Version `0.1.0-rc.1` prevents one task from switching away while its carrier is
+running a panic hook or unwinding a panic. When a suspension-capable operation
+reaches that boundary, it returns `Error::SuspensionDuringPanic` before publishing
+a wait generation, entering a resource queue, subscribing to task completion or
+cancellation, or registering readiness or a native job. A rejected operation
+cannot install the subsequent scheduler timer or wake registration. An explicit
+`Parker` operation that reaches this preflight rejects before consuming a stored
+permit. Private forced-unwind reclamation continues on the same task, runs its
+destructors, and does not schedule a sibling.
+
 ## Scope
 
 Version `0.1.0-rc.1` retains the established `0.0.2` runtime architecture: native
@@ -53,8 +65,7 @@ rewritten.
 
 ## Correctness repairs
 
-The source audit found and repaired four concrete correctness defects, with
-negative regressions recorded before the repairs:
+The release also carries the following behavior-isolated correctness repairs:
 
 | Defect | Repair |
 | --- | --- |
@@ -62,19 +73,21 @@ negative regressions recorded before the repairs:
 | A typed native-stack context callback could suspend while holding a reference whose owner was valid for only one resume. | Lending that context prevents its fiber from suspending and restores the mount through nested calls and panic. |
 | Dropping an unstarted fiber installed a suspension target whose parent context had never been saved. | Reclamation preserves the actual executing mount. |
 | Forced-unwind cookie block exhaustion advanced the allocator and could reuse identities. | Exhaustion remains permanent, including after caught panics. |
+| A task could suspend from a destructor or panic hook while the carrier's native panic state was active, exposing that state to a sibling or causing a nested panic-hook abort. | The shared stack boundary rejects suspension during panic handling; wait-capable paths reject before publishing state, and forced reclamation retains its private transfer path. |
 
-These are correctness repairs, not optional performance promotions. Independent
-cross-reviews found no additional concrete concern in the repairs. Negative
-controls and final-tree qualification are recorded separately; neither the audit
-nor the passing tests establish an exhaustive runtime proof.
+These are correctness repairs, not optional performance promotions. Focused
+regressions and mutation controls cover them; neither the audit nor passing tests
+establish an exhaustive runtime proof.
 
 ## Qualification contract
 
 | Verification | Required coverage |
 | --- | --- |
-| Canonical `zcheck run check` | Native debug and release workspace tests; all-feature tests; documentation and compile-fail examples; source, layout and architecture policy; application evidence validation; public-API load and failure smoke tests. |
+| Canonical `zcheck run check` | Native debug and release workspace tests; all-feature tests; documentation and compile-fail examples; source, layout and architecture policy; panic-isolation regressions, including the subprocess-isolated panic-hook case; application evidence validation; public-API load and failure smoke tests. |
+| Native-stack CI, on both targets | Default and optimized stack tests, including panic-time suspension rejection and forced-unwind reclamation, with source and binary identities preserved. |
 | Standalone benchmark, also required by `zcheck run check` | Formatting, Clippy, default tests and all-feature tests. A workspace-only pass does not qualify this separate manifest. |
 | Release CI, on both targets | Eight closed-loop loads, eight fixed-arrival cases at 2,000 arrivals/second, six failure rounds, then offline verification of all four distributable packages. Logs and package archives are uploaded. |
+| Sustained mixed-lifetime closeout | One externally supervised 3,600-second Linux process at four carriers and 4,096 tasks; at least 10 million task lifetimes; exact accounting for completion, parks, wakes and stack acquisition; clean service and shutdown drain. |
 | Distribution closeout | Audit clean candidate archives, licenses, normalized manifests, exact internal dependency closure and source identity. After publication, run the README example in a fresh registry-only consumer before announcement. |
 
 Package creation is not publication. The publication order is `vthread-stack`,
@@ -83,7 +96,13 @@ packages remain unpublished.
 
 ## Recorded qualification
 
-### Reviewed main baseline
+Qualification belongs to the immutable commit being promoted. Its workflow runs,
+artifact identities, archive hashes, and sustained-run receipt are kept in the
+source-keyed candidate evidence bundle and must be attached to the release entry;
+they are not written back into this file because doing so would create a different,
+unqualified source commit. Historical results below establish the baseline only.
+
+### Historical 0.0.2 baseline
 
 Commit `6882d708207e5549b86f4b76832d7f878f45799c` (`0.0.2`) has successful jobs on
 both advertised platforms:
@@ -101,9 +120,8 @@ rounds, **not** the full 22-case matrix: it supplied no fixed-arrival arguments.
 That scope follows from the pinned command, successful step and runner validation;
 raw CI logs and artifact downloads were not accessible during this closeout.
 
-These results qualify the reviewed baseline, not newly versioned `0.1.0-rc.1` archives.
-Earlier versioned-candidate qualification is recorded separately below; the current
-publication candidate still requires fresh qualification.
+These results qualify only the historical baseline. The immutable publication
+candidate must satisfy the qualification contract above.
 
 ### Earlier 0.1.0 candidate
 
@@ -126,10 +144,10 @@ internal pins, registry dependency closure and sibling archive checksums. Eviden
 and archives are kept outside the source checkout. These results are not a
 registry-consumer check, a controlled performance result or a stability verdict.
 
-Both-target CI must also qualify the publication candidate. The required release
-jobs now run the full 22-case application matrix and package verification; their
-uploaded artifacts identify each run and target. Rebuilding after any source
-commit changes requires a fresh archive audit, even for documentation-only edits.
+The required release jobs run the full 22-case application matrix and package
+verification; their uploaded artifacts identify each run and target. Rebuilding
+after any source commit changes requires a fresh archive audit, even for
+documentation-only edits.
 
 ### Historical RC evidence
 
@@ -146,7 +164,7 @@ newly versioned `0.1.0-rc.1` package bytes. The archived code/manifest digest is
 | Standalone benchmark | 45 default and 53 all-feature tests passed; formatting and Clippy passed |
 | Standalone reference | 13 tests passed |
 | Full application matrix | 22 cases passed: eight loads, eight fixed-arrival cases, six failure rounds |
-| Bounded mixed soak | Three 30-second processes passed; 530,361 task lifetimes completed and reclaimed |
+| Bounded mixed soak | Three 30-second processes passed; 530,361 task lifetimes completed, with all service and shutdown drain assertions passing |
 | Distributable crates | All four clean archives built, verified and independently audited |
 
 ### Workload and source boundaries
@@ -184,9 +202,9 @@ historical artifacts, not newly packaged files.
 | Area | Open requirement or limitation |
 | --- | --- |
 | Cancellation history | Semantic bounds and cancellation paths remain mandatory tests. The historical wall-time excursion remains separate performance evidence; `zcheck run perf-cancellation-history` retains its explicit optimized guard. |
-| Distribution qualification | Preserve exact-source both-target CI and final archive audit results. Run a fresh registry-only README consumer after authorized publication, before announcement. |
+| Distribution qualification | Preserve exact-source both-target CI, sustained-run and final archive audit results. Once a tag is authorized, pin packaged README links to that immutable tag and requalify before creating it. After authorized publication, run a fresh registry-only README consumer before announcement. |
 | Alternate-stack sanitizers | Hooks are not qualified. Ordinary compiler sanitizer flags do not establish support for the native context-switch boundary. |
-| Scale and sustained load | Large simultaneous populations, the full mixed-lifetime stress target, memory footprint, loaded tails and controlled-host idle CPU require separate qualification. Short smoke runs do not replace it. |
+| Scale and sustained load | Candidate closeout requires one continuous Linux process for 3,600 seconds at four carriers and 4,096 tasks, with at least 10 million completed task lifetimes and exact drain accounting. Larger simultaneous populations, cross-platform sustained runs, memory footprint, loaded tails and controlled-host idle CPU remain unqualified. |
 | Scaling costs | Wake-depth observation has provisioned-capacity-dependent cost; the readiness driver still reconciles registration maps. Neither held scaling candidate is included. |
 | Performance acceptance | No dedicated performance host is currently available. Local timing is observational, with no new performance acceptance or latency guarantee. |
 

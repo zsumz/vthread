@@ -150,6 +150,8 @@ pub enum Error {
     },
     /// Suspension was attempted without a mounted virtual thread.
     OutsideVThread,
+    /// A suspension-capable operation was rejected while its carrier was handling a panic.
+    SuspensionDuringPanic,
     /// One parker was asked to own two active generations simultaneously.
     ParkerBusy,
     /// A relative duration could not be represented as a monotonic deadline.

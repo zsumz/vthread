@@ -70,6 +70,10 @@ pub enum UnparkResult {
 }
 
 /// The single-consumer side of a bounded one-permit wake primitive.
+///
+/// A park operation that reaches its suspension preflight while the carrier is
+/// handling a panic returns [`Error::SuspensionDuringPanic`] before consuming a
+/// stored permit or publishing wait state.
 pub struct Parker {
     pub(crate) wait: WaitCell,
 }
@@ -156,6 +160,9 @@ fn park_wait<const PLAIN_READY: bool, const PERMIT_READY: bool, G>(
     handoff: WaitHandoff,
     register: impl FnOnce(ParkToken, Option<&WaitRegistration>) -> Result<G>,
 ) -> Result<ParkOutcome> {
+    // Reject before consuming a permit or publishing a wait generation. The stack
+    // boundary checks again immediately before every context switch.
+    vthread_stack::check_suspend().map_err(Error::from)?;
     let policy = &execution.data;
     let unmasked = policy.masked() == 0;
     let inherited_deadline = policy.deadline().filter(|_| unmasked);

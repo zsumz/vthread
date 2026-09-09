@@ -138,6 +138,8 @@ pub use time::{sleep, sleep_until};
 
 /// Cooperatively yields the current virtual thread to the carrier scheduler.
 /// Runtime policy is checked before the yield commits and again immediately before resumption.
+/// Returns [`Error::SuspensionDuringPanic`] without switching tasks while the carrier
+/// is running a panic hook or unwinding a panic.
 pub fn yield_now() -> Result<()> {
     match vthread_stack::suspend(vthread_stack::Suspension::YieldNow).map_err(Error::from)? {
         vthread_stack::Resume::Continue => Ok(()),
@@ -201,3 +203,11 @@ mod shutdown_test;
 #[cfg(test)]
 #[path = "child_control_test.rs"]
 mod child_control_test;
+
+#[cfg(test)]
+#[path = "panic_suspension_test.rs"]
+mod panic_suspension_test;
+
+#[cfg(test)]
+#[path = "panic_parking_test.rs"]
+mod panic_parking_test;

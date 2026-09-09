@@ -13,6 +13,8 @@
   authoritative while driving, later publishers wake a registered carrier when
   the first notifier is delayed, and wait registration rechecks the queue under
   its mutex.
+- Reject suspension boundaries while a carrier is handling a panic, before
+  publishing wait or resource state, preserving panic isolation between tasks.
 - Require the full fixed-arrival application matrix and offline package builds in
   release qualification on Linux x86_64 and macOS ARM64.
 - Pin installation examples to `=0.1.0-rc.1` and use `52` throughout the examples.

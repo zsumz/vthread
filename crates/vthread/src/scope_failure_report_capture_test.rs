@@ -3,6 +3,12 @@ use crate::{PanicReport, ScopeFailure};
 use std::sync::Arc;
 
 #[test]
+fn panic_suspension_rejection_keeps_its_typed_failure_kind() {
+    let report = FailureReport::capture(&Error::SuspensionDuringPanic);
+    assert_eq!(report.kind(), FailureKind::SuspensionDuringPanic);
+}
+
+#[test]
 fn io_reports_keep_safe_metadata_without_capturing_the_error_source() {
     let error = Error::io(
         "open file",

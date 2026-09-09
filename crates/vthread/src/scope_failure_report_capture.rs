@@ -73,6 +73,7 @@ impl FailureReport {
             Error::JoinSelf => K::JoinSelf,
             Error::TaskAborted { .. } => K::TaskAborted,
             Error::OutsideVThread => K::OutsideVThread,
+            Error::SuspensionDuringPanic => K::SuspensionDuringPanic,
             Error::ParkerBusy => K::ParkerBusy,
             Error::DeadlineOverflow => K::DeadlineOverflow,
             Error::StackAllocation(_) => K::StackAllocation,

@@ -19,6 +19,8 @@ impl Wait {
             context::MountedTask::Execution(execution) => execution,
             context::MountedTask::Cleanup { .. } => return Err(Error::OutsideVThread),
         };
+        // Resource queues may publish this task before the common park path runs.
+        vthread_stack::check_suspend().map_err(Error::from)?;
         Ok(Self {
             previous: execution.data.replace_reason(reason),
             execution,
