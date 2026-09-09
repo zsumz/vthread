@@ -1,6 +1,7 @@
 # Release candidate 0.1.0-rc.1
 
-Status: production release-candidate closeout; no publication or tag is authorized.
+Status: production release candidate; this source snapshot does not itself authorize
+tagging or publication.
 `0.1.0-rc.1` is a production candidate for the intended `0.1.0` release on the
 supported platforms within the documented boundaries. Its pre-1.0 version permits
 planned compatibility breaks at minor versions; it does not lower the runtime's
@@ -202,7 +203,7 @@ historical artifacts, not newly packaged files.
 | Area | Open requirement or limitation |
 | --- | --- |
 | Cancellation history | Semantic bounds and cancellation paths remain mandatory tests. The historical wall-time excursion remains separate performance evidence; `zcheck run perf-cancellation-history` retains its explicit optimized guard. |
-| Distribution qualification | Preserve exact-source both-target CI, sustained-run and final archive audit results. Once a tag is authorized, pin packaged README links to that immutable tag and requalify before creating it. After authorized publication, run a fresh registry-only README consumer before announcement. |
+| Distribution qualification | Preserve exact-source both-target CI, sustained-run and final archive audit results. Packaged README links are pinned to the intended immutable `v0.1.0-rc.1` tag; create that tag only after the linked package bytes are requalified. After authorized publication, run a fresh registry-only README consumer before announcement. |
 | Alternate-stack sanitizers | Hooks are not qualified. Ordinary compiler sanitizer flags do not establish support for the native context-switch boundary. |
 | Scale and sustained load | Candidate closeout requires one continuous Linux process for 3,600 seconds at four carriers and 4,096 tasks, with at least 10 million completed task lifetimes and exact drain accounting. Larger simultaneous populations, cross-platform sustained runs, memory footprint, loaded tails and controlled-host idle CPU remain unqualified. |
 | Scaling costs | Wake-depth observation has provisioned-capacity-dependent cost; the readiness driver still reconciles registration maps. Neither held scaling candidate is included. |
@@ -210,5 +211,5 @@ historical artifacts, not newly packaged files.
 
 Promotion of this candidate to `0.1.0` does not require every possible performance
 or scale objective to be complete when those claims are excluded. It does require
-accurate boundaries and exact-candidate qualification. Publication remains a
-separate authorized action.
+accurate boundaries and exact-candidate qualification. Publication is a separate
+maintainer-authorized action.

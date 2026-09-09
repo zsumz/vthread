@@ -5,7 +5,7 @@ The narrow exclusive-value and protocol core supporting `vthread` synchronizatio
 Use [`vthread`](https://github.com/zsumz/vthread) in applications. This support crate
 has no compatibility contract for direct downstream use.
 
-See [release notes](https://github.com/zsumz/vthread/blob/main/RELEASE.md)
+See [release notes](https://github.com/zsumz/vthread/blob/v0.1.0-rc.1/RELEASE.md)
 for verification coverage and known limitations.
 
 ## Runtime boundary

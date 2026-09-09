@@ -1,6 +1,33 @@
 use super::Mutex;
 use crate::{Error, Runtime, local_scope, yield_now};
-use std::{sync::Arc, thread};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicU8, Ordering},
+    },
+    thread,
+};
+
+const LOCK_UNSET: u8 = 0;
+const LOCK_REJECTED: u8 = 1;
+const LOCK_ACQUIRED: u8 = 2;
+const LOCK_UNEXPECTED: u8 = 3;
+
+struct LockOnDrop {
+    mutex: Arc<Mutex<usize>>,
+    outcome: Arc<AtomicU8>,
+}
+
+impl Drop for LockOnDrop {
+    fn drop(&mut self) {
+        let outcome = match self.mutex.lock() {
+            Err(Error::SuspensionDuringPanic) => LOCK_REJECTED,
+            Ok(_) => LOCK_ACQUIRED,
+            Err(_) => LOCK_UNEXPECTED,
+        };
+        self.outcome.store(outcome, Ordering::SeqCst);
+    }
+}
 
 #[test]
 fn single_carrier_contention_is_fifo_and_guards_can_yield() {
@@ -183,4 +210,62 @@ fn a_panicking_handed_off_guard_releases_its_fifo_successor() {
                 .join()
         })
         .unwrap();
+}
+
+#[test]
+fn contended_lock_during_unwind_rejects_before_queue_publication() {
+    let runtime = Runtime::builder().carriers(1).build().unwrap();
+    let mutex = Arc::new(Mutex::with_wait_capacity(0_usize, 1).unwrap());
+    let outcome = Arc::new(AtomicU8::new(LOCK_UNSET));
+
+    runtime
+        .run_scope(|scope| {
+            let owner = mutex.try_lock().unwrap();
+            let waiting_mutex = Arc::clone(&mutex);
+            let mut waiter = scope.spawn("queued mutex waiter", move || {
+                *waiting_mutex.lock()? += 1;
+                Ok::<_, Error>(())
+            })?;
+            crate::support_test::until(|| mutex.waiting() == 1);
+
+            let mut panicking = scope.spawn("panic-time mutex contender", {
+                let mutex = Arc::clone(&mutex);
+                let outcome = Arc::clone(&outcome);
+                move || {
+                    let _lock_on_drop = LockOnDrop { mutex, outcome };
+                    panic!("expected mutex contender panic");
+                }
+            })?;
+            assert!(matches!(panicking.join(), Err(Error::TaskPanicked { .. })));
+            assert_eq!(outcome.load(Ordering::SeqCst), LOCK_REJECTED);
+            assert_eq!(mutex.waiting(), 1);
+
+            drop(owner);
+            waiter.join()??;
+
+            let successor_mutex = Arc::clone(&mutex);
+            scope
+                .spawn("mutex successor", move || {
+                    *successor_mutex.lock().unwrap() = 52;
+                })?
+                .join()?;
+            Ok(())
+        })
+        .unwrap();
+
+    assert_eq!(outcome.load(Ordering::SeqCst), LOCK_REJECTED);
+    assert_eq!(mutex.waiting(), 0);
+    assert_eq!(*mutex.try_lock().unwrap(), 52);
+    let snapshot = runtime.snapshot();
+    assert_eq!(
+        (snapshot.active, snapshot.parked, snapshot.timers),
+        (0, 0, 0)
+    );
+    assert!(
+        snapshot
+            .carriers
+            .iter()
+            .all(|carrier| carrier.pending_starts == 0 && carrier.pending_wakes == 0)
+    );
+    runtime.shutdown().unwrap();
 }
