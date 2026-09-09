@@ -1,0 +1,87 @@
+name: sustained RC a62929e3
+
+on:
+  push:
+    branches: ["qualification/a62929e3-sustained"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sustained-a62929e3
+  cancel-in-progress: false
+
+env:
+  CANDIDATE_SHA: a62929e3f790bddeb0d18ba9458c60144bbd4792
+  CARGO_INCREMENTAL: '0'
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target/sustained
+  EVIDENCE_DIR: ${{ github.workspace }}/evidence
+
+jobs:
+  sustained:
+    name: sustained Linux x86_64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - name: Checkout signed control
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: control
+      - name: Checkout exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          path: candidate
+      - name: Install Rust
+        run: rustup toolchain install 1.96.1 --profile minimal
+      - name: Record source and host identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR"
+          test "$(uname -m)" = x86_64
+          test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -z "$(git -C candidate status --porcelain)"
+          git -C candidate rev-parse HEAD > "$EVIDENCE_DIR/source-commit.txt"
+          git -C candidate rev-parse 'HEAD^{tree}' > "$EVIDENCE_DIR/source-tree-id.txt"
+          git -C candidate ls-tree -r HEAD > "$EVIDENCE_DIR/source-tree.txt"
+          git -C control rev-parse HEAD > "$EVIDENCE_DIR/control-commit.txt"
+          rustc -Vv > "$EVIDENCE_DIR/rustc.txt"
+          uname -a > "$EVIDENCE_DIR/host.txt"
+          sha256sum candidate/Cargo.lock > "$EVIDENCE_DIR/cargo-lock.sha256"
+          printf '%s\n' 'cargo build --locked --release --package vthread-lab' > "$EVIDENCE_DIR/build-command.txt"
+          printf '%s\n' 'vthread-lab soak 3600 4 4096' > "$EVIDENCE_DIR/soak-command.txt"
+      - name: Build exact candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fetch --locked --manifest-path candidate/Cargo.toml
+          CARGO_NET_OFFLINE=true cargo build --locked --release --package vthread-lab --manifest-path candidate/Cargo.toml
+          sha256sum "$CARGO_TARGET_DIR/release/vthread-lab" > "$EVIDENCE_DIR/vthread-lab.sha256"
+      - name: Run externally supervised sustained gate
+        id: soak
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 control/scripts/supervise_sustained.py \
+            --candidate candidate \
+            --binary "$CARGO_TARGET_DIR/release/vthread-lab" \
+            --output "$EVIDENCE_DIR" \
+            --head "$CANDIDATE_SHA" \
+            --duration 3600 \
+            --carriers 4 \
+            --tasks 4096
+          completed="$(python3 -c 'import json; print(json.load(open("evidence/receipt.json"))["report"]["completed"])')"
+          iterations="$(python3 -c 'import json; print(json.load(open("evidence/receipt.json"))["report"]["iterations"])')"
+          receipt_sha256="$(awk '{print $1}' "$EVIDENCE_DIR/receipt.sha256")"
+          printf 'completed=%s\niterations=%s\nreceipt_sha256=%s\n' \
+            "$completed" "$iterations" "$receipt_sha256" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Sustained RC qualified::head=$CANDIDATE_SHA completed=$completed iterations=$iterations receipt_sha256=$receipt_sha256"
+      - name: Upload source-keyed sustained evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sustained-${{ env.CANDIDATE_SHA }}-${{ steps.soak.outputs.completed }}
+          path: evidence/
+          include-hidden-files: true
+          if-no-files-found: warn
