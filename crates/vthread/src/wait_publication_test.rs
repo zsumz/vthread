@@ -200,7 +200,9 @@ fn a_registered_native_waiter_receives_the_notice_before_claim_completion() {
         let wait_hub = Arc::clone(&hub);
         let wait_cell = &cell;
         let recipient = threads.spawn(move || {
-            wait_hub.wait(epoch, Some(Instant::now() + Duration::from_secs(5)));
+            wait_hub.wait_while(epoch, Some(Instant::now() + Duration::from_secs(5)), || {
+                false
+            });
             let notice = wait_hub.pop_wake().expect("published wake");
             let _ = dequeued_tx.send(notice);
             let _ = finish_rx.recv();

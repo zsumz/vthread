@@ -148,25 +148,12 @@ impl Inbox {
         }
         if was_empty {
             self.signal.notify();
+        } else {
+            // Help a registered owner while the first publisher still owes
+            // the coalesced epoch notification.
+            self.signal.notify_if_waiting();
         }
         Ok(())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn pop(&self) -> Option<SpawnPacket> {
-        if self.pending_starts.load(Ordering::Acquire) == 0 {
-            return None;
-        }
-        let mut state = lock(&self.state);
-        let packet = state.starts.pop_front();
-        let depth = state.starts.len();
-        self.pending_starts.store(depth, Ordering::Release);
-        #[cfg(feature = "runtime-evidence")]
-        if packet.is_some() {
-            self.record_depth(depth);
-        }
-        drop(state);
-        packet
     }
 
     pub(crate) fn drain_into(&self, packets: &mut VecDeque<SpawnPacket>, limit: usize) -> usize {
@@ -217,6 +204,12 @@ impl Inbox {
 
     pub(crate) fn pending(&self) -> usize {
         self.pending_starts.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn has_queued_starts_at_wait_boundary(&self) -> bool {
+        // This mutex handoff makes the post-registration sleep check and a
+        // later publisher's waiter check one ordered progress protocol.
+        !lock(&self.state).starts.is_empty()
     }
 
     pub(crate) fn retire_tasks(&self, count: usize) {

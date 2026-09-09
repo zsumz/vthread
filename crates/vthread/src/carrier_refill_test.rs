@@ -1,30 +1,18 @@
 //! Preserve progress evidence before shutdown can turn a stall into rejection.
 use crate::support_test::{
-    TestAdmissionProgress, install_admission_progress, run_isolated, wait_without_intervention,
+    RefillBeforeStop as BeforeStop, RefillCounters as Counters, install_admission_progress,
+    observe_refill_passive, observe_refill_rich, run_isolated, wait_without_intervention,
 };
 use crate::{CarrierId, Error, RuntimeConfig, control::Shared};
 use std::{
     io::Write,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-        mpsc,
-    },
+    sync::{Arc, atomic::Ordering, mpsc},
     thread,
     time::{Duration, Instant},
 };
 
 const TASKS: usize = 4_096;
 const WATCHDOG: Duration = Duration::from_secs(5);
-
-#[derive(Default)]
-struct Counters {
-    accepted: AtomicUsize,
-    started: AtomicUsize,
-    returned: AtomicUsize,
-    cleanup: AtomicBool,
-    admission: Arc<TestAdmissionProgress>,
-}
 
 struct Stop(Arc<Shared>, Arc<Counters>);
 
@@ -35,71 +23,11 @@ impl Drop for Stop {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-struct BeforeStop {
-    accepted_begin: usize,
-    accepted_end: usize,
-    queued: usize,
-    started: usize,
-    body_returns: usize,
-    completed_credits: u64,
-    active: usize,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Primary {
     Passed,
     Admission,
     Drain,
-}
-
-fn observe(shared: &Shared, scope: u64, counters: &Counters, phase: &str) -> BeforeStop {
-    assert!(
-        !counters.cleanup.load(Ordering::SeqCst),
-        "progress evidence captured after cleanup"
-    );
-    let accepted_begin = counters.accepted.load(Ordering::SeqCst);
-    let carrier = shared.inboxes[0].signal.test_progress.snapshot();
-    let producer = counters.admission.snapshot();
-    let mut output = std::io::stdout().lock();
-    writeln!(
-        output,
-        "refill-lock-free phase={phase} accepted={accepted_begin} queued={} started={} \
-         body_returns={} epoch={} waiting={} cleanup={} carrier={carrier:?} producer={producer:?}",
-        shared.inboxes[0].pending(),
-        counters.started.load(Ordering::SeqCst),
-        counters.returned.load(Ordering::SeqCst),
-        shared.inboxes[0].signal.version(),
-        shared.inboxes[0].signal.waiting(),
-        counters.cleanup.load(Ordering::SeqCst),
-    )
-    .unwrap();
-    output.flush().unwrap();
-    drop(output);
-    let snapshot = shared.snapshot();
-    let report = shared.scope_report(scope);
-    let before = BeforeStop {
-        accepted_begin,
-        accepted_end: counters.accepted.load(Ordering::SeqCst),
-        queued: shared.inboxes[0].pending(),
-        started: counters.started.load(Ordering::SeqCst),
-        body_returns: counters.returned.load(Ordering::SeqCst),
-        completed_credits: report.completed,
-        active: snapshot.active,
-    };
-    let mut output = std::io::stdout().lock();
-    writeln!(
-        output,
-        "refill-before-stop progress={before:?} accepting={} epoch={} waiting={} \
-         scope={report:?} carriers={:?}",
-        snapshot.accepting,
-        shared.inboxes[0].signal.version(),
-        shared.inboxes[0].signal.waiting(),
-        snapshot.carriers
-    )
-    .unwrap();
-    output.flush().unwrap();
-    before
 }
 
 fn assert_complete(before: BeforeStop, tasks: usize, counters: &Counters) {
@@ -182,10 +110,15 @@ fn continuously_refilled_coalesced_inbox_is_fully_drained() {
             thread::yield_now();
         }
         if shared.inboxes[0].signal.waiting() == 0 {
-            let before = observe(&shared, scope, &counters, "startup-deadline");
+            observe_refill_passive(&shared, &counters, "startup-deadline");
             wait_without_intervention(Duration::from_secs(1));
-            let later = observe(&shared, scope, &counters, "startup-observation");
-            panic!("initial carrier wait was not observed: {before:?}, later={later:?}");
+            observe_refill_passive(&shared, &counters, "startup-observation");
+            let mut output = std::io::stdout().lock();
+            writeln!(output, "refill-startup result=initial-wait-not-observed").unwrap();
+            output.flush().unwrap();
+            drop(output);
+            let before = observe_refill_rich(&shared, scope, &counters);
+            panic!("initial carrier wait was not observed: {before:?}");
         }
         let producer_shared = Arc::clone(&shared);
         let produced = Arc::clone(&counters);
@@ -202,17 +135,19 @@ fn continuously_refilled_coalesced_inbox_is_fully_drained() {
             (Ok(Ok(())), _) => Primary::Drain,
             _ => Primary::Admission,
         };
-        let before = observe(&shared, scope, &counters, "primary");
-        let later = (primary != Primary::Passed).then(|| {
+        observe_refill_passive(&shared, &counters, "primary");
+        let passive_later = primary != Primary::Passed;
+        if passive_later {
             wait_without_intervention(Duration::from_secs(1));
-            observe(&shared, scope, &counters, "no-intervention")
-        });
+            observe_refill_passive(&shared, &counters, "no-intervention");
+        }
         let late_before_stop = admission.is_err().then(|| submitted_rx.try_recv());
         let mut output = std::io::stdout().lock();
         writeln!(output,
-            "refill-primary result={primary:?} admission={admission:?} drained={drained:?} later={later:?} late_before_stop={late_before_stop:?}").unwrap();
+            "refill-primary result={primary:?} admission={admission:?} drained={drained:?} passive_later={passive_later} late_before_stop={late_before_stop:?}").unwrap();
         output.flush().unwrap();
         drop(output);
+        let before = observe_refill_rich(&shared, scope, &counters);
         drop(stop);
         let producer = producer.join().map_err(crate::PanicReport::capture);
         let late_admission = admission.is_err().then(|| submitted_rx.try_recv());
@@ -275,7 +210,21 @@ fn one_inbox_epoch_drains_multiple_receive_batches() {
         let carrier = Arc::clone(&shared);
         let worker = threads.spawn(move || super::run(carrier, CarrierId(0)));
         let drained = shared.wait_until(scope, None, Some(Instant::now() + WATCHDOG));
-        let before = observe(&shared, scope, &counters, "multiple-batches");
+        observe_refill_passive(&shared, &counters, "multiple-batches");
+        let passive_later = !matches!(&drained, Ok(true));
+        if passive_later {
+            wait_without_intervention(Duration::from_secs(1));
+            observe_refill_passive(&shared, &counters, "multiple-batches-no-intervention");
+        }
+        let mut output = std::io::stdout().lock();
+        writeln!(
+            output,
+            "refill-multiple-batches result={drained:?} passive_later={passive_later}"
+        )
+        .unwrap();
+        output.flush().unwrap();
+        drop(output);
+        let before = observe_refill_rich(&shared, scope, &counters);
         let final_epoch = shared.inboxes[0].signal.version();
         drop(stop);
         (

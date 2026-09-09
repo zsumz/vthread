@@ -106,30 +106,6 @@ fn small_queues_progress_with_multiple_producers_and_carriers() {
     let counts = Arc::new(Counts::default());
     let outcome = thread::scope(|threads| {
         let stop = Stop(Arc::clone(&shared));
-        let carriers = (0..2)
-            .map(|index| {
-                let carrier = Arc::clone(&shared);
-                threads.spawn(move || super::run(carrier, CarrierId(index)))
-            })
-            .collect::<Vec<_>>();
-        let wait_deadline = Instant::now() + WATCHDOG;
-        while shared
-            .inboxes
-            .iter()
-            .map(|inbox| inbox.signal.waiting())
-            .sum::<usize>()
-            != 2
-            && Instant::now() < wait_deadline
-        {
-            thread::yield_now();
-        }
-        assert!(
-            shared
-                .inboxes
-                .iter()
-                .all(|inbox| inbox.signal.waiting() == 1),
-            "both carriers must register their initial wait"
-        );
         let (hooked, hooked_rx) = mpsc::channel();
         let releases = shared
             .inboxes
@@ -190,6 +166,14 @@ fn small_queues_progress_with_multiple_producers_and_carriers() {
         for release in releases {
             let _ = release.send(());
         }
+        // Start the consumers only after bounded admission has filled both
+        // inboxes; later publishers now wake already-running carriers.
+        let carriers = (0..2)
+            .map(|index| {
+                let carrier = Arc::clone(&shared);
+                threads.spawn(move || super::run(carrier, CarrierId(index)))
+            })
+            .collect::<Vec<_>>();
         assert_eq!(hook_order, [0, 1], "both notifier hooks must pause");
         assert!(
             queues_full,

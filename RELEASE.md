@@ -19,6 +19,18 @@ Use `vthread = "0.1"` to receive compatible `0.1.x` releases.
 The exact dependency set includes `zio = "=0.0.1-dev.1"`. A normal vthread version
 does not imply that every dependency has a stable-version contract.
 
+## Inbox progress
+
+Version `0.1.0` closes two demonstrated notification-boundary gaps. An active
+carrier treats published inbox depth as an authoritative receive obligation. A
+parked carrier can be released by a later publisher while the first notifier is
+delayed, and waiter registration rechecks the queue under its mutex before sleep.
+Focused regressions fail when either half of that parked-carrier handoff is removed.
+
+These repairs do not establish the exact cause of the historical 4,096-task
+refill timeout. The release claims repairs for the demonstrated ingress-progress
+weaknesses, not attribution of the archived incident.
+
 ## Scope
 
 Version `0.1.0` retains the established `0.0.2` runtime architecture: native
@@ -171,6 +183,7 @@ historical artifacts, not newly packaged files.
 
 | Area | Open requirement or limitation |
 | --- | --- |
+| Historical refill attribution | The exact cause of the archived 4,096-task timeout remains unestablished. Publication approval must accept this attribution limit; `0.1.0` does not claim reconstruction of that incident. |
 | Cancellation history | Semantic bounds and cancellation paths remain mandatory tests. The historical wall-time excursion remains separate performance evidence; `zcheck run perf-cancellation-history` retains its explicit optimized guard. |
 | Distribution qualification | Preserve exact-source both-target CI and final archive audit results. Run a fresh registry-only README consumer after authorized publication, before announcement. |
 | Alternate-stack sanitizers | Hooks are not qualified. Ordinary compiler sanitizer flags do not establish support for the native context-switch boundary. |

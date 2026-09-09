@@ -121,9 +121,17 @@ impl WaitHub {
         self.signal.notify();
     }
 
-    pub(crate) fn wait(&self, observed: u64, deadline: Option<std::time::Instant>) {
-        self.signal
-            .wait_while(observed, deadline, || self.ready.arm_wait());
+    pub(crate) fn wait_while(
+        &self,
+        observed: u64,
+        deadline: Option<std::time::Instant>,
+        mut external_ready: impl FnMut() -> bool,
+    ) {
+        // Register with Signal before rechecking both bounded queues. A later
+        // publisher must either precede this predicate or observe the waiter.
+        self.signal.wait_while(observed, deadline, || {
+            self.ready.arm_wait() || external_ready()
+        });
         self.ready.disarm_wait();
     }
 
