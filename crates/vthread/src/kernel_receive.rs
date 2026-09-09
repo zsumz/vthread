@@ -223,7 +223,10 @@ impl Kernel {
             let _wait = Span::new(HandoffStage::WaitApi);
             #[cfg(test)]
             self.record_test_progress(crate::signal::TestCarrierPhase::Waiting);
-            self.inbox.hub.wait(observed, deadline);
+            let inbox = &self.inbox;
+            inbox.hub.wait_while(observed, deadline, || {
+                inbox.has_queued_starts_at_wait_boundary()
+            });
         }
         #[cfg(feature = "scheduler-profiling")]
         self.scheduler_profile.record_wait_return(

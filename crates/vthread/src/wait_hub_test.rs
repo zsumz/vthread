@@ -44,7 +44,7 @@ fn queued_wakes_release_predicate_waiters_without_advancing_the_epoch() {
         let empty = signal.version();
         std::thread::scope(|threads| {
             threads.spawn(|| {
-                hub.wait(empty, None);
+                hub.wait_while(empty, None, || false);
             });
             while signal.waiting() == 0 {
                 std::thread::yield_now();

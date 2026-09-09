@@ -1,5 +1,24 @@
-use crate::{Error, Runtime, control::Shared};
-use std::collections::VecDeque;
+use super::Inbox;
+use crate::{Error, Runtime, control::Shared, signal::lock};
+use std::{collections::VecDeque, sync::atomic::Ordering};
+
+impl Inbox {
+    pub(crate) fn pop(&self) -> Option<super::SpawnPacket> {
+        if self.pending_starts.load(Ordering::Acquire) == 0 {
+            return None;
+        }
+        let mut state = lock(&self.state);
+        let packet = state.starts.pop_front();
+        let depth = state.starts.len();
+        self.pending_starts.store(depth, Ordering::Release);
+        #[cfg(feature = "runtime-evidence")]
+        if packet.is_some() {
+            self.record_depth(depth);
+        }
+        drop(state);
+        packet
+    }
+}
 
 #[test]
 fn bounded_batch_drain_preserves_fifo_and_pending_count() {
@@ -26,7 +45,7 @@ fn bounded_batch_drain_preserves_fifo_and_pending_count() {
 }
 
 #[test]
-fn queued_starts_coalesce_notifications_until_the_inbox_is_drained() {
+fn queued_starts_coalesce_signal_epochs_without_a_registered_waiter() {
     let config = Runtime::builder()
         .carrier_queue_capacity(2)
         .build()

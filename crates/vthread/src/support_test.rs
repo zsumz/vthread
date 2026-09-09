@@ -1,5 +1,6 @@
 #[path = "admission_progress_test.rs"]
 mod admission_progress_test;
+use crate::control::Shared;
 pub(crate) use admission_progress_test::{
     TestAdmissionPhase, TestAdmissionProgress, install_admission_progress, record_admission_phase,
     record_admission_rejection,
@@ -7,6 +8,10 @@ pub(crate) use admission_progress_test::{
 use std::{
     io::{Read, Write},
     process::{Command, ExitStatus, Stdio},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -67,6 +72,84 @@ pub(crate) fn wait_without_intervention(duration: Duration) {
     while Instant::now() < deadline {
         thread::park_timeout(deadline.saturating_duration_since(Instant::now()));
     }
+}
+
+#[derive(Default)]
+pub(crate) struct RefillCounters {
+    pub(crate) accepted: AtomicUsize,
+    pub(crate) started: AtomicUsize,
+    pub(crate) returned: AtomicUsize,
+    pub(crate) cleanup: AtomicBool,
+    pub(crate) admission: Arc<TestAdmissionProgress>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct RefillBeforeStop {
+    pub(crate) accepted_begin: usize,
+    pub(crate) accepted_end: usize,
+    pub(crate) queued: usize,
+    pub(crate) started: usize,
+    pub(crate) body_returns: usize,
+    pub(crate) completed_credits: u64,
+    pub(crate) active: usize,
+}
+
+pub(crate) fn observe_refill_passive(shared: &Shared, counters: &RefillCounters, phase: &str) {
+    let accepted = counters.accepted.load(Ordering::SeqCst);
+    let queued = shared.inboxes[0].pending();
+    let started = counters.started.load(Ordering::SeqCst);
+    let body_returns = counters.returned.load(Ordering::SeqCst);
+    let epoch = shared.inboxes[0].signal.version();
+    let waiting = shared.inboxes[0].signal.waiting();
+    let cleanup = counters.cleanup.load(Ordering::SeqCst);
+    let carrier = shared.inboxes[0].signal.test_progress.snapshot();
+    let producer = counters.admission.snapshot();
+    assert!(!cleanup, "progress evidence captured after cleanup");
+    let mut output = std::io::stdout().lock();
+    writeln!(
+        output,
+        "refill-lock-free phase={phase} accepted={accepted} queued={queued} started={started} \
+         body_returns={body_returns} epoch={epoch} waiting={waiting} cleanup={cleanup} \
+         carrier={carrier:?} producer={producer:?}",
+    )
+    .unwrap();
+    output.flush().unwrap();
+}
+
+pub(crate) fn observe_refill_rich(
+    shared: &Shared,
+    scope: u64,
+    counters: &RefillCounters,
+) -> RefillBeforeStop {
+    assert!(
+        !counters.cleanup.load(Ordering::SeqCst),
+        "progress evidence captured after cleanup"
+    );
+    let accepted_begin = counters.accepted.load(Ordering::SeqCst);
+    let snapshot = shared.snapshot();
+    let report = shared.scope_report(scope);
+    let before = RefillBeforeStop {
+        accepted_begin,
+        accepted_end: counters.accepted.load(Ordering::SeqCst),
+        queued: shared.inboxes[0].pending(),
+        started: counters.started.load(Ordering::SeqCst),
+        body_returns: counters.returned.load(Ordering::SeqCst),
+        completed_credits: report.completed,
+        active: snapshot.active,
+    };
+    let mut output = std::io::stdout().lock();
+    writeln!(
+        output,
+        "refill-before-stop progress={before:?} accepting={} epoch={} waiting={} \
+         scope={report:?} carriers={:?}",
+        snapshot.accepting,
+        shared.inboxes[0].signal.version(),
+        shared.inboxes[0].signal.waiting(),
+        snapshot.carriers
+    )
+    .unwrap();
+    output.flush().unwrap();
+    before
 }
 
 #[test]
