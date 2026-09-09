@@ -25,7 +25,7 @@ runtime-evidence = ["vthread/runtime-evidence"]
 qualification = ["vthread/qualification"]
 
 [dependencies]
-vthread = { path = "../vthread", version = "=0.1.0" }
+vthread = { path = "../vthread", version = "=0.1.0-rc.1" }
 
 [lints]
 workspace = true

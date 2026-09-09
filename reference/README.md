@@ -23,7 +23,7 @@ For an application beside a checkout named `vthread`:
 
 ```toml
 [dependencies]
-vthread = { path = "../vthread/crates/vthread", version = "=0.1.0" }
+vthread = { path = "../vthread/crates/vthread", version = "=0.1.0-rc.1" }
 ```
 
 - Give the runtime one application-level owner. Use scopes for requests and operations,

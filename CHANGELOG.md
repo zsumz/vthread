@@ -2,10 +2,11 @@
 
 ## Unreleased
 
-## 0.1.0 - 2026-09-07
+## 0.1.0-rc.1 - 2026-09-09
 
-- Prepare an early public-feedback release with compatible public API updates in
-  `0.1.x`; breaking API or contract changes move to `0.2`.
+- Prepare a production release candidate for the supported platforms. The eventual
+  `0.1.0` release and subsequent `0.1.x` releases will keep compatible public API
+  updates within `0.1`; breaking API or contract changes move to `0.2`.
 - Retain the established runtime architecture without promoting held performance
   experiments.
 - Harden inbox progress for active and parked carriers: published depth is
@@ -14,10 +15,7 @@
   its mutex.
 - Require the full fixed-arrival application matrix and offline package builds in
   release qualification on Linux x86_64 and macOS ARM64.
-- Update installation examples to `0.1` and use `52` throughout the examples.
-- The exact cause of the historical 4,096-task refill timeout remains
-  unestablished; these changes repair demonstrated ingress-progress weaknesses
-  without attributing that archived incident.
+- Pin installation examples to `=0.1.0-rc.1` and use `52` throughout the examples.
 
 ## 0.0.2 - 2026-09-07
 

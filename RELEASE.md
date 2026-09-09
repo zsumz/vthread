@@ -1,8 +1,10 @@
-# Release 0.1.0
+# Release candidate 0.1.0-rc.1
 
-Status: release closeout; no publication or tag is authorized. `0.1.0` is intended
-for evaluation and feedback, not a production-stability endorsement. The
-[recorded qualification](#recorded-qualification) and
+Status: production release-candidate closeout; no publication or tag is authorized.
+`0.1.0-rc.1` is a production candidate for the intended `0.1.0` release on the
+supported platforms within the documented boundaries. Its pre-1.0 version permits
+planned compatibility breaks at minor versions; it does not lower the runtime's
+correctness or qualification standard. The [recorded qualification](#recorded-qualification) and
 [remaining release gates](#remaining-release-gates-and-limitations) define its
 current evidence and limits.
 
@@ -12,28 +14,26 @@ cancellation-safe direct mutex ownership transfer.
 
 ## Compatibility
 
-The `0.1.x` series preserves public API compatibility. Breaking public API or
-contract changes move to `0.2`; `1.0` requires a separate durable-API commitment.
-Use `vthread = "0.1"` to receive compatible `0.1.x` releases.
+The eventual `0.1.0` release and subsequent `0.1.x` releases will preserve public
+API compatibility within `0.1`. Breaking public API or contract changes move to
+`0.2`; `1.0` requires a separate durable-API commitment. Use
+`vthread = "=0.1.0-rc.1"` to select this exact prerelease. After the final release,
+use `vthread = "0.1"` to receive compatible `0.1.x` releases.
 
 The exact dependency set includes `zio = "=0.0.1-dev.1"`. A normal vthread version
 does not imply that every dependency has a stable-version contract.
 
 ## Inbox progress
 
-Version `0.1.0` closes two demonstrated notification-boundary gaps. An active
+Version `0.1.0-rc.1` closes two demonstrated notification-boundary gaps. An active
 carrier treats published inbox depth as an authoritative receive obligation. A
 parked carrier can be released by a later publisher while the first notifier is
 delayed, and waiter registration rechecks the queue under its mutex before sleep.
 Focused regressions fail when either half of that parked-carrier handoff is removed.
 
-These repairs do not establish the exact cause of the historical 4,096-task
-refill timeout. The release claims repairs for the demonstrated ingress-progress
-weaknesses, not attribution of the archived incident.
-
 ## Scope
 
-Version `0.1.0` retains the established `0.0.2` runtime architecture: native
+Version `0.1.0-rc.1` retains the established `0.0.2` runtime architecture: native
 guarded stacks and execution reuse, compact carrier-owned task storage, resident
 synchronization waits, and owner-routed wakes.
 It also includes bounded wake cohorts and admission service, deferred publication
@@ -75,7 +75,7 @@ nor the passing tests establish an exhaustive runtime proof.
 | Canonical `zcheck run check` | Native debug and release workspace tests; all-feature tests; documentation and compile-fail examples; source, layout and architecture policy; application evidence validation; public-API load and failure smoke tests. |
 | Standalone benchmark, also required by `zcheck run check` | Formatting, Clippy, default tests and all-feature tests. A workspace-only pass does not qualify this separate manifest. |
 | Release CI, on both targets | Eight closed-loop loads, eight fixed-arrival cases at 2,000 arrivals/second, six failure rounds, then offline verification of all four distributable packages. Logs and package archives are uploaded. |
-| Distribution closeout | Audit clean final-version archives, licenses, normalized manifests, exact internal dependency closure and source identity. After publication, run the README example in a fresh registry-only consumer before announcement. |
+| Distribution closeout | Audit clean candidate archives, licenses, normalized manifests, exact internal dependency closure and source identity. After publication, run the README example in a fresh registry-only consumer before announcement. |
 
 Package creation is not publication. The publication order is `vthread-stack`,
 `vthread-sync-core`, `vthread`, then `vthreads`; the lab, benchmark and reference
@@ -101,11 +101,11 @@ rounds, **not** the full 22-case matrix: it supplied no fixed-arrival arguments.
 That scope follows from the pinned command, successful step and runner validation;
 raw CI logs and artifact downloads were not accessible during this closeout.
 
-These results qualify the reviewed baseline, not newly versioned `0.1.0` archives.
+These results qualify the reviewed baseline, not newly versioned `0.1.0-rc.1` archives.
 Earlier versioned-candidate qualification is recorded separately below; the current
 publication candidate still requires fresh qualification.
 
-### 0.1.0 closeout
+### Earlier 0.1.0 candidate
 
 An earlier `0.1.0` candidate passed all 18 canonical gates locally on Linux x86-64
 with Rust 1.96.1, including native debug/release tests and doctests. That candidate's
@@ -135,7 +135,7 @@ commit changes requires a fresh archive audit, even for documentation-only edits
 
 These historical results describe `0.0.2-rc.2` on Linux x86-64 with Rust 1.96.1
 and the default native engine unless a feature set is named. They do not attest to
-newly versioned `0.1.0` package bytes. The archived code/manifest digest is:
+newly versioned `0.1.0-rc.1` package bytes. The archived code/manifest digest is:
 
 `8ac4c314fdfe944a53ddf4395b1feb4cfa5bd18465f0c559201823030e3ef73d`.
 
@@ -183,7 +183,6 @@ historical artifacts, not newly packaged files.
 
 | Area | Open requirement or limitation |
 | --- | --- |
-| Historical refill attribution | The exact cause of the archived 4,096-task timeout remains unestablished. Publication approval must accept this attribution limit; `0.1.0` does not claim reconstruction of that incident. |
 | Cancellation history | Semantic bounds and cancellation paths remain mandatory tests. The historical wall-time excursion remains separate performance evidence; `zcheck run perf-cancellation-history` retains its explicit optimized guard. |
 | Distribution qualification | Preserve exact-source both-target CI and final archive audit results. Run a fresh registry-only README consumer after authorized publication, before announcement. |
 | Alternate-stack sanitizers | Hooks are not qualified. Ordinary compiler sanitizer flags do not establish support for the native context-switch boundary. |
@@ -191,6 +190,7 @@ historical artifacts, not newly packaged files.
 | Scaling costs | Wake-depth observation has provisioned-capacity-dependent cost; the readiness driver still reconciles registration maps. Neither held scaling candidate is included. |
 | Performance acceptance | No dedicated performance host is currently available. Local timing is observational, with no new performance acceptance or latency guarantee. |
 
-Feedback release does not require every performance or scale objective to be
-complete. It does require accurate claims and final-version qualification.
-Publication remains a separate authorized action.
+Promotion of this candidate to `0.1.0` does not require every possible performance
+or scale objective to be complete when those claims are excluded. It does require
+accurate boundaries and exact-candidate qualification. Publication remains a
+separate authorized action.
