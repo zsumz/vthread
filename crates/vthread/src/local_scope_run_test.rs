@@ -91,3 +91,41 @@ fn local_generic_body_failure_preserves_a_local_deadline() {
     })
     .unwrap();
 }
+
+#[test]
+fn injected_construction_unwind_releases_admission_and_drains() {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+    let runtime = crate::Runtime::builder()
+        .carriers(1)
+        .max_vthreads(2)
+        .carrier_queue_capacity(2)
+        .stack_cache_capacity(0)
+        .stall_policy(crate::StallPolicy::AbortAfter(
+            std::time::Duration::from_millis(20),
+        ))
+        .build()
+        .unwrap();
+    runtime
+        .run_scope(|root| {
+            root.spawn("parent", || {
+                crate::local_scope(|local| {
+                    super::super::inject_construction_panic();
+                    assert!(
+                        catch_unwind(AssertUnwindSafe(|| {
+                            local.spawn("injected-construction-panic", || ())
+                        }))
+                        .is_err()
+                    );
+                    assert_eq!(local.spawn("after-injected-panic", || 52)?.join()?, 52);
+                    Ok(())
+                })
+                .unwrap();
+            })?
+            .join()
+        })
+        .unwrap();
+    let snapshot = runtime.snapshot();
+    assert_eq!((snapshot.active(), snapshot.stats().admitted()), (0, 2));
+    assert_eq!(snapshot.stats().rejected(), 1);
+    runtime.shutdown().unwrap();
+}

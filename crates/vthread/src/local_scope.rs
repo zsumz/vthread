@@ -6,7 +6,76 @@ use crate::{
     task::SharedTaskRecord, task_context::TaskContext, task_fiber::BorrowedFiber,
 };
 use std::{cell::RefCell, marker::PhantomData, rc::Rc, sync::Arc, time::Instant};
-use vthread_stack::FiberScope;
+use vthread_stack::{FiberLease, FiberScope};
+
+#[cfg(test)]
+thread_local! {
+    static INJECT_CONSTRUCTION_PANIC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+fn inject_construction_panic() {
+    INJECT_CONSTRUCTION_PANIC.with(|injected| injected.set(true));
+}
+
+#[cfg(test)]
+fn construction_boundary() {
+    INJECT_CONSTRUCTION_PANIC.with(|injected| {
+        assert!(
+            !injected.replace(false),
+            "injected local construction panic"
+        );
+    });
+}
+
+struct LocalAdmissionRollback<'a> {
+    execution: &'a Execution,
+    records: &'a RefCell<Vec<SharedTaskRecord>>,
+    record: &'a SharedTaskRecord,
+    fiber: Option<FiberLease>,
+    listed: bool,
+    #[cfg(feature = "runtime-evidence")]
+    stack: Option<u64>,
+    armed: bool,
+}
+
+impl LocalAdmissionRollback<'_> {
+    fn retain_fiber(&mut self, fiber: &FiberLease) {
+        self.fiber = Some(fiber.clone());
+    }
+
+    fn retain_record(&mut self) {
+        self.listed = true;
+    }
+
+    fn commit(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for LocalAdmissionRollback<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        if let Some(fiber) = self.fiber.take()
+            && let Err(payload) =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fiber.reclaim()))
+        {
+            crate::worker_context::payload_failure(crate::PanicReport::capture(payload));
+        }
+        #[cfg(feature = "runtime-evidence")]
+        if let Some(stack) = self.stack.take() {
+            self.execution.local().stacks.borrow_mut().retire(stack);
+        }
+        if self.listed {
+            self.records
+                .borrow_mut()
+                .retain(|record| !Arc::ptr_eq(record, self.record));
+        }
+        self.execution.shared().release_reservation(self.record);
+    }
+}
 
 #[path = "local_scope_run.rs"]
 mod local_scope_run;
@@ -62,6 +131,16 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
             name,
             Some((carrier, parent, self.options.child(options.deadline))),
         )?;
+        let mut rollback = LocalAdmissionRollback {
+            execution: &self.execution,
+            records: &self.records,
+            record: &record,
+            fiber: None,
+            listed: false,
+            #[cfg(feature = "runtime-evidence")]
+            stack: None,
+            armed: true,
+        };
         #[cfg(feature = "runtime-evidence")]
         let acquired = self
             .execution
@@ -74,18 +153,16 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
         #[cfg(feature = "runtime-evidence")]
         let (stack_identity, stack) = match acquired {
             Ok(stack) => stack,
-            Err(error) => {
-                self.execution.shared().release_reservation(&record);
-                return Err(Error::StackAllocation(error));
-            }
+            Err(error) => return Err(Error::StackAllocation(error)),
         };
+        #[cfg(feature = "runtime-evidence")]
+        {
+            rollback.stack = Some(stack_identity);
+        }
         #[cfg(not(feature = "runtime-evidence"))]
         let stack = match acquired {
             Ok(stack) => stack,
-            Err(error) => {
-                self.execution.shared().release_reservation(&record);
-                return Err(Error::StackAllocation(error));
-            }
+            Err(error) => return Err(Error::StackAllocation(error)),
         };
         let cell = Rc::new(RefCell::new(JoinCell { outcome: None }));
         let body_cell = Rc::clone(&cell);
@@ -96,17 +173,11 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
             });
         }) {
             Ok(lease) => lease,
-            Err(error) => {
-                #[cfg(feature = "runtime-evidence")]
-                self.execution
-                    .local()
-                    .stacks
-                    .borrow_mut()
-                    .retire(stack_identity);
-                self.execution.shared().release_reservation(&record);
-                return Err(Error::StackAllocation(error));
-            }
+            Err(error) => return Err(Error::StackAllocation(error)),
         };
+        rollback.retain_fiber(&lease);
+        #[cfg(test)]
+        construction_boundary();
         let data = Rc::new(TaskContext::new(
             record.lock().options().clone(),
             self.execution.shared().config.task_local_capacity(),
@@ -133,6 +204,7 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
             !(record.status.is_terminal() && record.outcome_observed)
         });
         self.records.borrow_mut().push(Arc::clone(&record));
+        rollback.retain_record();
         #[cfg(feature = "runtime-evidence")]
         let task_fiber = BorrowedFiber::new(lease, stack_identity);
         #[cfg(not(feature = "runtime-evidence"))]
@@ -141,6 +213,7 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
             execution: Some(execution),
             fiber: Some(task_fiber),
         });
+        rollback.commit();
         #[cfg(feature = "runtime-evidence")]
         {
             self.execution.shared().record_task_accepted(&record);

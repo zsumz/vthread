@@ -1,7 +1,8 @@
-//! Production-shaped refill regression with an external cleanup watchdog.
+//! Production-shaped admission liveness regressions with external cleanup watchdogs.
 
 use std::{
     io::{Read, Write},
+    panic::{AssertUnwindSafe, catch_unwind},
     process::{Command, Stdio},
     sync::{
         Arc,
@@ -12,15 +13,21 @@ use std::{
     time::{Duration, Instant},
 };
 use vthread::{Error, Runtime, error::CapacityResource};
+use vthread_stack::{FiberState, MappedStack, fiber_scope};
 
 const TASKS: usize = 4_096;
 const WATCHDOG: Duration = Duration::from_secs(5);
-const CHILD: &str = "VTHREAD_PRODUCTION_REFILL_CHILD";
+const REFILL_CHILD: &str = "VTHREAD_PRODUCTION_REFILL_CHILD";
+const PANIC_CHILD: &str = "VTHREAD_LOCAL_ADMISSION_PANIC_CHILD";
 
 #[test]
 fn production_shaped_coalesced_inbox_refill_completes() {
-    if std::env::var(CHILD).as_deref() != Ok("1") {
-        supervise();
+    if std::env::var(REFILL_CHILD).as_deref() != Ok("1") {
+        supervise(
+            "production_shaped_coalesced_inbox_refill_completes",
+            REFILL_CHILD,
+            Duration::from_secs(25),
+        );
         return;
     }
     let runtime = Runtime::builder()
@@ -97,6 +104,69 @@ fn production_shaped_coalesced_inbox_refill_completes() {
     runtime.shutdown().unwrap();
 }
 
+#[test]
+fn local_admission_panic_is_rolled_back() {
+    const RUNTIME_STACK: usize = 64 * 1024;
+    if std::env::var(PANIC_CHILD).as_deref() != Ok("1") {
+        supervise(
+            "local_admission_panic_is_rolled_back",
+            PANIC_CHILD,
+            Duration::from_secs(30),
+        );
+        return;
+    }
+    let runtime = Runtime::builder()
+        .carriers(1)
+        .stack_size(RUNTIME_STACK)
+        .max_vthreads(2)
+        .carrier_queue_capacity(2)
+        .stack_cache_capacity(0)
+        .build()
+        .unwrap();
+    runtime
+        .run_scope(|root| {
+            root.spawn("parent", || {
+                vthread::local_scope(|local| {
+                    fiber_scope(1, |helpers| {
+                        let stack = MappedStack::new(16 * 1024 * 1024, 0).unwrap();
+                        let helper = helpers
+                            .spawn(stack, || {
+                                let capture = [7u8; 128 * 1024];
+                                let entry = move || std::hint::black_box(capture);
+                                assert!(std::mem::size_of_val(&entry) > RUNTIME_STACK);
+                                match catch_unwind(AssertUnwindSafe(|| {
+                                    local.spawn("oversized-entry", entry)
+                                })) {
+                                    Ok(Err(_)) => {}
+                                    Err(payload) => {
+                                        let message = payload
+                                            .downcast_ref::<String>()
+                                            .map(String::as_str)
+                                            .or_else(|| payload.downcast_ref::<&str>().copied())
+                                            .unwrap_or("non-string panic");
+                                        assert!(message.contains("fiber entry does not fit"));
+                                    }
+                                    Ok(Ok(_)) => panic!("oversized entry was accepted"),
+                                }
+                            })
+                            .unwrap();
+                        assert!(matches!(helper.resume(), Some(FiberState::Complete)));
+                    });
+                    assert_eq!(local.spawn("after-rejected-entry", || 52)?.join()?, 52);
+                    Ok(())
+                })
+                .unwrap();
+            })?
+            .join()?;
+            Ok(())
+        })
+        .unwrap();
+    let snapshot = runtime.snapshot();
+    assert_eq!((snapshot.active(), snapshot.stats().admitted()), (0, 2));
+    assert_eq!(snapshot.stats().rejected(), 1);
+    runtime.shutdown().unwrap();
+}
+
 fn record_progress(
     phase: &str,
     accepted: &AtomicUsize,
@@ -122,18 +192,17 @@ fn wait_without_intervention(duration: Duration) {
     }
 }
 
-fn supervise() {
-    let name = "production_shaped_coalesced_inbox_refill_completes";
+fn supervise(name: &str, child_flag: &str, timeout: Duration) {
     let mut child = Command::new(std::env::current_exe().expect("test executable"))
         .args(["--exact", name, "--nocapture", "--test-threads=1"])
-        .env(CHILD, "1")
+        .env(child_flag, "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .expect("spawn production-shaped refill");
     let stdout = drain(child.stdout.take().expect("child stdout"));
     let stderr = drain(child.stderr.take().expect("child stderr"));
-    let deadline = Instant::now() + Duration::from_secs(25);
+    let deadline = Instant::now() + timeout;
     let (status, timed_out) = loop {
         if let Some(status) = child.try_wait().expect("poll refill child") {
             break (status, false);
@@ -155,7 +224,7 @@ fn supervise() {
     let stderr = stderr.join().expect("stderr reader");
     assert!(
         !timed_out && status.success() && String::from_utf8_lossy(&stdout).contains("1 passed"),
-        "production refill failed: status={status:?} timed_out={timed_out}\nstdout:\n{}\nstderr:\n{}",
+        "isolated admission test failed: status={status:?} timed_out={timed_out}\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&stdout),
         String::from_utf8_lossy(&stderr),
     );
