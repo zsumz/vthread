@@ -1,18 +1,18 @@
-name: sustained RC c4ab5ac6
+name: sustained RC c4b2380
 
 on:
   push:
-    branches: ["qualification/c4ab5ac6-sustained"]
+    branches: ["qualification/c4b2380-sustained"]
 
 permissions:
   contents: read
 
 concurrency:
-  group: sustained-c4ab5ac6
+  group: sustained-c4b2380
   cancel-in-progress: false
 
 env:
-  CANDIDATE_SHA: c4ab5ac6e688a287d5026ac29d25e1103078b82c
+  CANDIDATE_SHA: c4b2380138b9f7f7384b2da9cb4ee9803e229588
   CARGO_INCREMENTAL: '0'
   CARGO_TARGET_DIR: ${{ github.workspace }}/target/sustained
   EVIDENCE_DIR: ${{ github.workspace }}/evidence
