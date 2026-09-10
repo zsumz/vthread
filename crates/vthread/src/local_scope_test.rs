@@ -223,3 +223,44 @@ fn parent_panic_drains_local_children_before_borrowed_data_can_be_reused() {
         })
         .unwrap();
 }
+
+#[test]
+fn reentrant_name_conversion_cannot_exceed_local_queue_capacity() {
+    use crate::{Error, error::CapacityResource};
+
+    struct ReentrantName<'borrow, 'scope, 'env: 'scope>(&'borrow super::LocalScope<'scope, 'env>);
+
+    impl<'borrow, 'scope, 'env: 'scope> From<ReentrantName<'borrow, 'scope, 'env>> for String {
+        fn from(name: ReentrantName<'borrow, 'scope, 'env>) -> Self {
+            drop(name.0.spawn("inner", || ()).unwrap());
+            "outer".into()
+        }
+    }
+
+    let runtime = Runtime::builder()
+        .carriers(1)
+        .max_vthreads(8)
+        .carrier_queue_capacity(1)
+        .stack_cache_capacity(0)
+        .build()
+        .unwrap();
+    runtime
+        .run_scope(|scope| {
+            scope
+                .spawn("parent", || {
+                    local_scope(|local| {
+                        assert!(matches!(
+                            local.spawn(ReentrantName(local), || ()),
+                            Err(Error::Capacity {
+                                resource: CapacityResource::CarrierQueue,
+                                limit: 1,
+                            })
+                        ));
+                        Ok(())
+                    })
+                    .unwrap();
+                })?
+                .join()
+        })
+        .unwrap();
+}

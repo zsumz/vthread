@@ -39,6 +39,8 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
         name: impl Into<String>,
         entry: impl FnOnce() -> T + 'scope,
     ) -> Result<LocalJoinHandle<'scope, T>> {
+        // Name conversion is user code and may reenter this scope, so it precedes final checks.
+        let name = name.into();
         self.execution.data.check()?;
         self.options.check()?;
         #[cfg(feature = "runtime-evidence")]
@@ -57,7 +59,7 @@ impl<'scope, 'env> LocalScope<'scope, 'env> {
         };
         let record = self.execution.shared().reserve(
             root,
-            name.into(),
+            name,
             Some((carrier, parent, self.options.child(options.deadline))),
         )?;
         #[cfg(feature = "runtime-evidence")]
