@@ -1,18 +1,18 @@
-name: sustained RC a62929e3
+name: sustained RC c4ab5ac6
 
 on:
   push:
-    branches: ["qualification/a62929e3-sustained"]
+    branches: ["qualification/c4ab5ac6-sustained"]
 
 permissions:
   contents: read
 
 concurrency:
-  group: sustained-a62929e3
+  group: sustained-c4ab5ac6
   cancel-in-progress: false
 
 env:
-  CANDIDATE_SHA: a62929e3f790bddeb0d18ba9458c60144bbd4792
+  CANDIDATE_SHA: c4ab5ac6e688a287d5026ac29d25e1103078b82c
   CARGO_INCREMENTAL: '0'
   CARGO_TARGET_DIR: ${{ github.workspace }}/target/sustained
   EVIDENCE_DIR: ${{ github.workspace }}/evidence

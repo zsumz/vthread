@@ -45,7 +45,7 @@ def resource_sample(pid: int, start: float) -> dict[str, int | float | None]:
 
 
 def validate_report(
-    report: dict,
+    report: object,
     *,
     duration: int,
     carriers: int,
@@ -176,20 +176,19 @@ def main() -> int:
         report = {}
         parse_error = str(error)
     errors = [] if parse_error is None else [parse_error]
-    errors.extend(
-        validate_report(
-            report,
-            duration=args.duration,
-            carriers=args.carriers,
-            tasks=args.tasks,
-            wall_seconds=wall_seconds,
-            returncode=process.returncode,
-            system=platform.system(),
-            machine=platform.machine(),
+    if parse_error is None:
+        errors.extend(
+            validate_report(
+                report,
+                duration=args.duration,
+                carriers=args.carriers,
+                tasks=args.tasks,
+                wall_seconds=wall_seconds,
+                returncode=process.returncode,
+                system=platform.system(),
+                machine=platform.machine(),
+            )
         )
-        if report
-        else []
-    )
     receipt = {
         "schema": 1,
         "status": "passed" if not errors else "failed",

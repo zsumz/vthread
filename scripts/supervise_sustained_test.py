@@ -1,6 +1,11 @@
 """Contract tests for the external sustained-run supervisor."""
 
+import json
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import supervise_sustained as supervisor
 
@@ -39,6 +44,47 @@ def validate(candidate: dict) -> list[str]:
     )
 
 
+def run_supervisor(stdout: str) -> tuple[int, dict]:
+    class Process:
+        pid = 42
+        returncode = 0
+
+        def poll(self):
+            return self.returncode
+
+        def communicate(self):
+            return stdout, ""
+
+    def fake_git(_candidate: Path, *arguments: str) -> str:
+        values = {
+            ("rev-parse", "HEAD"): "candidate",
+            ("rev-parse", "HEAD^{tree}"): "tree",
+            ("status", "--porcelain"): "",
+        }
+        return values[arguments]
+
+    with TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        arguments = SimpleNamespace(
+            candidate=root,
+            binary=root / "vthread-lab",
+            output=root / "evidence",
+            head="candidate",
+            duration=3_600,
+            carriers=4,
+            tasks=4_096,
+        )
+        with (
+            patch.object(supervisor, "parse_args", return_value=arguments),
+            patch.object(supervisor, "git", side_effect=fake_git),
+            patch.object(supervisor, "sha256", return_value="digest"),
+            patch.object(supervisor.subprocess, "Popen", return_value=Process()),
+        ):
+            result = supervisor.main()
+        receipt = json.loads((arguments.output / "receipt.json").read_text())
+    return result, receipt
+
+
 class SupervisorContractTest(unittest.TestCase):
     def test_exact_threshold_candidate_passes(self):
         self.assertEqual(validate(report()), [])
@@ -64,6 +110,24 @@ class SupervisorContractTest(unittest.TestCase):
         candidate = report()
         candidate["iterations"] = "2439"
         self.assertEqual(validate(candidate), ["invalid integer fields: iterations"])
+
+    def test_empty_report_fails_closed(self):
+        result, receipt = run_supervisor("{}")
+        self.assertEqual(result, 1)
+        self.assertEqual(receipt["status"], "failed")
+        self.assertTrue(receipt["errors"])
+
+    def test_array_report_fails_closed(self):
+        result, receipt = run_supervisor("[]")
+        self.assertEqual(result, 1)
+        self.assertEqual(receipt["status"], "failed")
+        self.assertEqual(receipt["errors"], ["report must be a JSON object"])
+
+    def test_null_report_fails_closed(self):
+        result, receipt = run_supervisor("null")
+        self.assertEqual(result, 1)
+        self.assertEqual(receipt["status"], "failed")
+        self.assertEqual(receipt["errors"], ["report must be a JSON object"])
 
 
 if __name__ == "__main__":
