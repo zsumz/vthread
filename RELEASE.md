@@ -27,6 +27,10 @@ the README task example and assert its result. Rehearsal also simulates a lost
 upload acknowledgement and checks that retry does not publish twice. It never
 publishes to crates.io and needs no release approval.
 
+The sync-core archive excludes the two workspace model tests that import
+`vthread` source. Canonical CI still runs both models; the archive retains
+sync-core's own unit and mailbox model tests.
+
 Keep the run's release plan, candidate archives, attestations, rehearsal reports,
 and delivery receipts. zrelease retains these artifacts for 90 days. Its package
 and consumer jobs currently run on Linux; the repository's runtime checks still

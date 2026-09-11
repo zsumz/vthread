@@ -5,6 +5,8 @@
 - Replace custom release packaging and closeout instructions with pinned zrelease
   workspace automation, gated by both-target CI, with registry rehearsals and
   fresh README-example consumers.
+- Keep cross-crate synchronization model tests in workspace CI and omit them
+  from the standalone sync-core archive so its packaged tests are self-contained.
 
 ## 0.1.0-rc.1 - 2026-09-09
 

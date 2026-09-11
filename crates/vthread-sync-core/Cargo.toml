@@ -9,6 +9,14 @@ repository.workspace = true
 authors.workspace = true
 readme = "README.md"
 publish = ["crates-io"]
+# These workspace model tests import production source from the sibling runtime.
+# Keep them in canonical CI; a standalone sync-core archive cannot run them.
+exclude = [
+    "tests/mutex_handoff_model.rs",
+    "tests/wait_publication_model.rs",
+    "tests/support/mutex_handoff_test.rs",
+    "tests/support/publication_*.rs",
+]
 
 [dev-dependencies]
 loom = "=0.7.2"
