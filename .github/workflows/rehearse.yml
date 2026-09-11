@@ -19,11 +19,12 @@ jobs:
       id-token: write
       attestations: write
       deployments: write
-    uses: zsumz/zrelease/.github/workflows/rehearse.yml@70c8fe0963ef392573e58b2a4d9f065edcf08198
+    uses: zsumz/zrelease/.github/workflows/rehearse.yml@1993b45bfae19a00e61a9138565b79e029c2d7f4
     with:
       members: '[{"name":"vthread-stack","needs":[]},{"name":"vthread-sync-core","needs":[]},{"name":"vthread","needs":["vthread-stack","vthread-sync-core"]},{"name":"vthreads","needs":["vthread"]}]'
       workspace: true
-      pipeline-ref: '70c8fe0963ef392573e58b2a4d9f065edcf08198'
+      lockstep: true
+      pipeline-ref: '1993b45bfae19a00e61a9138565b79e029c2d7f4'
       toolchain: '1.96.1'
       manifest-path: 'Cargo.toml'
       base-branch: ${{ github.ref_type == 'branch' && github.ref_name || 'main' }}

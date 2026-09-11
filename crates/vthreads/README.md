@@ -9,7 +9,7 @@ Its `runtime-evidence` and `qualification` features forward directly to `vthread
 
 It shares vthread's Linux x86_64 and macOS ARM64 targets, Rust 1.96 minimum, and
 `panic = "unwind"` requirement.
-See [release notes](https://github.com/zsumz/vthread/blob/v0.1.0-rc.1/RELEASE.md)
+See [release notes](https://github.com/zsumz/vthread/blob/v0.1.0-rc.2/RELEASE.md)
 for verification coverage and known limitations.
 
 This release candidate follows vthread's pre-1.0 compatibility policy. The eventual
@@ -22,7 +22,7 @@ Add the alias to your project:
 
 ```toml
 [dependencies]
-vthreads = "=0.1.0-rc.1"
+vthreads = "=0.1.0-rc.2"
 ```
 
 ```rust

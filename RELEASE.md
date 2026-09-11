@@ -3,9 +3,14 @@
 The `0.1.0-rc.1` runtime was signed off at
 [`c4b2380`](https://github.com/zsumz/vthread/commit/c4b2380138b9f7f7384b2da9cb4ee9803e229588).
 Release automation uses [zrelease](https://github.com/zsumz/zrelease), pinned to
-`70c8fe0963ef392573e58b2a4d9f065edcf08198` in
+`1993b45bfae19a00e61a9138565b79e029c2d7f4` in
 [the Rehearse workflow](.github/workflows/rehearse.yml) and
 [the Release workflow](.github/workflows/release.yml).
+
+The next candidate is `0.1.0-rc.2`. Package versions, exact internal dependency
+pins, and the release tag must agree. Both workflows enable zrelease's lockstep
+policy; a stable-looking tag over RC packages is rejected. No final release is
+being prepared in this cycle.
 
 ## Practice a release
 
@@ -44,10 +49,29 @@ Before the first real publication, configure crates.io Trusted Publishing for
 all four crates with repository `zsumz/vthread`, workflow `release.yml`, and
 environment `crates.io`. Each crate must already exist on crates.io.
 
+The release review on 2026-09-11 confirmed that `vthread-sync-core` does not exist
+on crates.io. The other three crates exist at `0.0.2-rc.1`. zrelease now checks
+every selected crate name before approval and again before requesting upload
+credentials; a missing crate or registry error stops the release before any
+upload. This check does not establish ownership or publisher permissions.
+
+Bootstrap sync-core separately as `0.1.0-rc.1`, using its exact qualified archive
+from [rehearsal 34550912875](https://github.com/zsumz/vthread/actions/runs/34550912875)
+at source `5953345cd35579da620f926423f6faa3e17b9f58`. Preserve and verify the
+workspace attestation, candidate digest, archive digest and upload metadata from
+that run. Its first publication requires an API token; do not put a long-lived
+token into the reusable release jobs. Then register its Trusted Publisher.
+The complete workspace will use `0.1.0-rc.2`, so bootstrap bytes cannot conflict
+with a newly generated archive at the same version.
+
 Create a GitHub `release` environment with required reviewers; allow self-review
 if the maintainer starts the release. Create a `crates.io` environment restricted
 to release tags, with no required reviewers. zrelease requests one approval for
 the complete plan.
+
+The review found neither environment configured. Confirm both environment rules
+and all four crates.io registrations before enabling publication. Creating an
+environment alone does not configure Trusted Publishing.
 
 Keep every workspace package and internal dependency pin on the shared version,
 update the changelog and installation examples, and merge the qualified source
@@ -59,6 +83,25 @@ to the next. Publishing remains an explicit maintainer action.
 Rerun failed jobs in the same run, retaining its candidate artifacts. zrelease
 checks registry checksums before retrying and never automatically yanks crates.
 
+## Qualify this RC integration
+
+The signed reconciliation commit joins current public `main` and the reviewed
+RC history while retaining the RC tree exactly. Both previous tips are preserved
+under local `backup/*-before-release-*-20260911` refs. The ancestry guard remains
+enabled. Merge the reviewed integration onto `main` before tagging it.
+
+Create a signed `v0.1.0-rc.2` tag on the resulting qualified commit and dispatch
+the full **Release** workflow with `publish: false`. Keep its per-crate candidates,
+attestations and delivery receipts. This exercises the full release graph and
+bookkeeping; compact Rehearse success is supplementary evidence. It still does
+not prove approval, OIDC exchange, a real registry upload or registry-only
+consumers. A controlled live RC must establish those before any final release.
+
+RC-to-final automation should prepare a version-change PR from a verified RC
+receipt, updating manifests, exact dependency pins, lockfiles and release docs.
+That new commit needs its own qualification and approval. Simply retagging an RC
+cannot change its packaged version. Final promotion remains a future design item.
+
 ## Update zrelease
 
 From a pushed zrelease checkout with Node.js 24 and Rust 1.96.1, generate a new
@@ -66,17 +109,17 @@ caller into a temporary file:
 
 ```sh
 node dist/install.mjs --sha "$(git rev-parse HEAD)" \
-  --source /path/to/vthread --workspace --toolchain 1.96.1 \
+  --source /path/to/vthread --workspace --lockstep --toolchain 1.96.1 \
   --out /path/to/vthread/target/release.generated.yml
 node dist/install.mjs --sha "$(git rev-parse HEAD)" \
-  --source /path/to/vthread --workspace --rehearsal --toolchain 1.96.1 \
+  --source /path/to/vthread --workspace --lockstep --rehearsal --toolchain 1.96.1 \
   --out /path/to/vthread/target/rehearse.generated.yml
 ```
 
 Regenerate when the workspace dependency graph changes. Preserve the caller's
 canonical and native-stack prerequisites, automatic branch rehearsal, explicit
 publish condition, `main` requirement for publication, and the consumer smoke
-inputs in both workflows. Run `actionlint` and `zcheck run check` before committing the update.
+inputs and lockstep policy in both workflows. Run `actionlint` and `zcheck run check` before committing the update.
 
 ## Runtime coverage and limits
 

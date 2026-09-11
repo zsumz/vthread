@@ -45,7 +45,7 @@ Add vthread to your project:
 
 ```toml
 [dependencies]
-vthread = "=0.1.0-rc.1"
+vthread = "=0.1.0-rc.2"
 ```
 
 ```rust
@@ -76,7 +76,7 @@ for verification coverage and known limitations.
 
 ## Compatibility
 
-vthread `0.1.0-rc.1` is a candidate for production use on its supported platforms
+vthread `0.1.0-rc.2` is a candidate for production use on its supported platforms
 within the documented boundaries. The eventual `0.1.0` release and subsequent
 `0.1.x` releases will keep compatible public API updates within `0.1`; breaking API
 or contract changes move to `0.2`. Tested configurations and known limitations are

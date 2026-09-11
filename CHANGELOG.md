@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.0-rc.2 - 2026-09-11
+
+- Keep the signed-off RC runtime and reconcile its history with public main.
+- Enforce matching RC tags, shared workspace versions and exact internal pins.
+- Preflight all release crate names before approval or upload, with explicit
+  first-publication bootstrap instructions. Update artifact actions to Node 24.
 - Replace custom release packaging and closeout instructions with pinned zrelease
   workspace automation, gated by both-target CI, with registry rehearsals and
   fresh README-example consumers. The automatic rehearsal uses a compact

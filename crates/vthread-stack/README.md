@@ -6,7 +6,7 @@ Use [`vthread`](https://github.com/zsumz/vthread) in applications. Its public cr
 forbids unsafe Rust. This support crate isolates the unsafe stack mechanics and has no
 compatibility contract for direct downstream use.
 
-See [release notes](https://github.com/zsumz/vthread/blob/v0.1.0-rc.1/RELEASE.md)
+See [release notes](https://github.com/zsumz/vthread/blob/v0.1.0-rc.2/RELEASE.md)
 for verification coverage and known limitations.
 
 ## Ownership and safety
