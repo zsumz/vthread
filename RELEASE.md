@@ -7,7 +7,9 @@ Release automation uses [zrelease](https://github.com/zsumz/zrelease), pinned to
 [the Rehearse workflow](.github/workflows/rehearse.yml) and
 [the Release workflow](.github/workflows/release.yml).
 
-The next candidate is `0.1.0-rc.2`. Package versions, exact internal dependency
+The signed candidate is `0.1.0-rc.2` at
+[`793e675`](https://github.com/zsumz/vthread/commit/793e675c2c3ddc13940607ab4ec3342e209d0568).
+Package versions, exact internal dependency
 pins, and the release tag must agree. Both workflows enable zrelease's lockstep
 policy; a stable-looking tag over RC packages is rejected. No final release is
 being prepared in this cycle.
@@ -45,33 +47,30 @@ cover both supported platforms.
 
 ## Publish
 
-Before the first real publication, configure crates.io Trusted Publishing for
-all four crates with repository `zsumz/vthread`, workflow `release.yml`, and
-environment `crates.io`. Each crate must already exist on crates.io.
+All four crate names exist on crates.io. On 2026-09-11, `vthread-sync-core`
+was bootstrapped as `0.1.0-rc.1` using the exact qualified archive from
+[rehearsal 34550912875](https://github.com/zsumz/vthread/actions/runs/34550912875)
+at source `5953345cd35579da620f926423f6faa3e17b9f58`. Its archive SHA-256 is
+`3abcfe078199a8882ca7ae26f58eabd8bf563cc7d401ffbf07fc7d441f02e19e`.
+The attestation, registry bytes, and fresh registry-only consumer build, test,
+and run were verified. That one-time API-token bootstrap is complete; do not
+repeat it or put a long-lived token into the reusable release jobs.
 
-The release review on 2026-09-11 confirmed that `vthread-sync-core` does not exist
-on crates.io. The other three crates exist at `0.0.2-rc.1`. zrelease now checks
-every selected crate name before approval and again before requesting upload
-credentials; a missing crate or registry error stops the release before any
-upload. This check does not establish ownership or publisher permissions.
+GitHub environments and all four crates.io Trusted Publishers were configured
+and verified on 2026-09-11:
 
-Bootstrap sync-core separately as `0.1.0-rc.1`, using its exact qualified archive
-from [rehearsal 34550912875](https://github.com/zsumz/vthread/actions/runs/34550912875)
-at source `5953345cd35579da620f926423f6faa3e17b9f58`. Preserve and verify the
-workspace attestation, candidate digest, archive digest and upload metadata from
-that run. Its first publication requires an API token; do not put a long-lived
-token into the reusable release jobs. Then register its Trusted Publisher.
-The complete workspace will use `0.1.0-rc.2`, so bootstrap bytes cannot conflict
-with a newly generated archive at the same version.
+- Each publisher binds repository `zsumz/vthread`, workflow `release.yml`, and
+  environment `crates.io`.
+- Both environments allow only `v*` tags and disable admin bypass.
+- `release` requires zsumz review with self-review allowed.
+- `crates.io` has no second reviewer gate.
 
-Create a GitHub `release` environment with required reviewers; allow self-review
-if the maintainer starts the release. Create a `crates.io` environment restricted
-to release tags, with no required reviewers. zrelease requests one approval for
-the complete plan.
-
-The review found neither environment configured. Confirm both environment rules
-and all four crates.io registrations before enabling publication. Creating an
-environment alone does not configure Trusted Publishing.
+Confirm these settings before a live dispatch. zrelease requests one approval
+for the complete plan. It checks every selected crate name before approval and
+again before requesting upload credentials; a missing crate or registry error
+stops the release before any upload. Existence alone does not establish ownership
+or publisher permissions. A newly added crate needs its own qualified bootstrap
+and Trusted Publisher before joining a live workspace release.
 
 Keep every workspace package and internal dependency pin on the shared version,
 update the changelog and installation examples, and merge the qualified source
@@ -83,19 +82,31 @@ to the next. Publishing remains an explicit maintainer action.
 Rerun failed jobs in the same run, retaining its candidate artifacts. zrelease
 checks registry checksums before retrying and never automatically yanks crates.
 
-## Qualify this RC integration
+## RC2 qualification and publication
 
-The signed reconciliation commit joins current public `main` and the reviewed
+The signed reconciliation commit joined public `main` and the reviewed
 RC history while retaining the RC tree exactly. Both previous tips are preserved
 under local `backup/*-before-release-*-20260911` refs. The ancestry guard remains
-enabled. Merge the reviewed integration onto `main` before tagging it.
+enabled. The reviewed integration was merged onto `main`; signed tag
+`v0.1.0-rc.2` identifies `793e675c2c3ddc13940607ab4ec3342e209d0568`.
+Do not move that tag to refresh release notes or pipeline dependencies.
 
-Create a signed `v0.1.0-rc.2` tag on the resulting qualified commit and dispatch
-the full **Release** workflow with `publish: false`. Keep its per-crate candidates,
-attestations and delivery receipts. This exercises the full release graph and
-bookkeeping; compact Rehearse success is supplementary evidence. It still does
-not prove approval, OIDC exchange, a real registry upload or registry-only
-consumers. A controlled live RC must establish those before any final release.
+The full **Release** rehearsal with `publish: false` succeeded in
+[run 34609665912](https://github.com/zsumz/vthread/actions/runs/34609665912).
+All four candidate archives, attestations, loopback recovery reports, and final
+delivery receipts were verified against the exact tag and pinned pipeline.
+This completed the full rehearsal requirement; another unchanged rehearsal is
+not needed before a live RC dispatch. Rehearsal alone does not prove approval,
+OIDC exchange, a real registry upload, or post-publication registry-only consumers.
+
+The subsequent live **Release** completed on 2026-09-11 in
+[run 34615332556](https://github.com/zsumz/vthread/actions/runs/34615332556),
+publishing all four crates at `0.1.0-rc.2`. The single plan approval, all four
+OIDC exchanges, registry uploads, and registry-only consumer builds, tests, and
+runs succeeded. Every final delivery receipt is `consumer-verified`.
+The approved plan, candidate attestations, downloaded registry bytes, consumer
+lockfiles, and receipts were independently verified against the signed tag and
+pinned pipeline. This establishes the live RC path; no final `0.1.0` was created.
 
 RC-to-final automation should prepare a version-change PR from a verified RC
 receipt, updating manifests, exact dependency pins, lockfiles and release docs.
