@@ -3,13 +3,15 @@
 The `0.1.0-rc.1` runtime was signed off at
 [`c4b2380`](https://github.com/zsumz/vthread/commit/c4b2380138b9f7f7384b2da9cb4ee9803e229588).
 Release automation uses [zrelease](https://github.com/zsumz/zrelease), pinned to
-`7cde759537b040d60e577f282d779b48c51ee9fe` in
+`6faa076a3eabb0e7f96c213328d772efaf45dea3` in
+[the Rehearse workflow](.github/workflows/rehearse.yml) and
 [the Release workflow](.github/workflows/release.yml).
 
 ## Practice a release
 
-Push a `release/**` branch, or run **Actions → Release** with `publish: false` once
-the workflow is on the default branch. Branch rehearsals qualify that branch's
+Push a `release/**` branch, or run **Actions → Rehearse** once the workflow is
+on the default branch. Its compact graph shows **Package workspace → Attest →
+Rehearse**, with individual crates in the logs and receipts. Branch rehearsals qualify that branch's
 commit; tag rehearsals require the commit to be reachable from `main`.
 
 The workflow first runs the canonical checks, the full application matrix, and
@@ -66,12 +68,15 @@ caller into a temporary file:
 node dist/install.mjs --sha "$(git rev-parse HEAD)" \
   --source /path/to/vthread --workspace --toolchain 1.96.1 \
   --out /path/to/vthread/target/release.generated.yml
+node dist/install.mjs --sha "$(git rev-parse HEAD)" \
+  --source /path/to/vthread --workspace --rehearsal --toolchain 1.96.1 \
+  --out /path/to/vthread/target/rehearse.generated.yml
 ```
 
 Regenerate when the workspace dependency graph changes. Preserve the caller's
 canonical and native-stack prerequisites, automatic branch rehearsal, explicit
-publish condition, `main` requirement for publication, and both consumer smoke
-inputs. Run `actionlint` and `zcheck run check` before committing the update.
+publish condition, `main` requirement for publication, and the consumer smoke
+inputs in both workflows. Run `actionlint` and `zcheck run check` before committing the update.
 
 ## Runtime coverage and limits
 

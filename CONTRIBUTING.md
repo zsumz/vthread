@@ -35,6 +35,6 @@ harness. Set `CARGO_TARGET_DIR` to an absolute local path to use a separate buil
 Use small PGP-signed Conventional Commits: one concise subject, no body and no
 coauthor trailers. Maintainer commits use `zsumz <shawn@zsumz.com>`.
 
-Run `zcheck run check` before submitting changes. The [Release workflow](RELEASE.md) requires both-target CI before zrelease
+Run `zcheck run check` before submitting changes. The [rehearsal and release workflows](RELEASE.md) require both-target CI before zrelease
 packages and rehearses the workspace. Push a `release/**` branch to practice;
 actual publication requires an explicit tagged dispatch and release approval.
