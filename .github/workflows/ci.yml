@@ -3,9 +3,9 @@ name: check
 on:
   pull_request:
   push:
-    branches: [main, "release/**"]
-    tags: ["v*"]
+    branches: [main]
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -52,11 +52,8 @@ jobs:
           if-no-files-found: warn
 
   qualification:
-    name: qualify release (${{ matrix.target }})
-    if: >-
-      github.ref == 'refs/heads/main' ||
-      startsWith(github.ref, 'refs/tags/v') ||
-      startsWith(github.ref, 'refs/heads/release/')
+    name: qualify application (${{ matrix.target }})
+    if: github.event_name != 'pull_request'
     needs: check
     strategy:
       fail-fast: false
@@ -68,22 +65,12 @@ jobs:
             target: macos-arm64
     runs-on: ${{ matrix.runner }}
     env:
-      CARGO_TARGET_DIR: /tmp/vthread-release-build
+      CARGO_TARGET_DIR: /tmp/vthread-application-build
       CARGO_HOME: ${{ github.workspace }}/target/cargo-home
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rust
         run: rustup toolchain install 1.96.1 --profile minimal
-      - name: Verify release ref
-        run: |
-          version="$(awk -F '"' '/^version = "/ { print $2; exit }' Cargo.toml)"
-          case "$GITHUB_REF" in
-            refs/heads/main) test "$GITHUB_REF_NAME" = main ;;
-            refs/tags/v*) test "$GITHUB_REF_NAME" = "v$version" ;;
-            refs/heads/release/*) test "$GITHUB_REF_NAME" = "release/$version" ;;
-            *) exit 1 ;;
-          esac
-          grep --fixed-strings "## $version - " CHANGELOG.md
       - name: Cache locked dependencies
         run: cargo fetch --locked
       - name: Qualify application
@@ -93,20 +80,12 @@ jobs:
           python3 scripts/run-application.py
           --out .qualification/application
           --offered-rates 2000 --offered-count 256
-          --context "GitHub release qualification ${{ matrix.target }}"
-      - name: Verify workspace packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p .qualification/package
-          cargo package --locked --offline --workspace --exclude vthread-lab 2>&1 | tee .qualification/package/verification.log
+          --context "GitHub application qualification ${{ matrix.target }}"
       - name: Upload qualification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: qualification-${{ github.run_id }}-${{ matrix.target }}
-          path: |
-            .qualification/
-            ${{ env.CARGO_TARGET_DIR }}/package/*.crate
+          path: .qualification/
           include-hidden-files: true
           if-no-files-found: warn

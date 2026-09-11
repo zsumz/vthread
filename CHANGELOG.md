@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Replace custom release packaging and closeout instructions with pinned zrelease
+  workspace automation, gated by both-target CI, with registry rehearsals and
+  fresh README-example consumers.
+
 ## 0.1.0-rc.1 - 2026-09-09
 
 - Prepare a production release candidate for the supported platforms. The eventual

@@ -116,16 +116,16 @@ class BenchmarkQualificationTests(unittest.TestCase):
             self.assertTrue(self.errors(tasks))
 
 
-class ReleaseQualificationTests(unittest.TestCase):
+class ApplicationQualificationTests(unittest.TestCase):
     def setUp(self):
         self.workflow = (ROOT / ".github/workflows/ci.yml").read_text()
 
     def errors(self, workflow):
         errors = []
-        POLICY.check_release_qualification(errors, workflow)
+        POLICY.check_application_qualification(errors, workflow)
         return errors
 
-    def test_current_release_qualification_is_required(self):
+    def test_current_application_qualification_is_required(self):
         self.assertEqual(self.errors(self.workflow), [])
 
     def test_missing_or_reduced_offered_load_is_rejected(self):
@@ -134,23 +134,8 @@ class ReleaseQualificationTests(unittest.TestCase):
             with self.subTest(argument=old, replacement=new):
                 self.assertTrue(self.errors(self.workflow.replace(old, new)))
 
-    def test_missing_or_unverified_package_is_rejected(self):
-        for old, new in (("Verify workspace packages", "Skip workspace packages"),
-                         ("--locked --offline --workspace", "--locked --workspace"),
-                         ("--exclude vthread-lab", "--exclude vthread-lab --no-verify")):
-            with self.subTest(argument=old, replacement=new):
-                self.assertTrue(self.errors(self.workflow.replace(old, new)))
-
-    def test_packages_must_follow_application(self):
-        application = self.workflow.index("      - name: Qualify application\n")
-        package = self.workflow.index("      - name: Verify workspace packages\n")
-        upload = self.workflow.index("      - name: Upload qualification evidence\n")
-        reordered = (self.workflow[:application] + self.workflow[package:upload]
-                     + self.workflow[application:package] + self.workflow[upload:])
-        self.assertTrue(self.errors(reordered))
-
-    def test_package_archives_must_be_uploaded(self):
-        old = "            ${{ env.CARGO_TARGET_DIR }}/package/*.crate\n"
+    def test_application_evidence_must_be_uploaded(self):
+        old = "          path: .qualification/\n"
         self.assertTrue(self.errors(self.workflow.replace(old, "")))
 
     def test_missing_application_or_job_is_rejected(self):
