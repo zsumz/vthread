@@ -7,12 +7,81 @@ Release automation uses [zrelease](https://github.com/zsumz/zrelease), pinned to
 [the Rehearse workflow](.github/workflows/rehearse.yml) and
 [the Release workflow](.github/workflows/release.yml).
 
-The signed candidate is `0.1.0-rc.2` at
-[`793e675`](https://github.com/zsumz/vthread/commit/793e675c2c3ddc13940607ab4ec3342e209d0568).
+The current candidate is `0.1.0-rc.3`. It retains the published RC.2 runtime
+implementation and adds the sustained production-scope gate described below.
 Package versions, exact internal dependency
 pins, and the release tag must agree. Both workflows enable zrelease's lockstep
-policy; a stable-looking tag over RC packages is rejected. No final release is
-being prepared in this cycle.
+policy; a stable-looking tag over RC packages is rejected. This cycle prepares
+and qualifies an RC; final `0.1.0` publication remains a separate action.
+
+## Production support contract
+
+The release standard for `0.1.0` is **production ready within the documented
+supported workloads and platforms**, with a deliberately limited feature set.
+Supported applications use `vthread` or its `vthreads` alias on Linux x86_64 or
+macOS ARM64 with Rust 1.96+ and unwinding panics. Internal support crates are
+implementation dependencies, without a direct-use compatibility commitment.
+
+Structured ownership, carrier affinity, bounded admission and services,
+cooperative cancellation, and controlled shutdown are supported contracts.
+Correctness failures within those contracts are bugs to fix. Public API and
+contract changes remain compatible throughout `0.1.x`; breaking changes require
+`0.2`. Standard-library blocking, arbitrary native faults, stack overflow, and
+non-cooperative work retain the boundaries documented in [Security](SECURITY.md).
+
+Feature completeness is not a release gate. Native correctness checks, the
+application load/failure matrix, sustained qualification, and exact archive and
+consumer verification are gates. A passing RC qualifies its own version and
+source; final-version manifests and archives must pass the release gates again.
+
+## Inbox progress repairs
+
+The notification weaknesses discussed in the older release notes have concrete
+repairs in the current runtime. Active carriers treat published inbox depth as
+work to receive, independently of a delayed notification. A later publisher wakes
+an already parked carrier, and waiter registration rechecks the queue under its
+mutex before sleeping. These changes are recorded in
+[`f92e5de`](https://github.com/zsumz/vthread/commit/f92e5dec76ae52340dd2086649538a1bfa1ef723)
+and [`1ac097c`](https://github.com/zsumz/vthread/commit/1ac097c3039c9a167e7504f74edcd652921345fc).
+
+The canonical gate exercises paused notifiers, active and parked carriers,
+registration races, small queues with multiple producers, and a production-shaped
+4,096-task refill. Boundary regressions demonstrated failures before the repairs;
+the sustained gate exercises repeated lifetimes and reclamation on the repaired
+runtime. The old pre-repair warning does not describe today's notification protocol.
+
+## Sustained qualification
+
+The full **Release** workflow, including `publish: false`, requires
+[sustained runtime](.github/workflows/sustained.yml) before creating a release
+plan. The compact automatic branch rehearsal remains a faster package check.
+
+| Platform | Carriers | Mixed worker batch | Required uninterrupted duration |
+| --- | --- | --- | --- |
+| Linux x86_64 | 1 and 4, separate processes | 4,096 tasks | One hour per process |
+| macOS ARM64 | 1 and 4, separate processes | 4,096 tasks | One hour per process |
+
+Each default-feature optimized process retains one runtime across batches and
+performs payload-checked TCP and bounded-channel exchanges, contended mutex
+handoffs, semaphore admission, timers, native blocking jobs, carrier-affinity
+checks, and cancellation races. Every batch checks service drain; final shutdown
+checks active tasks, pending wakes, readiness registrations and native work.
+The supervisor requires at least one million completed task lifetimes per
+process, exact spawn/completion and park/wake accounting, exact stack acquisition
+accounting, and the expected mutex updates. A timeout, crash, or restart fails.
+
+RSS and open descriptors are sampled every ten seconds. After ten minutes of
+warmup, the baseline is the next ten-minute median. The final ten-minute median
+and every warmed sample must stay within the larger of 32 MiB or 20% of baseline
+RSS, and within eight descriptors of baseline. Missing measurements fail the
+gate. These are declared resource-growth checks for this workload, not a fixed
+memory-per-task or universal throughput promise. The receipt records source,
+lockfile and binary hashes, host, workload counts, samples, and gate results.
+
+The separate 22-case application matrix checks concurrency 1/16/64/256 with one
+and four carriers, fixed arrivals at 2,000/second, overload rejection, deadline
+recovery, and shutdown while clients are blocked. These configurations define
+the tested scope; they are not maximum supported capacity or latency guarantees.
 
 ## Practice a release
 
@@ -128,7 +197,7 @@ node dist/install.mjs --sha "$(git rev-parse HEAD)" \
 ```
 
 Regenerate when the workspace dependency graph changes. Preserve the caller's
-canonical and native-stack prerequisites, automatic branch rehearsal, explicit
+canonical, native-stack and sustained prerequisites, automatic branch rehearsal, explicit
 publish condition, `main` requirement for publication, and the consumer smoke
 inputs and lockstep policy in both workflows. Run `actionlint` and `zcheck run check` before committing the update.
 
@@ -149,9 +218,10 @@ and binary identities for debug and release on both targets.
 The RC signoff is the runtime baseline; each release run records fresh evidence
 for its own source commit and archives. Historical closeout records remain in
 Git history and the archived candidate evidence. Automation does not establish
-new scale or performance claims. Alternate-stack sanitizer hooks, larger
-simultaneous populations, cross-platform sustained runs, memory footprint,
-loaded tails, and controlled-host idle CPU remain unqualified. Local timing is
+new scale or performance claims. The sustained matrix above adds cross-platform
+lifetime and resource-growth coverage. Alternate-stack sanitizer hooks, populations
+above the tested scope, absolute memory footprint, controlled loaded-tail targets,
+and controlled-host idle CPU remain unqualified. Local timing is
 observational; `zcheck run perf-cancellation-history` is a separate timing guard.
 
 The eventual `0.1.0` and subsequent `0.1.x` releases preserve public API

@@ -70,7 +70,7 @@ dependencies = [
 
 [[package]]
 name = "vthread"
-version = "0.1.0-rc.2"
+version = "0.1.0-rc.3"
 dependencies = [
  "crossbeam-queue",
  "libc",
@@ -82,21 +82,21 @@ dependencies = [
 
 [[package]]
 name = "vthread-reference"
-version = "0.1.0-rc.2"
+version = "0.1.0-rc.3"
 dependencies = [
  "vthread",
 ]
 
 [[package]]
 name = "vthread-stack"
-version = "0.1.0-rc.2"
+version = "0.1.0-rc.3"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "vthread-sync-core"
-version = "0.1.0-rc.2"
+version = "0.1.0-rc.3"
 
 [[package]]
 name = "windows-link"

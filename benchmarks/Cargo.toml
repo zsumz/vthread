@@ -1,8 +1,9 @@
 [package]
 name = "vthread-benchmarks"
-version = "0.0.0"
+version = "0.1.0-rc.3"
 edition = "2024"
 publish = false
+license = "Apache-2.0"
 
 [features]
 allocation-probe = []
@@ -11,7 +12,7 @@ scheduler-profiling = ["vthread/scheduler-profiling"]
 handoff-profiling = ["scheduler-profiling", "vthread/handoff-profiling"]
 
 [dependencies]
-vthread = { path = "../crates/vthread" }
+vthread = { path = "../crates/vthread", version = "=0.1.0-rc.3" }
 
 [profile.release]
 codegen-units = 1

@@ -78,7 +78,13 @@ needs = ["docs"]
 
 [tasks.check]
 description = "Check the complete vthread source checkout."
-needs = ["zrail", "application-smoke", "test-native-release", "benchmark-test-features"]
+needs = ["zrail", "application-smoke", "test-native-release", "benchmark-test-features", "sustained-evidence-test"]
+
+[tasks.sustained-evidence-test]
+description = "Reject incomplete sustained runs, resource growth and inconsistent lifetime accounting."
+run = ["python3", "-m", "unittest", "discover", "-s", "scripts", "-p", "sustained_*test.py"]
+tools = ["python3"]
+needs = ["policy"]
 
 [tasks.benchmark-format]
 description = "Validate formatting in the standalone scheduler harness."

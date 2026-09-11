@@ -6,9 +6,9 @@ contract_sha256 = "8603e24df9addfcc603707c15027481b9ad5e11ada455e48eba1fb9de67b5
 ratchet = []
 
 [analysis]
-inventory_sha256 = "b70addaf8781407e794eb5badd031f374f1c1f4973967a134cbf240c17610011"
+inventory_sha256 = "290bf864d4fffa080e4c3ca746d802caf72dce51e4e42622a1b19c6c923482b0"
 exclusions_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-cargo_lock_sha256 = "2a3abfb8cc9ad5722f1fb0a76f557cb3c03b4bfdfe804f6255ace68b3b20fb4a"
+cargo_lock_sha256 = "8771cde95c5d51ab68b6dd048e6d200f58517b0e80ff9c1e10eaa00a2fe232dd"
 cargo_features_sha256 = "3e43f336e44215719c080510ba8ce053576e4fa44eab81b200117ebcbf4d3d64"
 feature_worlds_sha256 = "6edfb4a1172e614d373d2aba49cdfa4e544769ce212a82805cc63e4e3b99d116"
 feature_worlds = 5
@@ -78,7 +78,7 @@ default_features = true
 [package.dependency.source]
 kind = "workspace-member"
 directory = "crates/vthread-stack"
-requirement = "=0.1.0-rc.2"
+requirement = "=0.1.0-rc.3"
 
 [[package.dependency]]
 alias = "vthread-sync-core"
@@ -92,7 +92,7 @@ default_features = true
 [package.dependency.source]
 kind = "workspace-member"
 directory = "crates/vthread-sync-core"
-requirement = "=0.1.0-rc.2"
+requirement = "=0.1.0-rc.3"
 
 [[package.dependency]]
 alias = "zio"
@@ -121,7 +121,7 @@ default_features = true
 [package.dependency.source]
 kind = "workspace-member"
 directory = "crates/vthread"
-requirement = "=0.1.0-rc.2"
+requirement = "=0.1.0-rc.3"
 
 [[package]]
 name = "vthread-stack"
@@ -168,4 +168,4 @@ default_features = true
 [package.dependency.source]
 kind = "workspace-member"
 directory = "crates/vthread"
-requirement = "=0.1.0-rc.2"
+requirement = "=0.1.0-rc.3"

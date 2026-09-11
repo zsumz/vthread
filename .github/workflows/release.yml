@@ -19,8 +19,10 @@ jobs:
     uses: ./.github/workflows/ci.yml
   native-stack:
     uses: ./.github/workflows/native-stack.yml
+  sustained:
+    uses: ./.github/workflows/sustained.yml
   plan:
-    needs: [canonical, native-stack]
+    needs: [canonical, native-stack, sustained]
     permissions:
       contents: read
       id-token: write

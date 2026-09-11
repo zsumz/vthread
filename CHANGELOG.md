@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.1.0-rc.3 - 2026-09-11
+
+- Require sustained runtime qualification before release planning: one uninterrupted
+  hour on Linux x86_64 and macOS ARM64, with both one and four carriers and
+  4,096-task mixed batches. Verify lifetime accounting, service reclamation,
+  cancellation, shutdown, and sampled memory and descriptor growth after warmup.
+- Preserve the RC.2 runtime implementation and document the repaired inbox
+  notification boundaries, tested operating scope, and production support contract
+  intended for `0.1.0`. Keep final publication separate from RC qualification.
+- Update shared package versions, exact dependency pins, lockfiles and examples
+  together. The full Release rehearsal now requires the sustained gate.
+
 ## 0.1.0-rc.2 - 2026-09-11
 
 - Keep the signed-off RC runtime and reconcile its history with public main.
