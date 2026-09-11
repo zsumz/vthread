@@ -3,7 +3,7 @@
 The `0.1.0-rc.1` runtime was signed off at
 [`c4b2380`](https://github.com/zsumz/vthread/commit/c4b2380138b9f7f7384b2da9cb4ee9803e229588).
 Release automation uses [zrelease](https://github.com/zsumz/zrelease), pinned to
-`6faa076a3eabb0e7f96c213328d772efaf45dea3` in
+`70c8fe0963ef392573e58b2a4d9f065edcf08198` in
 [the Rehearse workflow](.github/workflows/rehearse.yml) and
 [the Release workflow](.github/workflows/release.yml).
 

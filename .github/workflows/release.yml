@@ -25,11 +25,11 @@ jobs:
       contents: read
       id-token: write
       attestations: write
-    uses: zsumz/zrelease/.github/workflows/plan.yml@6faa076a3eabb0e7f96c213328d772efaf45dea3
+    uses: zsumz/zrelease/.github/workflows/plan.yml@70c8fe0963ef392573e58b2a4d9f065edcf08198
     with:
       members: '[{"name":"vthread-stack","needs":[]},{"name":"vthread-sync-core","needs":[]},{"name":"vthread","needs":["vthread-stack","vthread-sync-core"]},{"name":"vthreads","needs":["vthread"]}]'
       workspace: true
-      pipeline-ref: '6faa076a3eabb0e7f96c213328d772efaf45dea3'
+      pipeline-ref: '70c8fe0963ef392573e58b2a4d9f065edcf08198'
       toolchain: '1.96.1'
       manifest-path: 'Cargo.toml'
       publish: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
@@ -42,10 +42,10 @@ jobs:
       id-token: write
       attestations: write
       deployments: write
-    uses: zsumz/zrelease/.github/workflows/release.yml@6faa076a3eabb0e7f96c213328d772efaf45dea3
+    uses: zsumz/zrelease/.github/workflows/release.yml@70c8fe0963ef392573e58b2a4d9f065edcf08198
     with:
       package: 'vthread-stack'
-      pipeline-ref: '6faa076a3eabb0e7f96c213328d772efaf45dea3'
+      pipeline-ref: '70c8fe0963ef392573e58b2a4d9f065edcf08198'
       toolchain: '1.96.1'
       manifest-path: 'Cargo.toml'
       publish: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
@@ -61,10 +61,10 @@ jobs:
       id-token: write
       attestations: write
       deployments: write
-    uses: zsumz/zrelease/.github/workflows/release.yml@6faa076a3eabb0e7f96c213328d772efaf45dea3
+    uses: zsumz/zrelease/.github/workflows/release.yml@70c8fe0963ef392573e58b2a4d9f065edcf08198
     with:
       package: 'vthread-sync-core'
-      pipeline-ref: '6faa076a3eabb0e7f96c213328d772efaf45dea3'
+      pipeline-ref: '70c8fe0963ef392573e58b2a4d9f065edcf08198'
       toolchain: '1.96.1'
       manifest-path: 'Cargo.toml'
       publish: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
@@ -80,11 +80,11 @@ jobs:
       id-token: write
       attestations: write
       deployments: write
-    uses: zsumz/zrelease/.github/workflows/release.yml@6faa076a3eabb0e7f96c213328d772efaf45dea3
+    uses: zsumz/zrelease/.github/workflows/release.yml@70c8fe0963ef392573e58b2a4d9f065edcf08198
     with:
       package: 'vthread'
       smoke-source: 'scripts/fixtures/release/main.rs'
-      pipeline-ref: '6faa076a3eabb0e7f96c213328d772efaf45dea3'
+      pipeline-ref: '70c8fe0963ef392573e58b2a4d9f065edcf08198'
       toolchain: '1.96.1'
       manifest-path: 'Cargo.toml'
       publish: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
@@ -102,11 +102,11 @@ jobs:
       id-token: write
       attestations: write
       deployments: write
-    uses: zsumz/zrelease/.github/workflows/release.yml@6faa076a3eabb0e7f96c213328d772efaf45dea3
+    uses: zsumz/zrelease/.github/workflows/release.yml@70c8fe0963ef392573e58b2a4d9f065edcf08198
     with:
       package: 'vthreads'
       smoke-source: 'scripts/fixtures/release/main.rs'
-      pipeline-ref: '6faa076a3eabb0e7f96c213328d772efaf45dea3'
+      pipeline-ref: '70c8fe0963ef392573e58b2a4d9f065edcf08198'
       toolchain: '1.96.1'
       manifest-path: 'Cargo.toml'
       publish: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
