@@ -9,12 +9,12 @@ Its `runtime-evidence` and `qualification` features forward directly to `vthread
 
 It shares vthread's Linux x86_64 and macOS ARM64 targets, Rust 1.96 minimum, and
 `panic = "unwind"` requirement.
-See [release notes](https://github.com/zsumz/vthread/blob/v0.1.0-rc.3/RELEASE.md)
+See [release notes](https://github.com/zsumz/vthread/blob/v0.1.0/RELEASE.md)
 for verification coverage and known limitations.
 
-This release candidate follows vthread's pre-1.0 compatibility policy. The eventual
-`0.1.0` release and subsequent `0.1.x` releases will keep compatible public API
-updates within `0.1`; breaking API or contract changes move to `0.2`.
+`0.1.0` shares vthread's production support contract within the documented workloads
+and platforms. Public APIs and supported contracts remain compatible throughout
+`0.1.x`; breaking changes require `0.2`.
 
 ## Using the alias
 
@@ -22,7 +22,7 @@ Add the alias to your project:
 
 ```toml
 [dependencies]
-vthreads = "=0.1.0-rc.3"
+vthreads = "=0.1.0"
 ```
 
 ```rust

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.1.0 - 2026-09-14
+
+- Release the qualified RC.3 runtime for production use within the documented
+  Linux x86_64 and macOS ARM64 workloads and platforms.
+- Commit to compatible public APIs and supported contracts throughout `0.1.x`;
+  breaking changes require `0.2`. The feature set remains deliberately limited.
+- Promote shared package versions, exact internal pins, lockfiles, and installation
+  examples together. Preserve the full native, application, sustained, archive,
+  consumer, and attestation gates for the final release.
+
 ## 0.1.0-rc.3 - 2026-09-11
 
 - Require sustained runtime qualification before release planning: one uninterrupted

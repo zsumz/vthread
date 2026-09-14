@@ -7,16 +7,16 @@ Release automation uses [zrelease](https://github.com/zsumz/zrelease), pinned to
 [the Rehearse workflow](.github/workflows/rehearse.yml) and
 [the Release workflow](.github/workflows/release.yml).
 
-The current candidate is `0.1.0-rc.3`. It retains the published RC.2 runtime
-implementation and adds the sustained production-scope gate described below.
-Package versions, exact internal dependency
-pins, and the release tag must agree. Both workflows enable zrelease's lockstep
-policy; a stable-looking tag over RC packages is rejected. This cycle prepares
-and qualifies an RC; final `0.1.0` publication remains a separate action.
+The current release is `0.1.0`. It retains the qualified RC.3 runtime
+implementation and the sustained production-scope gate described below.
+Package versions, exact internal dependency pins, and the release tag must agree.
+Both workflows enable zrelease's lockstep policy; a stable-looking tag over RC
+packages is rejected. The final version's source and archives must pass the full
+release workflow before registry publication.
 
 ## Production support contract
 
-The release standard for `0.1.0` is **production ready within the documented
+`0.1.0` is **production ready within the documented
 supported workloads and platforms**, with a deliberately limited feature set.
 Supported applications use `vthread` or its `vthreads` alias on Linux x86_64 or
 macOS ARM64 with Rust 1.96+ and unwinding panics. Internal support crates are
@@ -175,12 +175,29 @@ OIDC exchanges, registry uploads, and registry-only consumer builds, tests, and
 runs succeeded. Every final delivery receipt is `consumer-verified`.
 The approved plan, candidate attestations, downloaded registry bytes, consumer
 lockfiles, and receipts were independently verified against the signed tag and
-pinned pipeline. This establishes the live RC path; no final `0.1.0` was created.
+pinned pipeline. This established the live RC publication path.
 
 RC-to-final automation should prepare a version-change PR from a verified RC
 receipt, updating manifests, exact dependency pins, lockfiles and release docs.
 That new commit needs its own qualification and approval. Simply retagging an RC
-cannot change its packaged version. Final promotion remains a future design item.
+cannot change its packaged version. Automated preparation remains a future design
+item; `0.1.0` uses a reviewed version-change commit and the existing release gates.
+
+## RC3 baseline for 0.1.0
+
+Signed tag `v0.1.0-rc.3` identifies
+`7da33f8ea8da5d2288712533341225e087d1b23b`. Its full
+[release rehearsal](https://github.com/zsumz/vthread/actions/runs/34646749573)
+passed on 2026-09-11 with 34 successful jobs and nine expected non-publishing skips.
+The four uninterrupted one-hour runs completed 70,873,482 task lifetimes. Warmed
+RSS growth was 90–336 KiB, descriptor counts were unchanged, and task accounting,
+service drain, and final shutdown checks passed on both supported platforms.
+
+Canonical, native-stack, and application checks passed on both platforms. All
+four archives, fresh staged consumers, attestations, and rehearsal receipts were
+verified against the signed source and pinned pipeline. RC.3 was not published to
+crates.io. The final `0.1.0` version retains its runtime source and qualifies its
+own manifests, archives, and registry consumers through the same release gates.
 
 ## Update zrelease
 
@@ -224,7 +241,7 @@ above the tested scope, absolute memory footprint, controlled loaded-tail target
 and controlled-host idle CPU remain unqualified. Local timing is
 observational; `zcheck run perf-cancellation-history` is a separate timing guard.
 
-The eventual `0.1.0` and subsequent `0.1.x` releases preserve public API
+The `0.1.0` and subsequent `0.1.x` releases preserve public API
 compatibility within `0.1`; breaking API or contract changes move to `0.2`.
 The exact dependency set includes `zio = "=0.0.1-dev.1"`; a normal vthread version
 does not imply a stable-version contract for every dependency.

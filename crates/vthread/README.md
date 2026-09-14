@@ -7,13 +7,12 @@ suspension points. The public runtime crate forbids unsafe Rust.
 
 Supported targets are Linux x86_64 and macOS ARM64, with Rust 1.96 or newer and
 `panic = "unwind"`. Builds with `panic = "abort"` are rejected.
-See [release notes](https://github.com/zsumz/vthread/blob/v0.1.0-rc.3/RELEASE.md)
+See [release notes](https://github.com/zsumz/vthread/blob/v0.1.0/RELEASE.md)
 for verification coverage and known limitations.
 
-vthread `0.1.0-rc.3` is a candidate for production use on its supported platforms
-within the documented boundaries. The eventual `0.1.0` release and subsequent
-`0.1.x` releases will keep compatible public API updates within `0.1`; breaking API
-or contract changes move to `0.2`.
+vthread `0.1.0` is production ready within the documented supported workloads and
+platforms, with a deliberately limited feature set. Public APIs and supported
+contracts remain compatible throughout `0.1.x`; breaking changes require `0.2`.
 
 ## A first task
 
@@ -21,7 +20,7 @@ Add vthread to your project:
 
 ```toml
 [dependencies]
-vthread = "=0.1.0-rc.3"
+vthread = "=0.1.0"
 ```
 
 ```rust
